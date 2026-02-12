@@ -123,7 +123,7 @@ interface Props {
 export default function ServerStatusCard({ name, status, slots }: Props) {
   return (
     <div className="w-96 min-h-[220px] rounded-xl border border-gray-800 bg-gray-900 pt-5 px-5 pb-3 flex flex-col">
-      <div className="text-xs font-medium uppercase tracking-wide text-gray-400 mb-2">
+      <div className="text-xs font-medium tracking-wide text-gray-400 mb-2">
         {name}
       </div>
       <div className="flex items-baseline justify-between">
