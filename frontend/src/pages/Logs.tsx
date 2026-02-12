@@ -41,6 +41,7 @@ export default function Logs() {
             name={serverLabel}
             status={status}
             slots={slots}
+            modelIndex={0}
             onClick={() => setActiveSource("model-0")}
             selected={activeSource === "model-0"}
           />

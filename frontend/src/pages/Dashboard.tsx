@@ -31,7 +31,7 @@ export default function Dashboard() {
           <ProxyControls status={proxyStatus} onAction={refreshProxy} />
         </div>
         <div className="space-y-4">
-          <ServerStatusCard name={serverLabel} status={status} slots={slots} />
+          <ServerStatusCard name={serverLabel} status={status} slots={slots} modelIndex={0} />
           <ServerControls status={status} onAction={refresh} />
         </div>
       </div>

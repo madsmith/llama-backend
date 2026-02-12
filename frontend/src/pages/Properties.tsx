@@ -1,9 +1,12 @@
 import { useState, useCallback, useEffect } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import type { ModelProps } from "../api/types";
 import JsonTree from "../components/JsonTree";
 
 export default function Properties() {
+  const { modelIndex } = useParams<{ modelIndex: string }>();
+  const navigate = useNavigate();
   const [props, setProps] = useState<ModelProps | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -27,14 +30,23 @@ export default function Properties() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <h1 className="text-2xl font-bold">Properties</h1>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <h1 className="text-2xl font-bold">Properties</h1>
+          <span className="text-sm text-gray-500">Model {modelIndex}</span>
+          <button
+            onClick={refresh}
+            disabled={loading}
+            className="rounded-md bg-gray-800 px-3 py-1.5 text-sm font-medium text-gray-300 hover:bg-gray-700 disabled:opacity-40 transition"
+          >
+            {loading ? "Refreshing..." : "Refresh"}
+          </button>
+        </div>
         <button
-          onClick={refresh}
-          disabled={loading}
-          className="rounded-md bg-gray-800 px-3 py-1.5 text-sm font-medium text-gray-300 hover:bg-gray-700 disabled:opacity-40 transition"
+          onClick={() => navigate(-1)}
+          className="rounded-md bg-gray-800 px-3 py-1.5 text-sm font-medium text-gray-300 hover:bg-gray-700 transition"
         >
-          {loading ? "Refreshing..." : "Refresh"}
+          Back
         </button>
       </div>
 

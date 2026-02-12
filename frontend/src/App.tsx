@@ -11,7 +11,7 @@ export default function App() {
       <Routes>
         <Route element={<Layout />}>
           <Route index element={<Dashboard />} />
-          <Route path="properties" element={<Properties />} />
+          <Route path=":modelIndex/properties" element={<Properties />} />
           <Route path="logs" element={<Logs />} />
           <Route path="settings" element={<Settings />} />
         </Route>
