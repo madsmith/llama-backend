@@ -18,6 +18,7 @@ export default function Settings() {
       <h1 className="text-2xl font-bold mb-6">Server Configuration</h1>
       <div className="flex items-end gap-1.5">
         <TabButton label="Llama Manager UI" active={tab === "manager"} onClick={() => setTab("manager")} />
+        <TabButton label="Proxy Server" active={tab === "proxy"} onClick={() => setTab("proxy")} />
         <TabButton label="API Server" active={tab === "api-server"} onClick={() => setTab("api-server")} />
       </div>
       <div className={`${PANEL_BG} rounded-b-lg rounded-tr-lg p-6`}>
