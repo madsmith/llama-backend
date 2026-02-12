@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import ServerStatusCard from "../components/ServerStatusCard";
 import ServerControls from "../components/ServerControls";
@@ -10,6 +11,7 @@ import { useServerStatus, useProxyStatus, useHealth, useSlots } from "../api/hoo
 export default function Dashboard() {
   const { status, refresh } = useServerStatus();
   const { status: proxyStatus, refresh: refreshProxy } = useProxyStatus();
+  const navigate = useNavigate();
   const health = useHealth();
   const slots = useSlots();
   const [modelName, setModelName] = useState<string | null>(null);
@@ -25,11 +27,11 @@ export default function Dashboard() {
       <h1 className="text-2xl font-bold">Dashboard</h1>
       <div className="flex gap-6 items-start">
         <div className="space-y-4">
-          <ProxyStatusCard status={proxyStatus} />
+          <ProxyStatusCard status={proxyStatus} onClick={() => navigate("/logs/proxy")} />
           <ProxyControls status={proxyStatus} onAction={refreshProxy} />
         </div>
         <div className="space-y-4">
-          <ServerStatusCard name={serverLabel} status={status} slots={slots} modelIndex={0} />
+          <ServerStatusCard name={serverLabel} status={status} slots={slots} modelIndex={0} onClick={() => navigate("/logs/0")} />
           <ServerControls status={status} onAction={refresh} />
         </div>
       </div>

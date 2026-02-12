@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import ServerStatusCard from "../components/ServerStatusCard";
 import ServerControls from "../components/ServerControls";
@@ -7,13 +8,13 @@ import ProxyControls from "../components/ProxyControls";
 import LogViewer from "../components/LogViewer";
 import { useServerStatus, useProxyStatus, useLogs, useSlots } from "../api/hooks";
 
-type LogSource = "proxy" | "model-0";
-
 export default function Logs() {
+  const { source = "proxy" } = useParams<{ source: string }>();
+  const navigate = useNavigate();
+  const wsSource = source === "proxy" ? "proxy" : `model-${source}`;
   const { status, refresh } = useServerStatus();
   const { status: proxyStatus, refresh: refreshProxy } = useProxyStatus();
-  const [activeSource, setActiveSource] = useState<LogSource>("proxy");
-  const { lines, connected, clear } = useLogs(activeSource);
+  const { lines, connected, clear } = useLogs(wsSource);
   const slots = useSlots();
   const [modelName, setModelName] = useState<string | null>(null);
 
@@ -22,7 +23,7 @@ export default function Logs() {
   }, []);
 
   const serverLabel = modelName ?? "Llama Server 1";
-  const logHeader = activeSource === "proxy" ? "Proxy Server" : serverLabel;
+  const logHeader = source === "proxy" ? "Proxy Server" : serverLabel;
 
   return (
     <div className="flex flex-col h-full">
@@ -31,8 +32,8 @@ export default function Logs() {
         <div className="space-y-4">
           <ProxyStatusCard
             status={proxyStatus}
-            onClick={() => setActiveSource("proxy")}
-            selected={activeSource === "proxy"}
+            onClick={() => navigate("/logs/proxy")}
+            selected={source === "proxy"}
           />
           <ProxyControls status={proxyStatus} onAction={refreshProxy} />
         </div>
@@ -42,15 +43,15 @@ export default function Logs() {
             status={status}
             slots={slots}
             modelIndex={0}
-            onClick={() => setActiveSource("model-0")}
-            selected={activeSource === "model-0"}
+            onClick={() => navigate("/logs/0")}
+            selected={source === "0"}
           />
           <ServerControls status={status} onAction={refresh} />
         </div>
       </div>
       <h2 className="text-lg font-semibold mb-2">{logHeader} Logs</h2>
       <div className="flex-1 min-h-0">
-        <LogViewer lines={lines} connected={connected} onClear={clear} source={activeSource} />
+        <LogViewer lines={lines} connected={connected} onClear={clear} source={wsSource} />
       </div>
     </div>
   );
