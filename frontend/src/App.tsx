@@ -3,6 +3,7 @@ import Layout from "./components/Layout";
 import Dashboard from "./pages/Dashboard";
 import Logs from "./pages/Logs";
 import Properties from "./pages/Properties";
+import Slots from "./pages/Slots";
 import Settings from "./pages/Settings";
 
 export default function App() {
@@ -12,6 +13,7 @@ export default function App() {
         <Route element={<Layout />}>
           <Route index element={<Dashboard />} />
           <Route path=":modelIndex/properties" element={<Properties />} />
+          <Route path=":modelIndex/slots" element={<Slots />} />
           <Route path="logs" element={<Logs />} />
           <Route path="settings" element={<Settings />} />
         </Route>

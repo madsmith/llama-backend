@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import type { ServerStatus, SlotInfo } from "../api/types";
 
 const stateColors: Record<string, string> = {
@@ -33,12 +33,14 @@ function fmtFloat(v: number): string {
 
 function slotDetail(s: SlotInfo): string {
   const nt = s.next_token?.[0];
-  const parts: string[] = [];
 
+  // has_next_token is false while still ingesting the prompt
+  if (!nt?.has_next_token) return "processing prompt";
+
+  const parts: string[] = [];
   if (nt?.n_decoded != null) parts.push(`${nt.n_decoded} tokens`);
   if (nt?.n_remain != null && nt.n_remain !== -1) parts.push(`${nt.n_remain} left`);
-
-  return parts.length > 0 ? parts.join(" · ") : "processing";
+  return parts.length > 0 ? parts.join(" · ") : "generating";
 }
 
 function slotTooltipParams(s: SlotInfo): [string, string][] {
@@ -53,7 +55,7 @@ function slotTooltipParams(s: SlotInfo): [string, string][] {
 
 const TOOLTIP_OFFSET = { x: 12, y: 16 };
 
-function SlotRow({ slot }: { slot: SlotInfo }) {
+function SlotRow({ slot, modelIndex }: { slot: SlotInfo; modelIndex: number }) {
   const [visible, setVisible] = useState(false);
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const showTimer = useRef<ReturnType<typeof setTimeout>>(null);
@@ -86,7 +88,11 @@ function SlotRow({ slot }: { slot: SlotInfo }) {
       <span
         className={`shrink-0 inline-block h-2 w-2 rounded-full translate-y-[-1px] ${slot.is_processing ? "bg-yellow-500" : "bg-green-500"}`}
       />
-      <span className="text-gray-300 w-14 shrink-0">Slot {slot.id}</span>
+      <Link
+        to={`/${modelIndex}/slots`}
+        onClick={(e) => e.stopPropagation()}
+        className="text-gray-300 hover:text-white w-14 shrink-0 transition"
+      >Slot {slot.id}</Link>
       <span className={`w-10 shrink-0 ${slot.is_processing ? "text-yellow-400" : "text-green-400"}`}>
         {slot.is_processing ? "Busy" : "Idle"}
       </span>
@@ -162,7 +168,7 @@ export default function ServerStatusCard({ name, status, slots, modelIndex, onCl
       {slots.length > 0 && (
         <div className="mt-4 ml-5 space-y-1.5">
           {slots.map((s) => (
-            <SlotRow key={s.id} slot={s} />
+            <SlotRow key={s.id} slot={s} modelIndex={modelIndex} />
           ))}
         </div>
       )}

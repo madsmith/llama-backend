@@ -1,14 +1,14 @@
 import { useState, useCallback, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
-import type { ModelProps } from "../api/types";
+import type { SlotInfo } from "../api/types";
 import JsonTree from "../components/JsonTree";
 
-export default function Properties() {
+export default function Slots() {
   const { modelIndex } = useParams<{ modelIndex: string }>();
   const idx = Number(modelIndex ?? 0);
   const navigate = useNavigate();
-  const [props, setProps] = useState<ModelProps | null>(null);
+  const [slots, setSlots] = useState<SlotInfo[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [modelName, setModelName] = useState<string | null>(null);
@@ -24,11 +24,11 @@ export default function Properties() {
     setLoading(true);
     setError("");
     api
-      .getProps()
-      .then(setProps)
+      .getSlots()
+      .then(setSlots)
       .catch(() => {
-        setProps(null);
-        setError("Could not fetch properties. Is the server running?");
+        setSlots(null);
+        setError("Could not fetch slots. Is the server running?");
       })
       .finally(() => setLoading(false));
   }, []);
@@ -37,7 +37,7 @@ export default function Properties() {
     refresh();
   }, [refresh]);
 
-  const title = `${modelName ?? `Llama Server ${idx + 1}`} Properties`;
+  const title = `${modelName ?? `Llama Server ${idx + 1}`} Slots`;
 
   return (
     <div className="space-y-6">
@@ -62,13 +62,13 @@ export default function Properties() {
 
       {error && <p className="text-sm text-red-400">{error}</p>}
 
-      {!props && !error && !loading && (
-        <p className="text-sm text-gray-500">No properties available.</p>
+      {!slots && !error && !loading && (
+        <p className="text-sm text-gray-500">No slot data available.</p>
       )}
 
-      {props && (
+      {slots && (
         <div className="overflow-auto rounded-xl border border-gray-800 bg-gray-900 p-5">
-          <JsonTree data={props} />
+          <JsonTree data={slots} defaultExpandDepth={2} />
         </div>
       )}
     </div>

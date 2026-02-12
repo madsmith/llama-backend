@@ -64,12 +64,16 @@ function JsonNode({
   name,
   value,
   defaultOpen = false,
+  depth = 0,
+  expandDepth = 0,
 }: {
   name?: string;
   value: unknown;
   defaultOpen?: boolean;
+  depth?: number;
+  expandDepth?: number;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useState(defaultOpen || depth < expandDepth);
 
   if (!isCollapsible(value)) {
     return (
@@ -99,7 +103,7 @@ function JsonNode({
       {open && (
         <div className="pl-4 border-l border-gray-800 ml-1.5">
           {entries.map(([k, v]) => (
-            <JsonNode key={k} name={k} value={v} />
+            <JsonNode key={k} name={k} value={v} depth={depth + 1} expandDepth={expandDepth} />
           ))}
         </div>
       )}
@@ -110,13 +114,15 @@ function JsonNode({
 export default function JsonTree({
   data,
   defaultOpen = true,
+  defaultExpandDepth = 1,
 }: {
   data: unknown;
   defaultOpen?: boolean;
+  defaultExpandDepth?: number;
 }) {
   return (
     <div className="font-mono text-xs leading-5">
-      <JsonNode value={data} defaultOpen={defaultOpen} />
+      <JsonNode value={data} defaultOpen={defaultOpen} expandDepth={defaultExpandDepth} />
     </div>
   );
 }
