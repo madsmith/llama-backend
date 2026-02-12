@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useMemo } from "react";
+import { TabButton, PANEL_BG } from "./TabBar";
 
 type LogLine = { id: number; text: string };
 
@@ -27,27 +28,6 @@ interface Props {
   lines: LogLine[];
   connected: boolean;
   onClear: () => void;
-}
-
-const PANEL_BG = "bg-gray-900";
-
-function TabButton({ label, active, onClick }: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`px-5 py-2.5 text-sm font-medium rounded-t-lg transition ${
-        active
-          ? `${PANEL_BG} text-gray-100`
-          : "bg-[#111419] text-gray-500 hover:text-gray-300"
-      }`}
-    >
-      {label}
-    </button>
-  );
 }
 
 export default function LogViewer({ lines, connected, onClear }: Props) {

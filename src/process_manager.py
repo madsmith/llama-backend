@@ -29,7 +29,8 @@ class ProcessManager:
         self.host: str | None = None
         self.port: int | None = None
         self.started_at: float | None = None
-        self.log_buffer = LogBuffer()
+        cfg = load_config()
+        self.log_buffer = LogBuffer(maxlen=cfg.log_buffer_size)
         self._subscribers: list[asyncio.Queue[dict]] = []
         self._reader_task: asyncio.Task | None = None
         self._lock = asyncio.Lock()

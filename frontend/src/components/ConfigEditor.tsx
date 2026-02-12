@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { api } from "../api/client";
 import type { ServerConfig } from "../api/types";
 
-const defaultConfig: ServerConfig = {
+export type SettingsTab = "api-server" | "manager";
+
+export const defaultConfig: ServerConfig = {
   llama_server_path: "",
   model_path: "",
   host: "127.0.0.1",
@@ -17,20 +19,22 @@ const defaultConfig: ServerConfig = {
   slot_save_path: "",
   swa_full: false,
   extra_args: [],
+  log_buffer_size: 10_000,
 };
 
 const CTX_MIN = 1024;
 const CTX_MAX = 200_000;
 
-export default function ConfigEditor() {
-  const [config, setConfig] = useState<ServerConfig>(defaultConfig);
+interface Props {
+  tab: SettingsTab;
+  config: ServerConfig;
+  setConfig: (c: ServerConfig) => void;
+}
+
+export default function ConfigEditor({ tab, config, setConfig }: Props) {
   const [advanced, setAdvanced] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
-
-  useEffect(() => {
-    api.getConfig().then(setConfig).catch(() => {});
-  }, []);
 
   const save = async () => {
     setSaving(true);
@@ -77,9 +81,30 @@ export default function ConfigEditor() {
 
   const totalCtx = config.ctx_size * config.parallel;
 
+  if (tab === "manager") {
+    return (
+      <div className="space-y-4 max-w-xl">
+        {field("Log Buffer Size", "log_buffer_size", "number")}
+        <p className="text-xs text-gray-600">
+          Changes to log buffer size take effect on next restart.
+        </p>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={save}
+            disabled={saving}
+            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 disabled:opacity-40 transition"
+          >
+            {saving ? "Saving..." : "Save Configuration"}
+          </button>
+          {msg && <span className="text-sm text-gray-400">{msg}</span>}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4 max-w-xl">
-      {field("llama-server Path", "llama_server_path")}
+      {field("Path to llama-server executable", "llama_server_path")}
       {field("Model Path", "model_path")}
       <div className="grid grid-cols-2 gap-4">
         {field("Host", "host")}

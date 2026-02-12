@@ -21,6 +21,7 @@ export interface ServerConfig {
   slot_save_path: string;
   swa_full: boolean;
   extra_args: string[];
+  log_buffer_size: number;
 }
 
 export interface HealthStatus {

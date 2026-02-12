@@ -31,6 +31,8 @@ class ServerConfig(BaseModel):
     slot_save_path: str = ""                      # --slot-save-path, disabled by default
     swa_full: bool = False                        # --swa-full, for SWA models (Gemma 2/3)
     extra_args: list[str] = []
+    # manager-level settings
+    log_buffer_size: int = 10_000
 
 
 def load_config() -> ServerConfig:
