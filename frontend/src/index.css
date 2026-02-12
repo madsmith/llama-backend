@@ -1,0 +1,5 @@
+@import "tailwindcss";
+
+input[type="number"]::-webkit-inner-spin-button {
+  margin-left: 0.25em;
+}

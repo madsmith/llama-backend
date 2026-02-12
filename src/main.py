@@ -1,0 +1,86 @@
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+import signal
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+if os.environ.get("LLAMA_DEBUG", "").lower() in ("1", "true", "yes"):
+    logging.basicConfig(level=logging.DEBUG)
+
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from .process_manager import ProcessManager
+from .routers import server, status, ws
+
+ROOT = Path(__file__).resolve().parent.parent
+FRONTEND_DIR = ROOT / "frontend"
+DIST_DIR = FRONTEND_DIR / "dist"
+
+DEV_MODE = os.environ.get("LLAMA_DEV", "").lower() in ("1", "true", "yes")
+
+
+async def _start_vite() -> asyncio.subprocess.Process:
+    proc = await asyncio.create_subprocess_exec(
+        "pnpm", "dev",
+        cwd=str(FRONTEND_DIR),
+        stdout=None,
+        stderr=None,
+    )
+    return proc
+
+
+async def _stop_vite(proc: asyncio.subprocess.Process) -> None:
+    if proc.returncode is not None:
+        return
+    proc.send_signal(signal.SIGTERM)
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=5)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.process_manager = ProcessManager()
+    vite_proc = None
+    if DEV_MODE:
+        vite_proc = await _start_vite()
+        print(f"[dev] Vite dev server started (pid {vite_proc.pid})")
+    yield
+    app.state.process_manager.shutdown_subscribers()
+    await app.state.process_manager.stop()
+    if vite_proc:
+        await _stop_vite(vite_proc)
+        print("[dev] Vite dev server stopped")
+
+
+app = FastAPI(title="Llama Server Manager", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(server.router)
+app.include_router(status.router)
+app.include_router(ws.router)
+
+# In prod mode, serve the built frontend as static files
+if not DEV_MODE and DIST_DIR.is_dir():
+    # SPA catch-all: serve index.html for any non-API route
+    from starlette.responses import FileResponse
+
+    @app.get("/{path:path}")
+    async def spa_catch_all(path: str):
+        # If the file exists in dist, serve it; otherwise serve index.html
+        file = DIST_DIR / path
+        if path and file.is_file():
+            return FileResponse(file)
+        return FileResponse(DIST_DIR / "index.html")
