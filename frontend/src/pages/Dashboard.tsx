@@ -5,15 +5,13 @@ import ServerControls from "../components/ServerControls";
 import ProxyStatusCard from "../components/ProxyStatusCard";
 import ProxyControls from "../components/ProxyControls";
 import HealthCard from "../components/HealthCard";
-import PropsPanel from "../components/PropsPanel";
-import { useServerStatus, useProxyStatus, useHealth, useSlots, useProps } from "../api/hooks";
+import { useServerStatus, useProxyStatus, useHealth, useSlots } from "../api/hooks";
 
 export default function Dashboard() {
   const { status, refresh } = useServerStatus();
   const { status: proxyStatus, refresh: refreshProxy } = useProxyStatus();
   const health = useHealth();
   const slots = useSlots();
-  const props = useProps();
   const [modelName, setModelName] = useState<string | null>(null);
 
   useEffect(() => {
@@ -36,7 +34,6 @@ export default function Dashboard() {
         </div>
       </div>
       <HealthCard proxyStatus={proxyStatus} serverStatus={status} serverName={serverLabel} health={health} />
-      <PropsPanel props={props} />
     </div>
   );
 }
