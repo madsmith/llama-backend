@@ -1,25 +1,39 @@
 import { useState } from "react";
 import { api } from "../api/client";
-import type { ServerConfig } from "../api/types";
+import type { ServerConfig, ModelConfig, ModelAdvanced } from "../api/types";
 
-export type SettingsTab = "api-server" | "manager";
+export type SettingsTab = "api-server" | "manager" | "proxy";
 
 export const defaultConfig: ServerConfig = {
-  llama_server_path: "",
-  model_path: "",
-  host: "127.0.0.1",
-  port: 8080,
-  ctx_size: 65536,
-  n_gpu_layers: -1,
-  parallel: 2,
-  stream: true,
-  slot_prompt_similarity: null,
-  repeat_penalty: null,
-  repeat_last_n: null,
-  slot_save_path: "",
-  swa_full: false,
-  extra_args: [],
-  log_buffer_size: 10_000,
+  models: [
+    {
+      name: null,
+      id: null,
+      model_path: "",
+      ctx_size: 65536,
+      n_gpu_layers: -1,
+      parallel: 2,
+      advanced: {
+        llama_server_path: "",
+        stream: true,
+        slot_prompt_similarity: null,
+        repeat_penalty: null,
+        repeat_last_n: null,
+        slot_save_path: "",
+        swa_full: false,
+        extra_args: [],
+      },
+    },
+  ],
+  "web-ui": {
+    log_buffer_size: 10_000,
+  },
+  "api-server": {
+    host: "0.0.0.0",
+    port: 1234,
+    "llama-server-starting-port": 3210,
+    "llama-server-path": "",
+  },
 };
 
 const CTX_MIN = 1024;
@@ -36,6 +50,9 @@ export default function ConfigEditor({ tab, config, setConfig }: Props) {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
 
+  const model = config.models[0];
+  const adv = model.advanced;
+
   const save = async () => {
     setSaving(true);
     setMsg("");
@@ -50,15 +67,26 @@ export default function ConfigEditor({ tab, config, setConfig }: Props) {
     }
   };
 
+  const updateModel = (patch: Partial<ModelConfig>) => {
+    setConfig({
+      ...config,
+      models: [{ ...model, ...patch }],
+    });
+  };
+
+  const updateAdv = (patch: Partial<ModelAdvanced>) => {
+    updateModel({ advanced: { ...adv, ...patch } });
+  };
+
   const setCtxSize = (v: number, snap = false) => {
     let clamped = Math.max(CTX_MIN, Math.min(CTX_MAX, v));
     if (snap) clamped = Math.round(clamped / 1024) * 1024;
-    setConfig({ ...config, ctx_size: clamped });
+    updateModel({ ctx_size: clamped });
   };
 
-  const field = (
+  const modelField = (
     label: string,
-    key: keyof ServerConfig,
+    key: keyof ModelConfig,
     type: "text" | "number" = "text",
   ) => (
     <div>
@@ -67,10 +95,9 @@ export default function ConfigEditor({ tab, config, setConfig }: Props) {
       </label>
       <input
         type={type}
-        value={config[key] as string | number}
+        value={model[key] as string | number}
         onChange={(e) =>
-          setConfig({
-            ...config,
+          updateModel({
             [key]: type === "number" ? Number(e.target.value) : e.target.value,
           })
         }
@@ -79,12 +106,27 @@ export default function ConfigEditor({ tab, config, setConfig }: Props) {
     </div>
   );
 
-  const totalCtx = config.ctx_size * config.parallel;
+  const totalCtx = model.ctx_size * model.parallel;
 
   if (tab === "manager") {
     return (
       <div className="space-y-4 max-w-xl">
-        {field("Log Buffer Size", "log_buffer_size", "number")}
+        <div>
+          <label className="block text-sm font-medium text-gray-400 mb-1">
+            Log Buffer Size
+          </label>
+          <input
+            type="number"
+            value={config["web-ui"].log_buffer_size}
+            onChange={(e) =>
+              setConfig({
+                ...config,
+                "web-ui": { ...config["web-ui"], log_buffer_size: Number(e.target.value) },
+              })
+            }
+            className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
+          />
+        </div>
         <p className="text-xs text-gray-600">
           Changes to log buffer size take effect on next restart.
         </p>
@@ -102,14 +144,133 @@ export default function ConfigEditor({ tab, config, setConfig }: Props) {
     );
   }
 
+  if (tab === "proxy") {
+    return (
+      <div className="space-y-4 max-w-xl">
+        <p className="text-sm text-gray-400">
+          The proxy server exposes OpenAI-compatible and Anthropic Messages API
+          endpoints. External clients connect here instead of directly to
+          llama-server.
+        </p>
+        <div>
+          <label className="block text-sm font-medium text-gray-400 mb-1">
+            Path to llama-server executable
+          </label>
+          <input
+            type="text"
+            value={config["api-server"]["llama-server-path"]}
+            onChange={(e) =>
+              setConfig({
+                ...config,
+                "api-server": { ...config["api-server"], "llama-server-path": e.target.value },
+              })
+            }
+            className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-400 mb-1">
+              Proxy Host
+            </label>
+            <input
+              type="text"
+              value={config["api-server"].host}
+              onChange={(e) =>
+                setConfig({
+                  ...config,
+                  "api-server": { ...config["api-server"], host: e.target.value },
+                })
+              }
+              className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-400 mb-1">
+              Proxy Port
+            </label>
+            <input
+              type="number"
+              value={config["api-server"].port}
+              onChange={(e) =>
+                setConfig({
+                  ...config,
+                  "api-server": { ...config["api-server"], port: Number(e.target.value) },
+                })
+              }
+              className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
+            />
+          </div>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-400 mb-1">
+            llama-server Starting Port
+          </label>
+          <input
+            type="number"
+            value={config["api-server"]["llama-server-starting-port"]}
+            onChange={(e) =>
+              setConfig({
+                ...config,
+                "api-server": { ...config["api-server"], "llama-server-starting-port": Number(e.target.value) },
+              })
+            }
+            className="w-28 rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
+          />
+          <p className="mt-1 text-xs text-gray-600">
+            Each model gets assigned 127.0.0.1 on this port + its index in the models list.
+          </p>
+        </div>
+        <p className="text-xs text-gray-600">
+          Supported endpoints: <code>/v1/chat/completions</code>,{" "}
+          <code>/v1/models</code>, <code>/v1/messages</code> (Anthropic format).
+          Changes take effect on next application restart.
+        </p>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={save}
+            disabled={saving}
+            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 disabled:opacity-40 transition"
+          >
+            {saving ? "Saving..." : "Save Configuration"}
+          </button>
+          {msg && <span className="text-sm text-gray-400">{msg}</span>}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4 max-w-xl">
-      {field("Path to llama-server executable", "llama_server_path")}
-      {field("Model Path", "model_path")}
-      <div className="grid grid-cols-2 gap-4">
-        {field("Host", "host")}
-        {field("Port", "port", "number")}
+      <div>
+        <label className="block text-sm font-medium text-gray-400 mb-1">
+          Name
+        </label>
+        <input
+          type="text"
+          value={model.name ?? ""}
+          placeholder={`Llama Server ${config.models.indexOf(model) + 1}`}
+          onChange={(e) =>
+            updateModel({ name: e.target.value || null })
+          }
+          className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
+        />
       </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-400 mb-1">
+          ID
+        </label>
+        <input
+          type="text"
+          value={model.id ?? ""}
+          placeholder={model.model_path ? model.model_path.split("/").pop()!.replace(/\.[^.]+$/, "").toLowerCase() : ""}
+          onChange={(e) =>
+            updateModel({ id: e.target.value || null })
+          }
+          className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
+        />
+      </div>
+      {modelField("Model Path", "model_path")}
 
       <div>
         <label className="block text-sm font-medium text-gray-400 mb-1">
@@ -120,7 +281,7 @@ export default function ConfigEditor({ tab, config, setConfig }: Props) {
             type="range"
             min={CTX_MIN}
             max={CTX_MAX}
-            value={config.ctx_size}
+            value={model.ctx_size}
             onChange={(e) => setCtxSize(Number(e.target.value), true)}
             className="flex-1 accent-blue-500"
           />
@@ -128,13 +289,13 @@ export default function ConfigEditor({ tab, config, setConfig }: Props) {
             type="number"
             min={1}
             max={CTX_MAX}
-            value={config.ctx_size}
+            value={model.ctx_size}
             onChange={(e) => setCtxSize(Number(e.target.value))}
             className="w-24 rounded-md border border-gray-700 bg-gray-800 pl-3 pr-1 py-2 text-sm text-gray-100 font-mono text-right focus:border-blue-500 focus:outline-none"
           />
         </div>
         <div className="mt-1 text-xs text-gray-500">
-          Total context: {totalCtx.toLocaleString()} ({config.ctx_size.toLocaleString()} &times; {config.parallel} slots)
+          Total context: {totalCtx.toLocaleString()} ({model.ctx_size.toLocaleString()} &times; {model.parallel} slots)
         </div>
       </div>
 
@@ -147,9 +308,9 @@ export default function ConfigEditor({ tab, config, setConfig }: Props) {
             type="range"
             min={1}
             max={8}
-            value={config.parallel}
+            value={model.parallel}
             onChange={(e) =>
-              setConfig({ ...config, parallel: Number(e.target.value) })
+              updateModel({ parallel: Number(e.target.value) })
             }
             className="flex-1 accent-blue-500"
           />
@@ -157,15 +318,15 @@ export default function ConfigEditor({ tab, config, setConfig }: Props) {
             type="number"
             min={1}
             max={8}
-            value={config.parallel}
+            value={model.parallel}
             onChange={(e) =>
-              setConfig({ ...config, parallel: Math.max(1, Math.min(8, Number(e.target.value))) })
+              updateModel({ parallel: Math.max(1, Math.min(8, Number(e.target.value))) })
             }
             className="w-24 rounded-md border border-gray-700 bg-gray-800 pl-3 pr-1 py-2 text-sm text-gray-100 font-mono text-right focus:border-blue-500 focus:outline-none"
           />
         </div>
       </div>
-      {field("GPU Layers", "n_gpu_layers", "number")}
+      {modelField("GPU Layers", "n_gpu_layers", "number")}
 
       <button
         type="button"
@@ -184,8 +345,8 @@ export default function ConfigEditor({ tab, config, setConfig }: Props) {
             </span>
             <input
               type="checkbox"
-              checked={config.stream}
-              onChange={(e) => setConfig({ ...config, stream: e.target.checked })}
+              checked={adv.stream}
+              onChange={(e) => updateAdv({ stream: e.target.checked })}
               className="h-4 w-4 rounded border-gray-700 bg-gray-800 accent-blue-500"
             />
           </label>
@@ -193,29 +354,29 @@ export default function ConfigEditor({ tab, config, setConfig }: Props) {
           <div>
             <label className="block text-sm font-medium text-gray-400 mb-1">
               Slot Prompt Similarity
-              <span className="ml-1 text-xs text-gray-600">(-sps{config.slot_prompt_similarity == null ? ", disabled" : ""})</span>
+              <span className="ml-1 text-xs text-gray-600">(-sps{adv.slot_prompt_similarity == null ? ", disabled" : ""})</span>
             </label>
             <div className="flex items-center gap-3">
               <input
                 type="range"
                 min={0}
                 max={100}
-                value={config.slot_prompt_similarity == null ? 0 : config.slot_prompt_similarity * 100}
+                value={adv.slot_prompt_similarity == null ? 0 : adv.slot_prompt_similarity * 100}
                 onChange={(e) => {
                   const v = Number(e.target.value);
-                  setConfig({ ...config, slot_prompt_similarity: v === 0 ? null : v / 100 });
+                  updateAdv({ slot_prompt_similarity: v === 0 ? null : v / 100 });
                 }}
-                className={`flex-1 ${config.slot_prompt_similarity == null ? "opacity-30" : "accent-blue-500"}`}
+                className={`flex-1 ${adv.slot_prompt_similarity == null ? "opacity-30" : "accent-blue-500"}`}
               />
               <input
                 type="number"
                 step="0.01"
                 min={0}
                 max={1}
-                value={config.slot_prompt_similarity ?? ""}
+                value={adv.slot_prompt_similarity ?? ""}
                 placeholder="off"
                 onChange={(e) =>
-                  setConfig({ ...config, slot_prompt_similarity: e.target.value === "" ? null : Number(e.target.value) })
+                  updateAdv({ slot_prompt_similarity: e.target.value === "" ? null : Number(e.target.value) })
                 }
                 className="w-24 rounded-md border border-gray-700 bg-gray-800 pl-3 pr-1 py-2 text-sm text-gray-100 font-mono text-right focus:border-blue-500 focus:outline-none"
               />
@@ -225,29 +386,29 @@ export default function ConfigEditor({ tab, config, setConfig }: Props) {
           <div>
             <label className="block text-sm font-medium text-gray-400 mb-1">
               Repeat Penalty
-              <span className="ml-1 text-xs text-gray-600">(1.0 = disabled{config.repeat_penalty == null ? ", off" : ""})</span>
+              <span className="ml-1 text-xs text-gray-600">(1.0 = disabled{adv.repeat_penalty == null ? ", off" : ""})</span>
             </label>
             <div className="flex items-center gap-3">
               <input
                 type="range"
                 min={0}
                 max={100}
-                value={config.repeat_penalty == null ? 0 : Math.round((config.repeat_penalty - 1.0) * 100)}
+                value={adv.repeat_penalty == null ? 0 : Math.round((adv.repeat_penalty - 1.0) * 100)}
                 onChange={(e) => {
                   const v = Number(e.target.value);
-                  setConfig({ ...config, repeat_penalty: v === 0 ? null : 1.0 + v / 100 });
+                  updateAdv({ repeat_penalty: v === 0 ? null : 1.0 + v / 100 });
                 }}
-                className={`flex-1 ${config.repeat_penalty == null ? "opacity-30" : "accent-blue-500"}`}
+                className={`flex-1 ${adv.repeat_penalty == null ? "opacity-30" : "accent-blue-500"}`}
               />
               <input
                 type="number"
                 step="0.05"
                 min={1.0}
                 max={2.0}
-                value={config.repeat_penalty ?? ""}
+                value={adv.repeat_penalty ?? ""}
                 placeholder="off"
                 onChange={(e) =>
-                  setConfig({ ...config, repeat_penalty: e.target.value === "" ? null : Number(e.target.value) })
+                  updateAdv({ repeat_penalty: e.target.value === "" ? null : Number(e.target.value) })
                 }
                 className="w-24 rounded-md border border-gray-700 bg-gray-800 pl-3 pr-1 py-2 text-sm text-gray-100 font-mono text-right focus:border-blue-500 focus:outline-none"
               />
@@ -257,29 +418,29 @@ export default function ConfigEditor({ tab, config, setConfig }: Props) {
           <div>
             <label className="block text-sm font-medium text-gray-400 mb-1">
               Repeat Last N
-              <span className="ml-1 text-xs text-gray-600">(-1 = ctx_size{config.repeat_last_n == null ? ", off" : ""})</span>
+              <span className="ml-1 text-xs text-gray-600">(-1 = ctx_size{adv.repeat_last_n == null ? ", off" : ""})</span>
             </label>
             <div className="flex items-center gap-3">
               <input
                 type="range"
                 min={-1}
                 max={4096}
-                value={config.repeat_last_n ?? -1}
+                value={adv.repeat_last_n ?? -1}
                 onChange={(e) => {
                   const v = Number(e.target.value);
-                  setConfig({ ...config, repeat_last_n: v === -1 ? null : v });
+                  updateAdv({ repeat_last_n: v === -1 ? null : v });
                 }}
-                className={`flex-1 ${config.repeat_last_n == null ? "opacity-30" : "accent-blue-500"}`}
+                className={`flex-1 ${adv.repeat_last_n == null ? "opacity-30" : "accent-blue-500"}`}
               />
               <input
                 type="number"
                 step="1"
                 min={-1}
                 max={4096}
-                value={config.repeat_last_n ?? ""}
+                value={adv.repeat_last_n ?? ""}
                 placeholder="off"
                 onChange={(e) =>
-                  setConfig({ ...config, repeat_last_n: e.target.value === "" ? null : Number(e.target.value) })
+                  updateAdv({ repeat_last_n: e.target.value === "" ? null : Number(e.target.value) })
                 }
                 className="w-24 rounded-md border border-gray-700 bg-gray-800 pl-3 pr-1 py-2 text-sm text-gray-100 font-mono text-right focus:border-blue-500 focus:outline-none"
               />
@@ -293,9 +454,9 @@ export default function ConfigEditor({ tab, config, setConfig }: Props) {
             </label>
             <input
               type="text"
-              value={config.slot_save_path}
+              value={adv.slot_save_path}
               placeholder="/tmp/llama-slots"
-              onChange={(e) => setConfig({ ...config, slot_save_path: e.target.value })}
+              onChange={(e) => updateAdv({ slot_save_path: e.target.value })}
               className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
             />
           </div>
@@ -303,8 +464,8 @@ export default function ConfigEditor({ tab, config, setConfig }: Props) {
           <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
-              checked={config.swa_full}
-              onChange={(e) => setConfig({ ...config, swa_full: e.target.checked })}
+              checked={adv.swa_full}
+              onChange={(e) => updateAdv({ swa_full: e.target.checked })}
               className="h-4 w-4 rounded border-gray-700 bg-gray-800 accent-blue-500"
             />
             <span className="text-sm font-medium text-gray-400">
@@ -315,15 +476,28 @@ export default function ConfigEditor({ tab, config, setConfig }: Props) {
 
           <div>
             <label className="block text-sm font-medium text-gray-400 mb-1">
+              llama-server Path Override
+              <span className="ml-1 text-xs text-gray-600">(blank = use default from Proxy Server tab)</span>
+            </label>
+            <input
+              type="text"
+              value={adv.llama_server_path}
+              placeholder={config["api-server"]["llama-server-path"] || "not set"}
+              onChange={(e) => updateAdv({ llama_server_path: e.target.value })}
+              className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-400 mb-1">
               Extra Arguments
               <span className="ml-1 text-xs text-gray-600">(comma-separated)</span>
             </label>
             <input
               type="text"
-              value={config.extra_args.join(", ")}
+              value={adv.extra_args.join(", ")}
               onChange={(e) =>
-                setConfig({
-                  ...config,
+                updateAdv({
                   extra_args: e.target.value
                     .split(",")
                     .map((s) => s.trim())

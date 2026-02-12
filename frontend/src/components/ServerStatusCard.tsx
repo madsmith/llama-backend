@@ -115,13 +115,17 @@ function SlotRow({ slot }: { slot: SlotInfo }) {
 }
 
 interface Props {
+  name: string;
   status: ServerStatus;
   slots: SlotInfo[];
 }
 
-export default function ServerStatusCard({ status, slots }: Props) {
+export default function ServerStatusCard({ name, status, slots }: Props) {
   return (
-    <div className="w-96 rounded-xl border border-gray-800 bg-gray-900 pt-5 px-5 pb-3 flex flex-col">
+    <div className="w-96 min-h-[220px] rounded-xl border border-gray-800 bg-gray-900 pt-5 px-5 pb-3 flex flex-col">
+      <div className="text-xs font-medium uppercase tracking-wide text-gray-400 mb-2">
+        {name}
+      </div>
       <div className="flex items-baseline justify-between">
         <div className="flex items-baseline gap-2.5">
           <span
@@ -138,20 +142,17 @@ export default function ServerStatusCard({ status, slots }: Props) {
         </span>
       </div>
 
-      <div className="mt-4 text-sm text-gray-400">
-        Uptime: {status.uptime != null ? formatUptime(status.uptime) : "—"}
-      </div>
-
       {slots.length > 0 && (
-        <div className="mt-4 space-y-1.5">
+        <div className="mt-4 ml-5 space-y-1.5">
           {slots.map((s) => (
             <SlotRow key={s.id} slot={s} />
           ))}
         </div>
       )}
 
-      <div className="mt-2 text-right text-xs text-gray-600 leading-none">
-        PID {status.pid ?? "—"}
+      <div className="mt-auto pt-2 flex justify-between text-xs text-gray-600 leading-none">
+        <span>Uptime: {status.uptime != null ? formatUptime(status.uptime) : "—"}</span>
+        <span>PID {status.pid ?? "—"}</span>
       </div>
     </div>
   );

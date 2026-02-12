@@ -6,14 +6,8 @@ export interface ServerStatus {
   uptime: number | null;
 }
 
-export interface ServerConfig {
+export interface ModelAdvanced {
   llama_server_path: string;
-  model_path: string;
-  host: string;
-  port: number;
-  ctx_size: number;
-  n_gpu_layers: number;
-  parallel: number;
   stream: boolean;
   slot_prompt_similarity: number | null;
   repeat_penalty: number | null;
@@ -21,7 +15,41 @@ export interface ServerConfig {
   slot_save_path: string;
   swa_full: boolean;
   extra_args: string[];
+}
+
+export interface ModelConfig {
+  name: string | null;
+  id: string | null;
+  model_path: string;
+  ctx_size: number;
+  n_gpu_layers: number;
+  parallel: number;
+  advanced: ModelAdvanced;
+}
+
+export interface WebUIConfig {
   log_buffer_size: number;
+}
+
+export interface ApiServerConfig {
+  host: string;
+  port: number;
+  "llama-server-starting-port": number;
+  "llama-server-path": string;
+}
+
+export interface ServerConfig {
+  models: ModelConfig[];
+  "web-ui": WebUIConfig;
+  "api-server": ApiServerConfig;
+}
+
+export interface ProxyStatus {
+  state: "running" | "stopped";
+  host: string | null;
+  port: number | null;
+  uptime: number | null;
+  pid: number | null;
 }
 
 export interface HealthStatus {

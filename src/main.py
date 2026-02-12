@@ -14,6 +14,7 @@ if os.environ.get("LLAMA_DEBUG", "").lower() in ("1", "true", "yes"):
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .process_manager import ProcessManager
+from .proxy import start_proxy, stop_proxy
 from .routers import server, status, ws
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -51,7 +52,9 @@ async def lifespan(app: FastAPI):
     if DEV_MODE:
         vite_proc = await _start_vite()
         print(f"[dev] Vite dev server started (pid {vite_proc.pid})")
+    await start_proxy()
     yield
+    await stop_proxy()
     app.state.process_manager.shutdown_subscribers()
     await app.state.process_manager.stop()
     if vite_proc:

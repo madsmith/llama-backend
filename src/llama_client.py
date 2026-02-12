@@ -7,7 +7,8 @@ from .config import load_config
 
 async def _get(path: str) -> dict | list | None:
     cfg = load_config()
-    url = f"http://{cfg.host}:{cfg.port}{path}"
+    port = cfg.api_server.llama_server_starting_port
+    url = f"http://127.0.0.1:{port}{path}"
     try:
         async with httpx.AsyncClient(timeout=5) as client:
             resp = await client.get(url)

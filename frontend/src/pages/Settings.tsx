@@ -19,7 +19,7 @@ export default function Settings() {
       <div className="flex items-end gap-1.5">
         <TabButton label="Llama Manager UI" active={tab === "manager"} onClick={() => setTab("manager")} />
         <TabButton label="Proxy Server" active={tab === "proxy"} onClick={() => setTab("proxy")} />
-        <TabButton label="API Server" active={tab === "api-server"} onClick={() => setTab("api-server")} />
+        <TabButton label={config.models[0]?.name ?? "Model 1"} active={tab === "api-server"} onClick={() => setTab("api-server")} />
       </div>
       <div className={`${PANEL_BG} rounded-b-lg rounded-tr-lg p-6`}>
         <ConfigEditor tab={tab} config={config} setConfig={setConfig} />

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { api, wsUrl } from "./client";
 import type {
   ServerStatus,
+  ProxyStatus,
   HealthStatus,
   SlotInfo,
   ModelProps,
@@ -17,6 +18,28 @@ export function useServerStatus(pollMs = 3000) {
 
   const poll = useCallback(() => {
     api.getStatus().then(setStatus).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    poll();
+    const id = setInterval(poll, pollMs);
+    return () => clearInterval(id);
+  }, [poll, pollMs]);
+
+  return { status, refresh: poll };
+}
+
+export function useProxyStatus(pollMs = 5000) {
+  const [status, setStatus] = useState<ProxyStatus>({
+    state: "stopped",
+    host: null,
+    port: null,
+    uptime: null,
+    pid: null,
+  });
+
+  const poll = useCallback(() => {
+    api.getProxyStatus().then(setStatus).catch(() => {});
   }, []);
 
   useEffect(() => {

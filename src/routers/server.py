@@ -3,7 +3,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from ..config import ServerConfig, load_config, save_config
+from ..config import AppConfig, load_config, save_config
+from ..proxy import get_proxy_status, start_proxy, stop_proxy, restart_proxy
 
 router = APIRouter(prefix="/api/server", tags=["server"])
 
@@ -47,12 +48,35 @@ async def restart(request: Request):
     return _status_response(process_manager)
 
 
+@router.get("/proxy-status")
+async def proxy_status():
+    return get_proxy_status()
+
+
+@router.post("/proxy-start")
+async def proxy_start():
+    await start_proxy()
+    return get_proxy_status()
+
+
+@router.post("/proxy-stop")
+async def proxy_stop():
+    await stop_proxy()
+    return get_proxy_status()
+
+
+@router.post("/proxy-restart")
+async def proxy_restart():
+    await restart_proxy()
+    return get_proxy_status()
+
+
 @router.get("/config")
 async def get_config():
-    return load_config().model_dump()
+    return load_config().model_dump(by_alias=True)
 
 
 @router.put("/config")
-async def put_config(cfg: ServerConfig):
+async def put_config(cfg: AppConfig):
     save_config(cfg)
-    return cfg.model_dump()
+    return cfg.model_dump(by_alias=True)

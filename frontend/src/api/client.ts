@@ -1,4 +1,4 @@
-import type { ServerStatus, ServerConfig, HealthStatus, SlotInfo, ModelProps } from "./types";
+import type { ServerStatus, ServerConfig, ProxyStatus, HealthStatus, SlotInfo, ModelProps } from "./types";
 
 const BASE = "";
 
@@ -17,6 +17,10 @@ export const api = {
   start: () => request<ServerStatus>("/api/server/start", { method: "POST" }),
   stop: () => request<ServerStatus>("/api/server/stop", { method: "POST" }),
   restart: () => request<ServerStatus>("/api/server/restart", { method: "POST" }),
+  getProxyStatus: () => request<ProxyStatus>("/api/server/proxy-status"),
+  proxyStart: () => request<ProxyStatus>("/api/server/proxy-start", { method: "POST" }),
+  proxyStop: () => request<ProxyStatus>("/api/server/proxy-stop", { method: "POST" }),
+  proxyRestart: () => request<ProxyStatus>("/api/server/proxy-restart", { method: "POST" }),
   getConfig: () => request<ServerConfig>("/api/server/config"),
   putConfig: (cfg: ServerConfig) =>
     request<ServerConfig>("/api/server/config", {

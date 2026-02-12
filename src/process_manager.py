@@ -7,7 +7,7 @@ import time
 from enum import Enum
 from pathlib import Path
 
-from .config import ServerConfig, load_config
+from .config import AppConfig, load_config
 from .log_buffer import LogBuffer
 
 log = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ class ProcessManager:
         self.port: int | None = None
         self.started_at: float | None = None
         cfg = load_config()
-        self.log_buffer = LogBuffer(maxlen=cfg.log_buffer_size)
+        self.log_buffer = LogBuffer(maxlen=cfg.web_ui.log_buffer_size)
         self._subscribers: list[asyncio.Queue[dict]] = []
         self._reader_task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
@@ -68,26 +68,32 @@ class ProcessManager:
             except asyncio.QueueFull:
                 log.debug("subscriber queue full, dropping message")
 
-    async def start(self, config: ServerConfig | None = None) -> None:
+    async def start(self, config: AppConfig | None = None) -> None:
         async with self._lock:
             log.debug("start() called, current state=%s", self.state.value)
             if self.state in (ServerState.running, ServerState.starting):
                 log.debug("already %s, ignoring start", self.state.value)
                 return
             cfg = config or load_config()
-            log.debug("loaded config: %s", cfg.model_dump())
+            model = cfg.models[0]
+            adv = model.advanced
+            model_index = 0
+            llama_host = "127.0.0.1"
+            llama_port = cfg.api_server.llama_server_starting_port + model_index
+            log.debug("loaded config: %s", cfg.model_dump(by_alias=True))
             self.log_buffer.clear()
             self._set_state(ServerState.starting)
 
-            if not cfg.llama_server_path:
+            llama_server_path = adv.llama_server_path or cfg.api_server.llama_server_path
+            if not llama_server_path:
                 self._fail("llama-server path not configured — set it in Settings")
                 return
-            if not cfg.model_path:
+            if not model.model_path:
                 self._fail("model path not configured — set it in Settings")
                 return
 
-            server_path = Path(cfg.llama_server_path).expanduser()
-            model_path = Path(cfg.model_path).expanduser()
+            server_path = Path(llama_server_path).expanduser()
+            model_path = Path(model.model_path).expanduser()
             log.debug("resolved server_path=%s, model_path=%s", server_path, model_path)
 
             if not server_path.exists():
@@ -100,25 +106,25 @@ class ProcessManager:
             cmd = [
                 str(server_path),
                 "--model", str(model_path),
-                "--host", cfg.host,
-                "--port", str(cfg.port),
-                "--ctx-size", str(cfg.ctx_size * cfg.parallel),
-                "--n-gpu-layers", str(cfg.n_gpu_layers),
-                "--parallel", str(cfg.parallel),
+                "--host", llama_host,
+                "--port", str(llama_port),
+                "--ctx-size", str(model.ctx_size * model.parallel),
+                "--n-gpu-layers", str(model.n_gpu_layers),
+                "--parallel", str(model.parallel),
             ]
-            if cfg.slot_prompt_similarity is not None:
-                cmd += ["--slot-prompt-similarity", str(cfg.slot_prompt_similarity)]
-            if cfg.repeat_penalty is not None:
-                cmd += ["--repeat-penalty", str(cfg.repeat_penalty)]
-            if cfg.repeat_last_n is not None:
-                cmd += ["--repeat-last-n", str(cfg.repeat_last_n)]
-            if cfg.slot_save_path:
-                slot_dir = Path(cfg.slot_save_path).expanduser()
+            if adv.slot_prompt_similarity is not None:
+                cmd += ["--slot-prompt-similarity", str(adv.slot_prompt_similarity)]
+            if adv.repeat_penalty is not None:
+                cmd += ["--repeat-penalty", str(adv.repeat_penalty)]
+            if adv.repeat_last_n is not None:
+                cmd += ["--repeat-last-n", str(adv.repeat_last_n)]
+            if adv.slot_save_path:
+                slot_dir = Path(adv.slot_save_path).expanduser()
                 slot_dir.mkdir(parents=True, exist_ok=True)
                 cmd += ["--slot-save-path", str(slot_dir)]
-            if cfg.swa_full:
+            if adv.swa_full:
                 cmd += ["--swa-full"]
-            cmd += cfg.extra_args
+            cmd += adv.extra_args
 
             self._log(f"$ {shlex.join(cmd)}")
 
@@ -135,8 +141,8 @@ class ProcessManager:
                 return
 
             self.pid = self.process.pid
-            self.host = cfg.host
-            self.port = cfg.port
+            self.host = llama_host
+            self.port = llama_port
             self.started_at = time.time()
             self._log(f"spawned pid {self.pid}")
             log.debug("starting _read_output task")
