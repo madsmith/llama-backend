@@ -33,6 +33,7 @@ export const defaultConfig: ServerConfig = {
     port: 1234,
     "llama-server-starting-port": 3210,
     "llama-server-path": "",
+    "jit-model-server": true,
   },
 };
 
@@ -221,6 +222,54 @@ export default function ConfigEditor({ tab, config, setConfig }: Props) {
             Each model gets assigned 127.0.0.1 on this port + its index in the models list.
           </p>
         </div>
+        <label className="flex items-center justify-between cursor-pointer">
+          <div>
+            <span className="text-sm font-medium text-gray-400">
+              JIT Model Server Start
+            </span>
+            <p className="text-xs text-gray-600">
+              Automatically start the model server when the proxy receives a request.
+            </p>
+          </div>
+          <input
+            type="checkbox"
+            checked={config["api-server"]["jit-model-server"]}
+            onChange={(e) =>
+              setConfig({
+                ...config,
+                "api-server": { ...config["api-server"], "jit-model-server": e.target.checked },
+              })
+            }
+            className="h-4 w-4 rounded border-gray-700 bg-gray-800 accent-blue-500"
+          />
+        </label>
+        {config["api-server"]["jit-model-server"] && (
+          <div>
+            <label className="block text-sm font-medium text-gray-400 mb-1">
+              JIT Timeout (seconds)
+            </label>
+            <input
+              type="number"
+              min={10}
+              max={600}
+              value={config["api-server"]["jit-timeout"] ?? ""}
+              placeholder="80"
+              onChange={(e) =>
+                setConfig({
+                  ...config,
+                  "api-server": {
+                    ...config["api-server"],
+                    "jit-timeout": e.target.value === "" ? null : Number(e.target.value),
+                  },
+                })
+              }
+              className="w-28 rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
+            />
+            <p className="mt-1 text-xs text-gray-600">
+              Maximum seconds to wait for the model server to become ready. Default: 80.
+            </p>
+          </div>
+        )}
         <p className="text-xs text-gray-600">
           Supported endpoints: <code>/v1/chat/completions</code>,{" "}
           <code>/v1/models</code>, <code>/v1/messages</code> (Anthropic format).

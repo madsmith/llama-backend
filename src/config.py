@@ -59,6 +59,8 @@ class ApiServerConfig(BaseModel):
     port: int = 1234
     llama_server_starting_port: int = Field(default=3210, alias="llama-server-starting-port")
     llama_server_path: str = Field(default="", alias="llama-server-path")
+    jit_model_server: bool = Field(default=True, alias="jit-model-server")
+    jit_timeout: int | None = Field(default=None, alias="jit-timeout")
 
 
 class AppConfig(BaseModel):

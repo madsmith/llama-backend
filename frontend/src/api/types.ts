@@ -36,6 +36,8 @@ export interface ApiServerConfig {
   port: number;
   "llama-server-starting-port": number;
   "llama-server-path": string;
+  "jit-model-server": boolean;
+  "jit-timeout"?: number | null;
 }
 
 export interface ServerConfig {

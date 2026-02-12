@@ -74,6 +74,48 @@ _proxy_host: str | None = None
 _proxy_port: int | None = None
 _proxy_started_at: float | None = None
 
+# ---------------------------------------------------------------------------
+# JIT model server start
+# ---------------------------------------------------------------------------
+from .process_manager import ProcessManager
+
+_process_manager: ProcessManager | None = None
+
+
+def set_process_manager(pm: ProcessManager) -> None:
+    global _process_manager
+    _process_manager = pm
+
+
+async def _ensure_model_server() -> None:
+    """Start model server on-demand if JIT is enabled and server isn't running."""
+    cfg = load_config()
+    if not cfg.api_server.jit_model_server:
+        return
+    if _process_manager is None:
+        return
+    if _process_manager.state.value == "running":
+        return
+    if _process_manager.state.value not in ("stopped", "error"):
+        return
+
+    timeout = cfg.api_server.jit_timeout or 80
+    _proxy_log(f"JIT: model server is {_process_manager.state.value}, starting...")
+    await _process_manager.start()
+
+    elapsed = 0.0
+    while elapsed < timeout:
+        state = _process_manager.state.value
+        if state == "running":
+            _proxy_log(f"JIT: model server ready ({elapsed:.1f}s)")
+            return
+        if state == "error":
+            raise RuntimeError("Model server failed to start")
+        await asyncio.sleep(0.5)
+        elapsed += 0.5
+
+    raise RuntimeError(f"Model server did not become ready within {timeout}s")
+
 
 def _resolve_backend(model_id: str | None) -> str | None:
     """Resolve a model ID to a backend URL. Returns None if not found."""
@@ -371,6 +413,15 @@ async def _handle_anthropic(request: Request) -> JSONResponse | StreamingRespons
     _log_req(server_name, "POST", "/v1/messages", http_ver, req_size)
     t0 = time.monotonic()
 
+    try:
+        await _ensure_model_server()
+    except RuntimeError as exc:
+        _log_resp(server_name, 503, elapsed=time.monotonic() - t0)
+        return JSONResponse(
+            {"type": "error", "error": {"type": "server_error", "message": str(exc)}},
+            status_code=503,
+        )
+
     if body.get("stream"):
         return await _handle_anthropic_stream(body, backend, model, t0, server_name)
 
@@ -434,6 +485,15 @@ async def openai_proxy(path: str, request: Request):
             server_name = _resolve_server_name(model_id)
             _log_req(server_name, method, f"/v1/{path}", http_ver, req_size)
 
+            try:
+                await _ensure_model_server()
+            except RuntimeError as exc:
+                _log_resp(server_name, 503, elapsed=time.monotonic() - t0)
+                return JSONResponse(
+                    {"error": {"message": str(exc), "type": "server_error"}},
+                    status_code=503,
+                )
+
             # Streaming SSE passthrough
             if body.get("stream"):
                 return await _stream_passthrough(backend, path, body, t0, server_name)
@@ -452,6 +512,15 @@ async def openai_proxy(path: str, request: Request):
             backend = _default_backend()
             server_name = _resolve_server_name(None)
             _log_req(server_name, method, f"/v1/{path}", http_ver)
+
+            try:
+                await _ensure_model_server()
+            except RuntimeError as exc:
+                _log_resp(server_name, 503, elapsed=time.monotonic() - t0)
+                return JSONResponse(
+                    {"error": {"message": str(exc), "type": "server_error"}},
+                    status_code=503,
+                )
 
             async with httpx.AsyncClient() as client:
                 resp = await client.request(

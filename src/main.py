@@ -18,7 +18,7 @@ elif not logging.root.handlers:
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .process_manager import ProcessManager
-from .proxy import start_proxy, stop_proxy, shutdown_proxy_subscribers
+from .proxy import start_proxy, stop_proxy, shutdown_proxy_subscribers, set_process_manager
 from .routers import server, status, ws
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -52,6 +52,7 @@ async def _stop_vite(proc: asyncio.subprocess.Process) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.process_manager = ProcessManager()
+    set_process_manager(app.state.process_manager)
     vite_proc = None
     if DEV_MODE:
         vite_proc = await _start_vite()
