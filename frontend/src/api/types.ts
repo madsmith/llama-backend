@@ -14,6 +14,12 @@ export interface ServerConfig {
   ctx_size: number;
   n_gpu_layers: number;
   parallel: number;
+  stream: boolean;
+  slot_prompt_similarity: number | null;
+  repeat_penalty: number | null;
+  repeat_last_n: number | null;
+  slot_save_path: string;
+  swa_full: boolean;
   extra_args: string[];
 }
 

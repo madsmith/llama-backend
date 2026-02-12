@@ -104,8 +104,20 @@ class ProcessManager:
                 "--ctx-size", str(cfg.ctx_size * cfg.parallel),
                 "--n-gpu-layers", str(cfg.n_gpu_layers),
                 "--parallel", str(cfg.parallel),
-                *cfg.extra_args,
             ]
+            if cfg.slot_prompt_similarity is not None:
+                cmd += ["--slot-prompt-similarity", str(cfg.slot_prompt_similarity)]
+            if cfg.repeat_penalty is not None:
+                cmd += ["--repeat-penalty", str(cfg.repeat_penalty)]
+            if cfg.repeat_last_n is not None:
+                cmd += ["--repeat-last-n", str(cfg.repeat_last_n)]
+            if cfg.slot_save_path:
+                slot_dir = Path(cfg.slot_save_path).expanduser()
+                slot_dir.mkdir(parents=True, exist_ok=True)
+                cmd += ["--slot-save-path", str(slot_dir)]
+            if cfg.swa_full:
+                cmd += ["--swa-full"]
+            cmd += cfg.extra_args
 
             self._log(f"$ {shlex.join(cmd)}")
 

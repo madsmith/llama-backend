@@ -23,6 +23,13 @@ class ServerConfig(BaseModel):
     ctx_size: int = 65536
     n_gpu_layers: int = -1
     parallel: int = 2
+    # advanced
+    stream: bool = True
+    slot_prompt_similarity: float | None = None   # --slot-prompt-similarity (-sps), default 0.10
+    repeat_penalty: float | None = None           # --repeat-penalty, default 1.0 (disabled)
+    repeat_last_n: int | None = None              # --repeat-last-n, default 64
+    slot_save_path: str = ""                      # --slot-save-path, disabled by default
+    swa_full: bool = False                        # --swa-full, for SWA models (Gemma 2/3)
     extra_args: list[str] = []
 
 
