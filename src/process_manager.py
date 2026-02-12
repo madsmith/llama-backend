@@ -22,7 +22,8 @@ class ServerState(str, Enum):
 
 
 class ProcessManager:
-    def __init__(self) -> None:
+    def __init__(self, model_index: int = 0) -> None:
+        self.model_index = model_index
         self.state: ServerState = ServerState.stopped
         self.process: asyncio.subprocess.Process | None = None
         self.pid: int | None = None
@@ -34,7 +35,7 @@ class ProcessManager:
         self._subscribers: list[asyncio.Queue[dict]] = []
         self._reader_task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
-        log.debug("ProcessManager initialized, state=%s", self.state.value)
+        log.debug("ProcessManager[%d] initialized, state=%s", model_index, self.state.value)
 
     def subscribe(self) -> asyncio.Queue[dict]:
         q: asyncio.Queue[dict] = asyncio.Queue(maxsize=256)
@@ -75,11 +76,10 @@ class ProcessManager:
                 log.debug("already %s, ignoring start", self.state.value)
                 return
             cfg = config or load_config()
-            model = cfg.models[0]
+            model = cfg.models[self.model_index]
             adv = model.advanced
-            model_index = 0
             llama_host = "127.0.0.1"
-            llama_port = cfg.api_server.llama_server_starting_port + model_index
+            llama_port = cfg.api_server.llama_server_starting_port + self.model_index
             log.debug("loaded config: %s", cfg.model_dump(by_alias=True))
             self.log_buffer.clear()
             self._set_state(ServerState.starting)

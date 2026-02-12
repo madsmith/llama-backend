@@ -24,14 +24,14 @@ export default function Properties() {
     setLoading(true);
     setError("");
     api
-      .getProps()
+      .getProps(idx)
       .then(setProps)
       .catch(() => {
         setProps(null);
         setError("Could not fetch properties. Is the server running?");
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [idx]);
 
   useEffect(() => {
     refresh();

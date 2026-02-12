@@ -79,57 +79,63 @@ _proxy_started_at: float | None = None
 # ---------------------------------------------------------------------------
 from .process_manager import ProcessManager
 
-_process_manager: ProcessManager | None = None
+_process_managers: list[ProcessManager] = []
 
 
-def set_process_manager(pm: ProcessManager) -> None:
-    global _process_manager
-    _process_manager = pm
+def set_process_managers(pms: list[ProcessManager]) -> None:
+    global _process_managers
+    _process_managers = pms
 
 
-async def _ensure_model_server() -> None:
+async def _ensure_model_server(model_index: int = 0) -> None:
     """Start model server on-demand if JIT is enabled and server isn't running."""
     cfg = load_config()
     if not cfg.api_server.jit_model_server:
         return
-    if _process_manager is None:
+    if model_index < 0 or model_index >= len(_process_managers):
         return
-    if _process_manager.state.value == "running":
+    pm = _process_managers[model_index]
+    if pm.state.value == "running":
         return
-    if _process_manager.state.value not in ("stopped", "error"):
+    if pm.state.value not in ("stopped", "error"):
         return
 
     timeout = cfg.api_server.jit_timeout or 80
-    _proxy_log(f"JIT: model server is {_process_manager.state.value}, starting...")
-    await _process_manager.start()
+    _proxy_log(f"JIT: model server [{model_index}] is {pm.state.value}, starting...")
+    await pm.start()
 
     elapsed = 0.0
     while elapsed < timeout:
-        state = _process_manager.state.value
+        state = pm.state.value
         if state == "running":
-            _proxy_log(f"JIT: model server ready ({elapsed:.1f}s)")
+            _proxy_log(f"JIT: model server [{model_index}] ready ({elapsed:.1f}s)")
             return
         if state == "error":
-            raise RuntimeError("Model server failed to start")
+            raise RuntimeError(f"Model server [{model_index}] failed to start")
         await asyncio.sleep(0.5)
         elapsed += 0.5
 
-    raise RuntimeError(f"Model server did not become ready within {timeout}s")
+    raise RuntimeError(f"Model server [{model_index}] did not become ready within {timeout}s")
+
+
+def _resolve_model_index(model_id: str | None) -> int | None:
+    """Resolve a model ID to a model index. Returns None if not found."""
+    if not model_id:
+        return 0
+    cfg = load_config()
+    for i, m in enumerate(cfg.models):
+        if m.effective_id == model_id:
+            return i
+    return None
 
 
 def _resolve_backend(model_id: str | None) -> str | None:
     """Resolve a model ID to a backend URL. Returns None if not found."""
+    idx = _resolve_model_index(model_id)
+    if idx is None:
+        return None
     cfg = load_config()
-    starting_port = cfg.api_server.llama_server_starting_port
-
-    if not model_id:
-        return f"http://127.0.0.1:{starting_port}"
-
-    for i, m in enumerate(cfg.models):
-        if m.effective_id == model_id:
-            return f"http://127.0.0.1:{starting_port + i}"
-
-    return None
+    return f"http://127.0.0.1:{cfg.api_server.llama_server_starting_port + idx}"
 
 
 def _default_backend() -> str:
@@ -400,8 +406,9 @@ async def _handle_anthropic(request: Request) -> JSONResponse | StreamingRespons
     model_id = body.get("model")
     http_ver = request.scope.get("http_version", "1.1")
     req_size = int(request.headers.get("content-length", 0)) or None
+    model_index = _resolve_model_index(model_id)
     backend = _resolve_backend(model_id)
-    if backend is None:
+    if backend is None or model_index is None:
         _log_req(None, "POST", "/v1/messages", http_ver, req_size)
         _log_resp(None, 404)
         return JSONResponse(
@@ -414,7 +421,7 @@ async def _handle_anthropic(request: Request) -> JSONResponse | StreamingRespons
     t0 = time.monotonic()
 
     try:
-        await _ensure_model_server()
+        await _ensure_model_server(model_index)
     except RuntimeError as exc:
         _log_resp(server_name, 503, elapsed=time.monotonic() - t0)
         return JSONResponse(
@@ -473,8 +480,9 @@ async def openai_proxy(path: str, request: Request):
             body = await request.json()
             model_id = body.get("model")
 
+            model_index = _resolve_model_index(model_id)
             backend = _resolve_backend(model_id)
-            if backend is None:
+            if backend is None or model_index is None:
                 _log_req(None, method, f"/v1/{path}", http_ver, req_size)
                 _log_resp(None, 404)
                 return JSONResponse(
@@ -486,7 +494,7 @@ async def openai_proxy(path: str, request: Request):
             _log_req(server_name, method, f"/v1/{path}", http_ver, req_size)
 
             try:
-                await _ensure_model_server()
+                await _ensure_model_server(model_index)
             except RuntimeError as exc:
                 _log_resp(server_name, 503, elapsed=time.monotonic() - t0)
                 return JSONResponse(
@@ -514,7 +522,7 @@ async def openai_proxy(path: str, request: Request):
             _log_req(server_name, method, f"/v1/{path}", http_ver)
 
             try:
-                await _ensure_model_server()
+                await _ensure_model_server(0)
             except RuntimeError as exc:
                 _log_resp(server_name, 503, elapsed=time.monotonic() - t0)
                 return JSONResponse(

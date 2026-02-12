@@ -9,7 +9,7 @@ import type {
   LogMessage,
 } from "./types";
 
-export function useServerStatus(pollMs = 3000) {
+export function useServerStatus(modelIndex = 0, pollMs = 3000) {
   const [status, setStatus] = useState<ServerStatus>({
     state: "stopped",
     pid: null,
@@ -17,8 +17,8 @@ export function useServerStatus(pollMs = 3000) {
   });
 
   const poll = useCallback(() => {
-    api.getStatus().then(setStatus).catch(() => {});
-  }, []);
+    api.getStatus(modelIndex).then(setStatus).catch(() => {});
+  }, [modelIndex]);
 
   useEffect(() => {
     poll();
@@ -51,38 +51,38 @@ export function useProxyStatus(pollMs = 5000) {
   return { status, refresh: poll };
 }
 
-export function useHealth(pollMs = 5000) {
+export function useHealth(modelIndex = 0, pollMs = 5000) {
   const [health, setHealth] = useState<HealthStatus | null>(null);
 
   useEffect(() => {
     const fetch = () => {
       api
-        .getHealth()
+        .getHealth(modelIndex)
         .then(setHealth)
         .catch(() => setHealth(null));
     };
     fetch();
     const id = setInterval(fetch, pollMs);
     return () => clearInterval(id);
-  }, [pollMs]);
+  }, [modelIndex, pollMs]);
 
   return health;
 }
 
-export function useSlots(pollMs = 5000) {
+export function useSlots(modelIndex = 0, pollMs = 5000) {
   const [slots, setSlots] = useState<SlotInfo[]>([]);
 
   useEffect(() => {
     const fetch = () => {
       api
-        .getSlots()
+        .getSlots(modelIndex)
         .then(setSlots)
         .catch(() => setSlots([]));
     };
     fetch();
     const id = setInterval(fetch, pollMs);
     return () => clearInterval(id);
-  }, [pollMs]);
+  }, [modelIndex, pollMs]);
 
   return slots;
 }

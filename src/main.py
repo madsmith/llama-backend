@@ -17,8 +17,9 @@ elif not logging.root.handlers:
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from .config import load_config
 from .process_manager import ProcessManager
-from .proxy import start_proxy, stop_proxy, shutdown_proxy_subscribers, set_process_manager
+from .proxy import start_proxy, stop_proxy, shutdown_proxy_subscribers, set_process_managers
 from .routers import server, status, ws
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -51,8 +52,9 @@ async def _stop_vite(proc: asyncio.subprocess.Process) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.process_manager = ProcessManager()
-    set_process_manager(app.state.process_manager)
+    cfg = load_config()
+    app.state.process_managers = [ProcessManager(i) for i in range(len(cfg.models))]
+    set_process_managers(app.state.process_managers)
     vite_proc = None
     if DEV_MODE:
         vite_proc = await _start_vite()
@@ -61,8 +63,9 @@ async def lifespan(app: FastAPI):
     yield
     await stop_proxy()
     shutdown_proxy_subscribers()
-    app.state.process_manager.shutdown_subscribers()
-    await app.state.process_manager.stop()
+    for pm in app.state.process_managers:
+        pm.shutdown_subscribers()
+        await pm.stop()
     if vite_proc:
         await _stop_vite(vite_proc)
         print("[dev] Vite dev server stopped")

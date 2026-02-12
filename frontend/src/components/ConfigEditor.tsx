@@ -2,7 +2,7 @@ import { useState } from "react";
 import { api } from "../api/client";
 import type { ServerConfig, ModelConfig, ModelAdvanced } from "../api/types";
 
-export type SettingsTab = "api-server" | "manager" | "proxy";
+export type SettingsTab = string;
 
 export const defaultConfig: ServerConfig = {
   models: [
@@ -44,14 +44,16 @@ interface Props {
   tab: SettingsTab;
   config: ServerConfig;
   setConfig: (c: ServerConfig) => void;
+  modelIndex: number;
+  onDeleteModel: (index: number) => void;
 }
 
-export default function ConfigEditor({ tab, config, setConfig }: Props) {
+export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDeleteModel }: Props) {
   const [advanced, setAdvanced] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
 
-  const model = config.models[0];
+  const model = config.models[modelIndex];
   const adv = model.advanced;
 
   const save = async () => {
@@ -71,7 +73,7 @@ export default function ConfigEditor({ tab, config, setConfig }: Props) {
   const updateModel = (patch: Partial<ModelConfig>) => {
     setConfig({
       ...config,
-      models: [{ ...model, ...patch }],
+      models: config.models.map((m, i) => i === modelIndex ? { ...m, ...patch } : m),
     });
   };
 
@@ -298,7 +300,7 @@ export default function ConfigEditor({ tab, config, setConfig }: Props) {
         <input
           type="text"
           value={model.name ?? ""}
-          placeholder={`Llama Server ${config.models.indexOf(model) + 1}`}
+          placeholder={`Llama Server ${modelIndex + 1}`}
           onChange={(e) =>
             updateModel({ name: e.target.value || null })
           }
@@ -567,6 +569,14 @@ export default function ConfigEditor({ tab, config, setConfig }: Props) {
           {saving ? "Saving..." : "Save Configuration"}
         </button>
         {msg && <span className="text-sm text-gray-400">{msg}</span>}
+        {modelIndex > 0 && (
+          <button
+            onClick={() => onDeleteModel(modelIndex)}
+            className="ml-auto rounded-md bg-red-900/50 px-4 py-2 text-sm font-medium text-red-400 hover:bg-red-900 transition"
+          >
+            Delete Model
+          </button>
+        )}
       </div>
     </div>
   );

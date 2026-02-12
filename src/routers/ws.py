@@ -18,7 +18,18 @@ async def logs_ws(ws: WebSocket, source: str = Query(default="model-0")):
         subscribe = proxy_subscribe
         unsubscribe = proxy_unsubscribe
     else:
-        process_manager = ws.app.state.process_manager
+        # Parse model index from source like "model-0", "model-1", etc.
+        model_index = 0
+        if source.startswith("model-"):
+            try:
+                model_index = int(source.split("-", 1)[1])
+            except (ValueError, IndexError):
+                pass
+        pms = ws.app.state.process_managers
+        if model_index < 0 or model_index >= len(pms):
+            await ws.close(code=1008, reason="Invalid model index")
+            return
+        process_manager = pms[model_index]
         log_buffer = process_manager.log_buffer
         subscribe = process_manager.subscribe
         unsubscribe = process_manager.unsubscribe

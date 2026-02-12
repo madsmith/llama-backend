@@ -13,10 +13,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  getStatus: () => request<ServerStatus>("/api/server/status"),
-  start: () => request<ServerStatus>("/api/server/start", { method: "POST" }),
-  stop: () => request<ServerStatus>("/api/server/stop", { method: "POST" }),
-  restart: () => request<ServerStatus>("/api/server/restart", { method: "POST" }),
+  getStatus: (model = 0) => request<ServerStatus>(`/api/server/status?model=${model}`),
+  start: (model = 0) => request<ServerStatus>(`/api/server/start?model=${model}`, { method: "POST" }),
+  stop: (model = 0) => request<ServerStatus>(`/api/server/stop?model=${model}`, { method: "POST" }),
+  restart: (model = 0) => request<ServerStatus>(`/api/server/restart?model=${model}`, { method: "POST" }),
   getProxyStatus: () => request<ProxyStatus>("/api/server/proxy-status"),
   proxyStart: () => request<ProxyStatus>("/api/server/proxy-start", { method: "POST" }),
   proxyStop: () => request<ProxyStatus>("/api/server/proxy-stop", { method: "POST" }),
@@ -28,9 +28,9 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(cfg),
     }),
-  getHealth: () => request<HealthStatus>("/api/status/health"),
-  getSlots: () => request<SlotInfo[]>("/api/status/slots"),
-  getProps: () => request<ModelProps>("/api/status/props"),
+  getHealth: (model = 0) => request<HealthStatus>(`/api/status/health?model=${model}`),
+  getSlots: (model = 0) => request<SlotInfo[]>(`/api/status/slots?model=${model}`),
+  getProps: (model = 0) => request<ModelProps>(`/api/status/props?model=${model}`),
 };
 
 export function wsUrl(source = "model-0"): string {

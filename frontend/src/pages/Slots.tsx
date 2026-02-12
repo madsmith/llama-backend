@@ -24,14 +24,14 @@ export default function Slots() {
     setLoading(true);
     setError("");
     api
-      .getSlots()
+      .getSlots(idx)
       .then(setSlots)
       .catch(() => {
         setSlots(null);
         setError("Could not fetch slots. Is the server running?");
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [idx]);
 
   useEffect(() => {
     refresh();
