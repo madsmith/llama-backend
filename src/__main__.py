@@ -12,20 +12,37 @@ def main() -> None:
         help="Dev mode: start Vite HMR server alongside the backend",
     )
     parser.add_argument(
+        "--verbose", "-v", action="store_true",
+        help="Show HTTP requests and server activity",
+    )
+    parser.add_argument(
         "--debug", action="store_true",
-        help="Verbose logging for process management",
+        help="Full debug logging (implies --verbose)",
     )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
+
+    if args.debug:
+        args.verbose = True
 
     if args.dev:
         os.environ["LLAMA_DEV"] = "1"
     if args.debug:
         os.environ["LLAMA_DEBUG"] = "1"
         logging.basicConfig(level=logging.DEBUG)
-    else:
+    elif args.verbose:
+        os.environ["LLAMA_VERBOSE"] = "1"
         logging.basicConfig(level=logging.INFO)
+    else:
+        logging.basicConfig(level=logging.WARNING)
+
+    if args.debug:
+        log_level = "debug"
+    elif args.verbose:
+        log_level = "info"
+    else:
+        log_level = "warning"
 
     import uvicorn
     uvicorn.run(
@@ -34,7 +51,7 @@ def main() -> None:
         port=args.port,
         reload=args.dev,
         reload_dirs=["src"] if args.dev else None,
-        log_level="debug" if args.debug else "info",
+        log_level=log_level,
     )
 
 

@@ -360,7 +360,7 @@ async def start_proxy() -> None:
         proxy_app,
         host=api.host,
         port=api.port,
-        log_level="info",
+        log_level="debug" if os.environ.get("LLAMA_DEBUG") else "info" if os.environ.get("LLAMA_VERBOSE") else "warning",
     )
     _server = uvicorn.Server(config)
     _task = asyncio.create_task(_server.serve())

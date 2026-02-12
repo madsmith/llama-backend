@@ -9,6 +9,10 @@ from pathlib import Path
 
 if os.environ.get("LLAMA_DEBUG", "").lower() in ("1", "true", "yes"):
     logging.basicConfig(level=logging.DEBUG)
+elif os.environ.get("LLAMA_VERBOSE", "").lower() in ("1", "true", "yes"):
+    logging.basicConfig(level=logging.INFO)
+elif not logging.root.handlers:
+    logging.basicConfig(level=logging.WARNING)
 
 
 from fastapi import FastAPI
