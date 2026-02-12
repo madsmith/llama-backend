@@ -28,16 +28,19 @@ interface Props {
   lines: LogLine[];
   connected: boolean;
   onClear: () => void;
+  source?: string;
 }
 
-export default function LogViewer({ lines, connected, onClear }: Props) {
+export default function LogViewer({ lines, connected, onClear, source }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [tab, setTab] = useState<Tab>("server");
   const [showApiCalls, setShowApiCalls] = useState(false);
 
+  const isProxy = source === "proxy";
+
   const filtered = useMemo(
-    () => filterLines(lines, tab, showApiCalls),
-    [lines, tab, showApiCalls],
+    () => (isProxy ? lines : filterLines(lines, tab, showApiCalls)),
+    [lines, tab, showApiCalls, isProxy],
   );
 
   useEffect(() => {
@@ -48,11 +51,17 @@ export default function LogViewer({ lines, connected, onClear }: Props) {
     <div className="flex flex-col h-full">
       {/* tabs */}
       <div className="flex items-end gap-1.5">
-        <TabButton label="Server" active={tab === "server"} onClick={() => setTab("server")} />
-        <TabButton label="Info" active={tab === "info"} onClick={() => setTab("info")} />
-        <TabButton label="Other" active={tab === "other"} onClick={() => setTab("other")} />
-        <div className="flex-1" />
-        <TabButton label="All" active={tab === "all"} onClick={() => setTab("all")} />
+        {isProxy ? (
+          <TabButton label="All" active onClick={() => {}} />
+        ) : (
+          <>
+            <TabButton label="Server" active={tab === "server"} onClick={() => setTab("server")} />
+            <TabButton label="Info" active={tab === "info"} onClick={() => setTab("info")} />
+            <TabButton label="Other" active={tab === "other"} onClick={() => setTab("other")} />
+            <div className="flex-1" />
+            <TabButton label="All" active={tab === "all"} onClick={() => setTab("all")} />
+          </>
+        )}
       </div>
 
       {/* panel */}
@@ -60,7 +69,7 @@ export default function LogViewer({ lines, connected, onClear }: Props) {
         {/* toolbar area */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-gray-800">
           <div className="flex items-center gap-4">
-            {tab === "server" && (
+            {!isProxy && tab === "server" && (
               <label className="flex items-center gap-1.5 cursor-pointer">
                 <input
                   type="checkbox"

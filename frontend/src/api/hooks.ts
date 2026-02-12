@@ -100,7 +100,7 @@ export function useProps() {
   return props;
 }
 
-export function useLogs() {
+export function useLogs(source = "model-0") {
   const [lines, setLines] = useState<{ id: number; text: string }[]>([]);
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
@@ -108,10 +108,11 @@ export function useLogs() {
 
   useEffect(() => {
     let cancelled = false;
+    setLines([]);
 
     function connect() {
       if (cancelled) return;
-      const ws = new WebSocket(wsUrl());
+      const ws = new WebSocket(wsUrl(source));
       wsRef.current = ws;
 
       ws.onopen = () => setConnected(true);
@@ -137,7 +138,7 @@ export function useLogs() {
       cancelled = true;
       wsRef.current?.close();
     };
-  }, []);
+  }, [source]);
 
   const clear = useCallback(() => setLines([]), []);
 

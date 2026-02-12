@@ -2,22 +2,33 @@ from __future__ import annotations
 
 import asyncio
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+
+from ..proxy import proxy_log_buffer, proxy_subscribe, proxy_unsubscribe
 
 router = APIRouter()
 
 
 @router.websocket("/ws/logs")
-async def logs_ws(ws: WebSocket):
+async def logs_ws(ws: WebSocket, source: str = Query(default="model-0")):
     await ws.accept()
-    process_manager = ws.app.state.process_manager
+
+    if source == "proxy":
+        log_buffer = proxy_log_buffer
+        subscribe = proxy_subscribe
+        unsubscribe = proxy_unsubscribe
+    else:
+        process_manager = ws.app.state.process_manager
+        log_buffer = process_manager.log_buffer
+        subscribe = process_manager.subscribe
+        unsubscribe = process_manager.unsubscribe
 
     # Send buffered lines
-    for line in process_manager.log_buffer.snapshot():
+    for line in log_buffer.snapshot():
         await ws.send_json({"type": "log", "id": line.id, "text": line.text})
 
     # Subscribe for live lines
-    q = process_manager.subscribe()
+    q = subscribe()
     try:
         while True:
             # Race: next log message vs client disconnect
@@ -41,4 +52,4 @@ async def logs_ws(ws: WebSocket):
     except (WebSocketDisconnect, asyncio.CancelledError):
         pass
     finally:
-        process_manager.unsubscribe(q)
+        unsubscribe(q)

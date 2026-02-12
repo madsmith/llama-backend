@@ -33,7 +33,7 @@ export const api = {
   getProps: () => request<ModelProps>("/api/status/props"),
 };
 
-export function wsUrl(): string {
+export function wsUrl(source = "model-0"): string {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${location.host}/ws/logs`;
+  return `${proto}//${location.host}/ws/logs?source=${source}`;
 }

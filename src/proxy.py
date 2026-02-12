@@ -14,8 +14,50 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse, StreamingResponse
 
 from .config import load_config
+from .log_buffer import LogBuffer
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Proxy-scoped log buffer + pub/sub (mirrors ProcessManager pattern)
+# ---------------------------------------------------------------------------
+
+proxy_log_buffer = LogBuffer(maxlen=10_000)
+_proxy_subscribers: list[asyncio.Queue[dict]] = []
+
+
+def proxy_subscribe() -> asyncio.Queue[dict]:
+    q: asyncio.Queue[dict] = asyncio.Queue(maxsize=256)
+    _proxy_subscribers.append(q)
+    return q
+
+
+def proxy_unsubscribe(q: asyncio.Queue[dict]) -> None:
+    try:
+        _proxy_subscribers.remove(q)
+    except ValueError:
+        pass
+
+
+def shutdown_proxy_subscribers() -> None:
+    """Send None sentinel to all subscriber queues so WS handlers exit."""
+    for q in list(_proxy_subscribers):
+        try:
+            q.put_nowait(None)
+        except asyncio.QueueFull:
+            pass
+
+
+def _proxy_log(text: str) -> None:
+    stamped = f"[{time.strftime('%H:%M:%S')}] {text}"
+    line = proxy_log_buffer.append(stamped)
+    msg = {"type": "log", "id": line.id, "text": line.text}
+    for q in list(_proxy_subscribers):
+        try:
+            q.put_nowait(msg)
+        except asyncio.QueueFull:
+            pass
+
 
 proxy_app = FastAPI(title="Llama Proxy")
 
@@ -51,6 +93,73 @@ def _resolve_backend(model_id: str | None) -> str | None:
 def _default_backend() -> str:
     cfg = load_config()
     return f"http://127.0.0.1:{cfg.api_server.llama_server_starting_port}"
+
+
+def _resolve_server_name(model_id: str | None) -> str:
+    """Map a model ID to a human-readable server name from config."""
+    cfg = load_config()
+    if not model_id:
+        m = cfg.models[0] if cfg.models else None
+        return m.name or m.effective_id if m else "default"
+    for m in cfg.models:
+        if m.effective_id == model_id:
+            return m.name or m.effective_id
+    return model_id
+
+
+# ---------------------------------------------------------------------------
+# Structured log helpers — format: [time] <arrow> [route] <message>
+# ---------------------------------------------------------------------------
+
+_STATUS_TEXT = {
+    200: "OK", 201: "Created", 204: "No Content",
+    400: "Bad Request", 404: "Not Found", 422: "Unprocessable Entity",
+    500: "Internal Server Error", 502: "Bad Gateway", 503: "Service Unavailable",
+}
+
+
+def _fmt_size(n: int) -> str:
+    if n < 1024:
+        return f"{n}B"
+    return f"{n / 1024:.1f}KB"
+
+
+def _log_req(
+    server_name: str | None, method: str, path: str,
+    http_ver: str = "1.1", size: int | None = None,
+) -> None:
+    route = f"[{server_name}]" if server_name else ""
+    msg = f"{method} {path} HTTP/{http_ver}"
+    if size is not None:
+        msg += f" [{_fmt_size(size)}]"
+    _proxy_log(f"\u2192 {route} {msg}" if route else f"\u2192 {msg}")
+
+
+def _log_resp(
+    server_name: str | None, status: int, http_ver: str = "1.1",
+    *, streaming: bool = False, elapsed: float | None = None,
+    size: int | None = None,
+) -> None:
+    route = f"[{server_name}]" if server_name else ""
+    text = _STATUS_TEXT.get(status, "")
+    msg = f"HTTP/{http_ver} {status}"
+    if text:
+        msg += f" {text}"
+    if streaming:
+        msg += " streaming"
+    if elapsed is not None:
+        msg += f" ({elapsed:.2f}s)"
+    if size is not None:
+        msg += f" [{_fmt_size(size)}]"
+    _proxy_log(f"\u2190 {route} {msg}" if route else f"\u2190 {msg}")
+
+
+def _log_stream_end(
+    server_name: str | None, elapsed: float, size: int,
+) -> None:
+    route = f"[{server_name}]" if server_name else ""
+    msg = f"stream complete ({elapsed:.2f}s) [{_fmt_size(size)}]"
+    _proxy_log(f"\u2190 {route} {msg}" if route else f"\u2190 {msg}")
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +237,7 @@ def _openai_to_anthropic(oai_resp: dict, model: str) -> dict:
 
 
 async def _handle_anthropic_stream(
-    body: dict, backend: str, model: str
+    body: dict, backend: str, model: str, t0: float, server_name: str,
 ) -> StreamingResponse:
     """Translate an OpenAI SSE stream into Anthropic SSE events."""
     oai_body = _anthropic_to_openai(body)
@@ -139,9 +248,15 @@ async def _handle_anthropic_stream(
         output_tokens = 0
         block_started = False
         finish_reason = "end_turn"
+        total_bytes = 0
+
+        def _emit(s: str):
+            nonlocal total_bytes
+            total_bytes += len(s.encode())
+            return s
 
         # message_start
-        yield _sse(
+        yield _emit(_sse(
             "message_start",
             {
                 "type": "message_start",
@@ -156,7 +271,7 @@ async def _handle_anthropic_stream(
                     "usage": {"input_tokens": 0, "output_tokens": 0},
                 },
             },
-        )
+        ))
 
         try:
             async with httpx.AsyncClient() as client:
@@ -166,6 +281,7 @@ async def _handle_anthropic_stream(
                     json=oai_body,
                     timeout=None,
                 ) as resp:
+                    _log_resp(server_name, resp.status_code, streaming=True, elapsed=time.monotonic() - t0)
                     async for line in resp.aiter_lines():
                         if not line.startswith("data: "):
                             continue
@@ -190,45 +306,48 @@ async def _handle_anthropic_stream(
                         text = delta.get("content")
                         if text is not None:
                             if not block_started:
-                                yield _sse(
+                                yield _emit(_sse(
                                     "content_block_start",
                                     {
                                         "type": "content_block_start",
                                         "index": 0,
                                         "content_block": {"type": "text", "text": ""},
                                     },
-                                )
+                                ))
                                 block_started = True
-                            yield _sse(
+                            yield _emit(_sse(
                                 "content_block_delta",
                                 {
                                     "type": "content_block_delta",
                                     "index": 0,
                                     "delta": {"type": "text_delta", "text": text},
                                 },
-                            )
+                            ))
         except httpx.ConnectError:
-            yield _sse(
+            _log_resp(server_name, 502, elapsed=time.monotonic() - t0)
+            yield _emit(_sse(
                 "error",
                 {"type": "error", "error": {"type": "server_error", "message": "Backend unavailable"}},
-            )
+            ))
             return
 
         if block_started:
-            yield _sse(
+            yield _emit(_sse(
                 "content_block_stop",
                 {"type": "content_block_stop", "index": 0},
-            )
+            ))
 
-        yield _sse(
+        yield _emit(_sse(
             "message_delta",
             {
                 "type": "message_delta",
                 "delta": {"stop_reason": finish_reason, "stop_sequence": None},
                 "usage": {"output_tokens": output_tokens},
             },
-        )
-        yield _sse("message_stop", {"type": "message_stop"})
+        ))
+        yield _emit(_sse("message_stop", {"type": "message_stop"}))
+
+        _log_stream_end(server_name, time.monotonic() - t0, total_bytes)
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 
@@ -236,15 +355,24 @@ async def _handle_anthropic_stream(
 async def _handle_anthropic(request: Request) -> JSONResponse | StreamingResponse:
     body = await request.json()
     model = body.get("model", "unknown")
-    backend = _resolve_backend(body.get("model"))
+    model_id = body.get("model")
+    http_ver = request.scope.get("http_version", "1.1")
+    req_size = int(request.headers.get("content-length", 0)) or None
+    backend = _resolve_backend(model_id)
     if backend is None:
+        _log_req(None, "POST", "/v1/messages", http_ver, req_size)
+        _log_resp(None, 404)
         return JSONResponse(
             {"type": "error", "error": {"type": "not_found", "message": f"Model not found: {model}"}},
             status_code=404,
         )
 
+    server_name = _resolve_server_name(model_id)
+    _log_req(server_name, "POST", "/v1/messages", http_ver, req_size)
+    t0 = time.monotonic()
+
     if body.get("stream"):
-        return await _handle_anthropic_stream(body, backend, model)
+        return await _handle_anthropic_stream(body, backend, model, t0, server_name)
 
     oai_body = _anthropic_to_openai(body)
     try:
@@ -254,9 +382,13 @@ async def _handle_anthropic(request: Request) -> JSONResponse | StreamingRespons
                 json=oai_body,
                 timeout=None,
             )
+        elapsed = time.monotonic() - t0
         oai_resp = resp.json()
+        _log_resp(server_name, 200, elapsed=elapsed, size=len(resp.content))
         return JSONResponse(_openai_to_anthropic(oai_resp, model))
     except httpx.ConnectError:
+        elapsed = time.monotonic() - t0
+        _log_resp(server_name, 502, elapsed=elapsed)
         return JSONResponse(
             {
                 "type": "error",
@@ -280,21 +412,31 @@ async def openai_proxy(path: str, request: Request):
         return await _handle_anthropic(request)
 
     method = request.method
+    http_ver = request.scope.get("http_version", "1.1")
+    req_size = int(request.headers.get("content-length", 0)) or None
+    t0 = time.monotonic()
+    server_name: str | None = None
 
     try:
         if method == "POST":
             body = await request.json()
+            model_id = body.get("model")
 
-            backend = _resolve_backend(body.get("model"))
+            backend = _resolve_backend(model_id)
             if backend is None:
+                _log_req(None, method, f"/v1/{path}", http_ver, req_size)
+                _log_resp(None, 404)
                 return JSONResponse(
-                    {"error": {"message": f"Model not found: {body.get('model')}", "type": "not_found"}},
+                    {"error": {"message": f"Model not found: {model_id}", "type": "not_found"}},
                     status_code=404,
                 )
 
+            server_name = _resolve_server_name(model_id)
+            _log_req(server_name, method, f"/v1/{path}", http_ver, req_size)
+
             # Streaming SSE passthrough
             if body.get("stream"):
-                return await _stream_passthrough(backend, path, body)
+                return await _stream_passthrough(backend, path, body, t0, server_name)
 
             async with httpx.AsyncClient() as client:
                 resp = await client.request(
@@ -303,26 +445,36 @@ async def openai_proxy(path: str, request: Request):
                     json=body,
                     timeout=None,
                 )
+            elapsed = time.monotonic() - t0
+            _log_resp(server_name, resp.status_code, elapsed=elapsed, size=len(resp.content))
             return JSONResponse(resp.json(), status_code=resp.status_code)
         else:
             backend = _default_backend()
+            server_name = _resolve_server_name(None)
+            _log_req(server_name, method, f"/v1/{path}", http_ver)
+
             async with httpx.AsyncClient() as client:
                 resp = await client.request(
                     method,
                     f"{backend}/v1/{path}",
                     timeout=None,
                 )
+            elapsed = time.monotonic() - t0
+            _log_resp(server_name, resp.status_code, elapsed=elapsed, size=len(resp.content))
             return JSONResponse(resp.json(), status_code=resp.status_code)
 
     except httpx.ConnectError:
+        elapsed = time.monotonic() - t0
+        _log_resp(server_name, 502, elapsed=elapsed)
         return JSONResponse(
             {"error": {"message": "Backend llama-server is not running", "type": "server_error"}},
             status_code=502,
         )
 
 
-async def _stream_passthrough(backend: str, path: str, body: dict) -> StreamingResponse:
+async def _stream_passthrough(backend: str, path: str, body: dict, t0: float, server_name: str) -> StreamingResponse:
     async def generate():
+        total_bytes = 0
         try:
             async with httpx.AsyncClient() as client:
                 async with client.stream(
@@ -331,9 +483,14 @@ async def _stream_passthrough(backend: str, path: str, body: dict) -> StreamingR
                     json=body,
                     timeout=None,
                 ) as resp:
+                    _log_resp(server_name, resp.status_code, streaming=True, elapsed=time.monotonic() - t0)
                     async for line in resp.aiter_lines():
-                        yield line + "\n"
+                        chunk = line + "\n"
+                        total_bytes += len(chunk.encode())
+                        yield chunk
+            _log_stream_end(server_name, time.monotonic() - t0, total_bytes)
         except httpx.ConnectError:
+            _log_resp(server_name, 502, elapsed=time.monotonic() - t0)
             error = json.dumps({"error": {"message": "Backend llama-server is not running", "type": "server_error"}})
             yield f"data: {error}\n\n"
 
@@ -368,6 +525,7 @@ async def start_proxy() -> None:
     _proxy_port = api.port
     _proxy_started_at = time.time()
     logger.info("Proxy server started on %s:%s", api.host, api.port)
+    _proxy_log(f"Proxy started on {api.host}:{api.port}")
     print(f"[proxy] started on {api.host}:{api.port}")
 
 
@@ -382,6 +540,7 @@ async def stop_proxy() -> None:
     _proxy_host = None
     _proxy_port = None
     _proxy_started_at = None
+    _proxy_log("Proxy stopped")
     print("[proxy] stopped")
 
 

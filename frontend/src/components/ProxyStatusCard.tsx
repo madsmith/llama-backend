@@ -21,11 +21,16 @@ function formatUptime(seconds: number): string {
 
 interface Props {
   status: ProxyStatus;
+  onClick?: () => void;
+  selected?: boolean;
 }
 
-export default function ProxyStatusCard({ status }: Props) {
+export default function ProxyStatusCard({ status, onClick, selected }: Props) {
   return (
-    <div className="w-96 min-h-[220px] rounded-xl border border-gray-800 bg-gray-900 pt-5 px-5 pb-3 flex flex-col">
+    <div
+      className={`w-96 min-h-[220px] rounded-xl border border-gray-800 bg-gray-900 pt-5 px-5 pb-3 flex flex-col ${selected ? "ring-2 ring-blue-500" : ""} ${onClick ? "cursor-pointer" : ""}`}
+      onClick={onClick}
+    >
       <div className="text-xs font-medium tracking-wide text-gray-400 mb-2">
         Proxy Server
       </div>
