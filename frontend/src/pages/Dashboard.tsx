@@ -7,7 +7,7 @@ import ServerControls from "../components/ServerControls";
 import ProxyStatusCard from "../components/ProxyStatusCard";
 import ProxyControls from "../components/ProxyControls";
 import HealthCard from "../components/HealthCard";
-import { useServerStatus, useProxyStatus, useHealth, useSlots } from "../api/hooks";
+import { useServerStatus, useProxyStatus, useHealth, useSlots, pollRatesFromConfig } from "../api/hooks";
 
 interface ServerSnapshot {
   name: string;
@@ -15,17 +15,26 @@ interface ServerSnapshot {
   health: HealthStatus | null;
 }
 
-function ModelPanel({ modelIndex, name, isRemote, remoteAddress, onSnapshot }: {
+interface PollRates {
+  serverStatus?: number;
+  proxyStatus?: number;
+  health?: number;
+  slots?: number;
+  slotsActive?: number;
+}
+
+function ModelPanel({ modelIndex, name, isRemote, remoteAddress, onSnapshot, poll }: {
   modelIndex: number;
   name: string;
   isRemote: boolean;
   remoteAddress?: string;
   onSnapshot: (index: number, snap: ServerSnapshot) => void;
+  poll?: PollRates;
 }) {
   const navigate = useNavigate();
-  const { status, refresh } = useServerStatus(modelIndex);
-  const slots = useSlots(modelIndex);
-  const health = useHealth(modelIndex);
+  const { status, refresh } = useServerStatus(modelIndex, poll?.serverStatus);
+  const slots = useSlots(modelIndex, poll?.slots, poll?.slotsActive);
+  const health = useHealth(modelIndex, poll?.health);
 
   useEffect(() => {
     onSnapshot(modelIndex, { name, status, health });
@@ -48,8 +57,9 @@ function ModelPanel({ modelIndex, name, isRemote, remoteAddress, onSnapshot }: {
 }
 
 export default function Dashboard() {
-  const { status: proxyStatus, refresh: refreshProxy } = useProxyStatus();
   const [config, setConfig] = useState<ServerConfig | null>(null);
+  const poll = pollRatesFromConfig(config);
+  const { status: proxyStatus, refresh: refreshProxy } = useProxyStatus(poll.proxyStatus);
   const [snapshots, setSnapshots] = useState<Map<number, ServerSnapshot>>(new Map());
 
   useEffect(() => { document.title = "Llama Manager - Dashboard"; }, []);
@@ -85,6 +95,7 @@ export default function Dashboard() {
             isRemote={(m.type ?? "local") === "remote"}
             remoteAddress={m["remote-address"]}
             onSnapshot={handleSnapshot}
+            poll={poll}
           />
         ))}
       </div>

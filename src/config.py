@@ -65,7 +65,14 @@ class ModelConfig(BaseModel):
 
 
 class WebUIConfig(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     log_buffer_size: int = 10_000
+    poll_server_status: int | None = Field(default=None, alias="poll-server-status")
+    poll_proxy_status: int | None = Field(default=None, alias="poll-proxy-status")
+    poll_health: int | None = Field(default=None, alias="poll-health")
+    poll_slots: int | None = Field(default=None, alias="poll-slots")
+    poll_slots_active: int | None = Field(default=None, alias="poll-slots-active")
 
 
 class ApiServerConfig(BaseModel):

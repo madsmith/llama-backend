@@ -33,6 +33,11 @@ export const defaultConfig: ServerConfig = {
   ],
   "web-ui": {
     log_buffer_size: 10_000,
+    "poll-server-status": null,
+    "poll-proxy-status": null,
+    "poll-health": null,
+    "poll-slots": null,
+    "poll-slots-active": null,
   },
   "api-server": {
     host: "0.0.0.0",
@@ -56,6 +61,7 @@ interface Props {
 
 export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDeleteModel }: Props) {
   const [advanced, setAdvanced] = useState(false);
+  const [managerAdvanced, setManagerAdvanced] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
 
@@ -139,6 +145,53 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
         <p className="text-xs text-gray-600">
           Changes to log buffer size take effect on next restart.
         </p>
+        <button
+          type="button"
+          onClick={() => setManagerAdvanced(!managerAdvanced)}
+          className="flex items-center gap-1.5 text-sm font-medium text-gray-400 hover:text-gray-200 transition"
+        >
+          <span className={`inline-block transition-transform ${managerAdvanced ? "rotate-90" : ""}`}>&#9654;</span>
+          Advanced
+        </button>
+        {managerAdvanced && (
+          <div className="space-y-3 border-l-2 border-gray-700 pl-6">
+            <div>
+              <span className="text-sm font-medium text-gray-400">Polling Rates</span>
+              <div className="mt-2 ml-4 space-y-3">
+                {([
+                  ["Server Status", "3000", "poll-server-status", "Process state and uptime"],
+                  ["Proxy Status", "5000", "poll-proxy-status", "Proxy server availability"],
+                  ["Health", "5000", "poll-health", "Endpoint health checks"],
+                  ["Slots", "5000", "poll-slots", "Slot utilization data"],
+                  ["Slots (active)", "500", "poll-slots-active", "Rate when a slot is processing"],
+                ] as const).map(([label, placeholder, key, hint]) => (
+                  <div key={key} className="flex items-center justify-between">
+                    <div>
+                      <span className="text-sm text-gray-400">{label}</span>
+                      <p className="text-xs text-gray-600">{hint}</p>
+                    </div>
+                    <input
+                      type="number"
+                      min={500}
+                      value={config["web-ui"][key] ?? ""}
+                      placeholder={placeholder}
+                      onChange={(e) =>
+                        setConfig({
+                          ...config,
+                          "web-ui": {
+                            ...config["web-ui"],
+                            [key]: e.target.value === "" ? null : Number(e.target.value),
+                          },
+                        })
+                      }
+                      className="w-28 rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 text-right focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
         <div className="flex items-center gap-3">
           <button
             onClick={save}

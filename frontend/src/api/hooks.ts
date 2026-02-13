@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { api, wsUrl } from "./client";
 import type {
+  ServerConfig,
   ServerStatus,
   ProxyStatus,
   HealthStatus,
@@ -8,6 +9,17 @@ import type {
   ModelProps,
   LogMessage,
 } from "./types";
+
+export function pollRatesFromConfig(cfg: ServerConfig | null) {
+  const w = cfg?.["web-ui"];
+  return {
+    serverStatus: w?.["poll-server-status"] ?? undefined,
+    proxyStatus: w?.["poll-proxy-status"] ?? undefined,
+    health: w?.["poll-health"] ?? undefined,
+    slots: w?.["poll-slots"] ?? undefined,
+    slotsActive: w?.["poll-slots-active"] ?? undefined,
+  };
+}
 
 export function useServerStatus(modelIndex = 0, pollMs = 3000) {
   const [status, setStatus] = useState<ServerStatus>({
@@ -71,8 +83,10 @@ export function useHealth(modelIndex = 0, pollMs = 5000) {
   return health;
 }
 
-export function useSlots(modelIndex = 0, pollMs = 5000) {
+export function useSlots(modelIndex = 0, pollMs = 5000, activePollMs = 500) {
   const [slots, setSlots] = useState<SlotInfo[]>([]);
+  const hasActive = slots.some((s) => s.is_processing);
+  const effectiveMs = hasActive ? activePollMs : pollMs;
 
   useEffect(() => {
     const fetch = () => {
@@ -82,9 +96,9 @@ export function useSlots(modelIndex = 0, pollMs = 5000) {
         .catch(() => setSlots([]));
     };
     fetch();
-    const id = setInterval(fetch, pollMs);
+    const id = setInterval(fetch, effectiveMs);
     return () => clearInterval(id);
-  }, [modelIndex, pollMs]);
+  }, [modelIndex, effectiveMs]);
 
   return slots;
 }

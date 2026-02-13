@@ -7,11 +7,11 @@ import ServerControls from "../components/ServerControls";
 import ProxyStatusCard from "../components/ProxyStatusCard";
 import ProxyControls from "../components/ProxyControls";
 import LogViewer from "../components/LogViewer";
-import { useServerStatus, useProxyStatus, useLogs, useSlots } from "../api/hooks";
+import { useServerStatus, useProxyStatus, useLogs, useSlots, pollRatesFromConfig } from "../api/hooks";
 
-function ModelLogCard({ modelIndex, name, source, navigate }: { modelIndex: number; name: string; source: string; navigate: (path: string) => void }) {
-  const { status, refresh } = useServerStatus(modelIndex);
-  const slots = useSlots(modelIndex);
+function ModelLogCard({ modelIndex, name, source, navigate, poll }: { modelIndex: number; name: string; source: string; navigate: (path: string) => void; poll?: { serverStatus?: number; slots?: number; slotsActive?: number } }) {
+  const { status, refresh } = useServerStatus(modelIndex, poll?.serverStatus);
+  const slots = useSlots(modelIndex, poll?.slots, poll?.slotsActive);
 
   return (
     <div className="space-y-4">
@@ -32,9 +32,10 @@ export default function Logs() {
   const { source = "proxy" } = useParams<{ source: string }>();
   const navigate = useNavigate();
   const wsSource = source === "proxy" ? "proxy" : `model-${source}`;
-  const { status: proxyStatus, refresh: refreshProxy } = useProxyStatus();
-  const { lines, connected, clear } = useLogs(wsSource);
   const [config, setConfig] = useState<ServerConfig | null>(null);
+  const poll = pollRatesFromConfig(config);
+  const { status: proxyStatus, refresh: refreshProxy } = useProxyStatus(poll.proxyStatus);
+  const { lines, connected, clear } = useLogs(wsSource);
 
   useEffect(() => { document.title = "Llama Manager - Logs"; }, []);
 
@@ -81,6 +82,7 @@ export default function Logs() {
             name={m.name ?? `Llama Server ${i + 1}`}
             source={source}
             navigate={navigate}
+            poll={poll}
           />
         ))}
       </div>

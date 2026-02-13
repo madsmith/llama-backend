@@ -35,6 +35,11 @@ export interface ModelConfig {
 
 export interface WebUIConfig {
   log_buffer_size: number;
+  "poll-server-status"?: number | null;
+  "poll-proxy-status"?: number | null;
+  "poll-health"?: number | null;
+  "poll-slots"?: number | null;
+  "poll-slots-active"?: number | null;
 }
 
 export interface ApiServerConfig {
