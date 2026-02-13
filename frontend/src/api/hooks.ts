@@ -13,6 +13,8 @@ export function useServerStatus(modelIndex = 0, pollMs = 3000) {
   const [status, setStatus] = useState<ServerStatus>({
     state: "stopped",
     pid: null,
+    host: null,
+    port: null,
     uptime: null,
   });
 
