@@ -460,6 +460,35 @@ async def _handle_anthropic(request: Request) -> JSONResponse | StreamingRespons
 
 
 # ---------------------------------------------------------------------------
+# Normalize OpenAI messages for llama-server compatibility
+# ---------------------------------------------------------------------------
+
+_ROLE_MAP = {"developer": "system"}
+
+
+def _normalize_messages(body: dict) -> dict:
+    """Rewrite messages in-place so llama-server's Jinja template can handle them.
+
+    1. Map non-standard roles (e.g. "developer" → "system").
+    2. Flatten content arrays to plain strings.
+    """
+    messages = body.get("messages")
+    if not messages:
+        return body
+    out = []
+    for msg in messages:
+        role = _ROLE_MAP.get(msg.get("role", ""), msg.get("role", ""))
+        content = msg.get("content")
+        if isinstance(content, list):
+            # [{"type":"text","text":"..."},...]  →  "..."
+            content = "\n".join(
+                b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"
+            )
+        out.append({**msg, "role": role, "content": content})
+    return {**body, "messages": out}
+
+
+# ---------------------------------------------------------------------------
 # OpenAI passthrough
 # ---------------------------------------------------------------------------
 
@@ -477,7 +506,7 @@ async def openai_proxy(path: str, request: Request):
 
     try:
         if method == "POST":
-            body = await request.json()
+            body = _normalize_messages(await request.json())
             model_id = body.get("model")
 
             model_index = _resolve_model_index(model_id)

@@ -19,3 +19,4 @@ uv.lock
 *.swp
 *.swo
 .DS_Store
+slot_output/*
