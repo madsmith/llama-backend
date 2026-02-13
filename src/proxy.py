@@ -91,6 +91,43 @@ from .process_manager import ProcessManager
 
 _process_managers: list[ProcessManager | None] = []
 
+# ---------------------------------------------------------------------------
+# Model TTL tracking
+# ---------------------------------------------------------------------------
+_model_last_activity: dict[int, float] = {}
+_ttl_task: asyncio.Task | None = None
+
+
+def _touch_model(model_index: int) -> None:
+    """Record activity for a model, resetting its TTL timer."""
+    _model_last_activity[model_index] = time.monotonic()
+
+
+async def _ttl_checker() -> None:
+    """Background task that stops idle models whose TTL has expired."""
+    while True:
+        await asyncio.sleep(30)
+        try:
+            cfg = load_config()
+            now = time.monotonic()
+            for i, m in enumerate(cfg.models):
+                if m.model_ttl is None or m.type == "remote":
+                    continue
+                if i >= len(_process_managers):
+                    continue
+                pm = _process_managers[i]
+                if pm is None or pm.state.value != "running":
+                    continue
+                last = _model_last_activity.get(i)
+                if last is None:
+                    continue
+                if now - last > m.model_ttl * 60:
+                    name = m.name or f"model-{i}"
+                    _proxy_log(f"TTL expired for [{name}], stopping server")
+                    await pm.stop()
+        except Exception:
+            pass  # don't crash the background task
+
 
 def set_process_managers(pms: list[ProcessManager | None]) -> None:
     global _process_managers
@@ -98,9 +135,11 @@ def set_process_managers(pms: list[ProcessManager | None]) -> None:
 
 
 async def _ensure_model_server(model_index: int = 0) -> None:
-    """Start model server on-demand if JIT is enabled and server isn't running."""
+    """Start model server on-demand if JIT or TTL is enabled and server isn't running."""
     cfg = load_config()
-    if not cfg.api_server.jit_model_server:
+    m = cfg.models[model_index] if model_index < len(cfg.models) else None
+    has_ttl = m is not None and m.model_ttl is not None
+    if not cfg.api_server.jit_model_server and not has_ttl:
         return
     if model_index < 0 or model_index >= len(_process_managers):
         return
@@ -461,6 +500,7 @@ async def _handle_anthropic(request: Request) -> JSONResponse | StreamingRespons
             status_code=503,
         )
 
+    _touch_model(model_index)
     body = _rewrite_model_field(body, model_id)
 
     if body.get("stream"):
@@ -564,6 +604,7 @@ async def openai_proxy(path: str, request: Request):
                     status_code=503,
                 )
 
+            _touch_model(model_index)
             body = _rewrite_model_field(body, model_id)
 
             # Streaming SSE passthrough
@@ -594,6 +635,7 @@ async def openai_proxy(path: str, request: Request):
                     status_code=503,
                 )
 
+            _touch_model(0)
             async with httpx.AsyncClient() as client:
                 resp = await client.request(
                     method,
@@ -658,7 +700,7 @@ def _sse(event: str, data: dict) -> str:
 # ---------------------------------------------------------------------------
 
 async def start_proxy() -> None:
-    global _server, _task, _proxy_host, _proxy_port, _proxy_started_at
+    global _server, _task, _proxy_host, _proxy_port, _proxy_started_at, _ttl_task
     cfg = load_config()
     api = cfg.api_server
     config = uvicorn.Config(
@@ -675,10 +717,14 @@ async def start_proxy() -> None:
     logger.info("Proxy server started on %s:%s", api.host, api.port)
     _proxy_log(f"Proxy started on {api.host}:{api.port}")
     print(f"[proxy] started on {api.host}:{api.port}")
+    _ttl_task = asyncio.create_task(_ttl_checker())
 
 
 async def stop_proxy() -> None:
-    global _server, _task, _proxy_host, _proxy_port, _proxy_started_at
+    global _server, _task, _proxy_host, _proxy_port, _proxy_started_at, _ttl_task
+    if _ttl_task is not None:
+        _ttl_task.cancel()
+        _ttl_task = None
     if _server is not None:
         _server.should_exit = True
     if _task is not None:
