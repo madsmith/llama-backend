@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import shlex
 import time
 from enum import Enum
@@ -9,6 +10,18 @@ from pathlib import Path
 
 from .config import AppConfig, load_config
 from .log_buffer import LogBuffer
+
+# Regexes for parsing prompt processing progress from llama-server logs
+_RE_NEW_PROMPT = re.compile(
+    r"slot update_slots: id\s+(\d+) \|.*\| new prompt,.*n_tokens\s*=\s*(\d+)"
+)
+_RE_PROMPT_PROGRESS = re.compile(
+    r"slot update_slots: id\s+(\d+) \|.*\| prompt processing progress,"
+    r"\s*(?:n_tokens|n_past)\s*=\s*(\d+).*progress\s*=\s*([\d.]+)"
+)
+_RE_PROMPT_DONE = re.compile(
+    r"slot update_slots: id\s+(\d+) \|.*\| prompt done"
+)
 
 log = logging.getLogger(__name__)
 
@@ -35,6 +48,7 @@ class ProcessManager:
         self._subscribers: list[asyncio.Queue[dict]] = []
         self._reader_task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
+        self.prompt_progress: dict[int, dict] = {}  # slot_id -> progress info
         log.debug("ProcessManager[%d] initialized, state=%s", model_index, self.state.value)
 
     def subscribe(self) -> asyncio.Queue[dict]:
@@ -192,6 +206,7 @@ class ProcessManager:
         self.host = None
         self.port = None
         self.started_at = None
+        self.prompt_progress.clear()
         self._set_state(ServerState.stopped)
 
     async def restart(self) -> None:
@@ -221,6 +236,9 @@ class ProcessManager:
             "uptime": uptime,
         }
 
+    def get_prompt_progress(self) -> dict[int, dict]:
+        return dict(self.prompt_progress)
+
     async def _read_output(self) -> None:
         assert self.process is not None
         assert self.process.stdout is not None
@@ -229,6 +247,29 @@ class ProcessManager:
             async for raw in self.process.stdout:
                 text = raw.decode("utf-8", errors="replace").rstrip("\n")
                 self._log(text)
+
+                # Parse prompt processing progress
+                m = _RE_NEW_PROMPT.search(text)
+                if m:
+                    slot_id = int(m.group(1))
+                    self.prompt_progress[slot_id] = {
+                        "n_total": int(m.group(2)),
+                        "n_processed": 0,
+                        "progress": 0.0,
+                    }
+                else:
+                    m = _RE_PROMPT_PROGRESS.search(text)
+                    if m:
+                        slot_id = int(m.group(1))
+                        self.prompt_progress[slot_id] = {
+                            "n_total": self.prompt_progress.get(slot_id, {}).get("n_total", 0),
+                            "n_processed": int(m.group(2)),
+                            "progress": float(m.group(3)),
+                        }
+                    else:
+                        m = _RE_PROMPT_DONE.search(text)
+                        if m:
+                            self.prompt_progress.pop(int(m.group(1)), None)
 
                 if self.state == ServerState.starting and (
                     "listening" in text.lower()

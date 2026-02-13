@@ -92,6 +92,9 @@ export interface SlotInfo {
       has_next_token?: boolean;
     },
   ];
+  prompt_progress?: number;
+  prompt_n_processed?: number;
+  prompt_n_total?: number;
 }
 
 export interface ModelProps {

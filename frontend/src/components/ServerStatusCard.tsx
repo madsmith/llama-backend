@@ -34,9 +34,12 @@ function fmtFloat(v: number): string {
 }
 
 function slotDetail(s: SlotInfo): string {
+  if (s.prompt_progress != null) {
+    return `Prompt ${Math.round(s.prompt_progress * 100)}%`;
+  }
+
   const nt = s.next_token?.[0];
 
-  // has_next_token is false while still ingesting the prompt
   if (!nt?.has_next_token) return "processing prompt";
 
   const parts: string[] = [];
@@ -46,12 +49,16 @@ function slotDetail(s: SlotInfo): string {
 }
 
 function slotTooltipParams(s: SlotInfo): [string, string][] {
-  if (!s.is_processing || !s.params) return [];
+  if (!s.is_processing) return [];
   const entries: [string, string][] = [];
-  if (s.params.temperature != null) entries.push(["temperature", fmtFloat(s.params.temperature)]);
-  if (s.params.top_p != null) entries.push(["top_p", fmtFloat(s.params.top_p)]);
-  if (s.params.min_p != null) entries.push(["min_p", fmtFloat(s.params.min_p)]);
-  if (s.params.chat_format) entries.push(["format", s.params.chat_format]);
+  if (s.prompt_n_processed != null && s.prompt_n_total != null)
+    entries.push(["prompt", `${s.prompt_n_processed} / ${s.prompt_n_total} tokens`]);
+  if (s.params) {
+    if (s.params.temperature != null) entries.push(["temperature", fmtFloat(s.params.temperature)]);
+    if (s.params.top_p != null) entries.push(["top_p", fmtFloat(s.params.top_p)]);
+    if (s.params.min_p != null) entries.push(["min_p", fmtFloat(s.params.min_p)]);
+    if (s.params.chat_format) entries.push(["format", s.params.chat_format]);
+  }
   return entries;
 }
 
