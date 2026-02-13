@@ -25,6 +25,8 @@ export interface ModelConfig {
   ctx_size: number;
   n_gpu_layers: number;
   parallel: number;
+  "auto-start": boolean;
+  "model-ttl": number | null;
   advanced: ModelAdvanced;
   "remote-address"?: string;
   "remote-model-id"?: string | null;

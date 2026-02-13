@@ -36,6 +36,8 @@ class ModelConfig(BaseModel):
     ctx_size: int = 65536
     n_gpu_layers: int = -1
     parallel: int = 2
+    auto_start: bool = Field(default=False, alias="auto-start")
+    model_ttl: int | None = Field(default=None, alias="model-ttl")
     advanced: ModelAdvanced = ModelAdvanced()
     remote_address: str = Field(default="", alias="remote-address")
     remote_model_id: str | None = Field(default=None, alias="remote-model-id")

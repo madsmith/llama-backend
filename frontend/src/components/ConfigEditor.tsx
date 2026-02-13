@@ -14,6 +14,8 @@ export const defaultConfig: ServerConfig = {
       ctx_size: 65536,
       n_gpu_layers: -1,
       parallel: 2,
+      "auto-start": false,
+      "model-ttl": null,
       advanced: {
         llama_server_path: "",
         stream: true,
@@ -443,6 +445,36 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
                 </div>
               </div>
               {modelField("GPU Layers", "n_gpu_layers", "number")}
+
+              <label className="flex items-center justify-between cursor-pointer">
+                <div>
+                  <span className="text-sm font-medium text-gray-400">
+                    Auto Start
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={model["auto-start"]}
+                  onChange={(e) => updateModel({ "auto-start": e.target.checked })}
+                  className="h-4 w-4 rounded border-gray-700 bg-gray-900 accent-blue-500"
+                />
+              </label>
+
+              <label className="flex items-center justify-between">
+                <span className="text-sm font-medium text-gray-400">
+                  Model TTL
+                </span>
+                <input
+                  type="number"
+                  min={1}
+                  value={model["model-ttl"] ?? ""}
+                  placeholder="indefinite"
+                  onChange={(e) =>
+                    updateModel({ "model-ttl": e.target.value === "" ? null : Number(e.target.value) })
+                  }
+                  className="w-28 rounded-md border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 text-right focus:border-blue-500 focus:outline-none"
+                />
+              </label>
 
               <button
                 type="button"
