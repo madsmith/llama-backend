@@ -67,6 +67,12 @@ async def lifespan(app: FastAPI):
         vite_proc = await _start_vite()
         print(f"[dev] Vite dev server started (pid {vite_proc.pid})")
     await start_proxy()
+    # Auto-start models that have auto-start enabled
+    for i, m in enumerate(cfg.models):
+        pm = app.state.process_managers[i]
+        if m.auto_start and pm is not None:
+            print(f"[auto-start] Starting model {m.name or i} ...")
+            await pm.start()
     yield
     await stop_proxy()
     shutdown_proxy_subscribers()
