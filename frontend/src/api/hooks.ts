@@ -83,12 +83,17 @@ export function useHealth(modelIndex = 0, pollMs = 5000) {
   return health;
 }
 
-export function useSlots(modelIndex = 0, pollMs = 5000, activePollMs = 500) {
+export function useSlots(modelIndex = 0, pollMs = 5000, activePollMs = 500, serverState?: string) {
   const [slots, setSlots] = useState<SlotInfo[]>([]);
   const hasActive = slots.some((s) => s.is_processing);
   const effectiveMs = hasActive ? activePollMs : pollMs;
+  const active = serverState === "running" || serverState === "remote";
 
   useEffect(() => {
+    if (!active) {
+      setSlots([]);
+      return;
+    }
     const fetch = () => {
       api
         .getSlots(modelIndex)
@@ -98,7 +103,7 @@ export function useSlots(modelIndex = 0, pollMs = 5000, activePollMs = 500) {
     fetch();
     const id = setInterval(fetch, effectiveMs);
     return () => clearInterval(id);
-  }, [modelIndex, effectiveMs]);
+  }, [modelIndex, effectiveMs, active]);
 
   return slots;
 }

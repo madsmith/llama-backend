@@ -33,7 +33,7 @@ function ModelPanel({ modelIndex, name, isRemote, remoteAddress, onSnapshot, pol
 }) {
   const navigate = useNavigate();
   const { status, refresh } = useServerStatus(modelIndex, poll?.serverStatus);
-  const slots = useSlots(modelIndex, poll?.slots, poll?.slotsActive);
+  const slots = useSlots(modelIndex, poll?.slots, poll?.slotsActive, status.state);
   const health = useHealth(modelIndex, poll?.health);
 
   useEffect(() => {

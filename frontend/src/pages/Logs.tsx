@@ -11,7 +11,7 @@ import { useServerStatus, useProxyStatus, useLogs, useSlots, pollRatesFromConfig
 
 function ModelLogCard({ modelIndex, name, source, navigate, poll }: { modelIndex: number; name: string; source: string; navigate: (path: string) => void; poll?: { serverStatus?: number; slots?: number; slotsActive?: number } }) {
   const { status, refresh } = useServerStatus(modelIndex, poll?.serverStatus);
-  const slots = useSlots(modelIndex, poll?.slots, poll?.slotsActive);
+  const slots = useSlots(modelIndex, poll?.slots, poll?.slotsActive, status.state);
 
   return (
     <div className="space-y-4">
