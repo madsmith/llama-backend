@@ -536,28 +536,43 @@ async def _handle_anthropic(request: Request) -> JSONResponse | StreamingRespons
 # Normalize OpenAI messages for llama-server compatibility
 # ---------------------------------------------------------------------------
 
-_ROLE_MAP = {"developer": "system"}
+def _remap_developer_role(messages: list[dict]) -> list[dict]:
+    """Map 'developer' role to 'system' for models that don't support it."""
+    return [
+        {**msg, "role": "system"} if msg.get("role") == "developer" else msg
+        for msg in messages
+    ]
 
 
-def _normalize_messages(body: dict) -> dict:
-    """Rewrite messages in-place so llama-server's Jinja template can handle them.
+def _normalize_messages(body: dict, model_index: int | None) -> dict:
+    """Rewrite messages so llama-server's Jinja template can handle them.
 
-    1. Map non-standard roles (e.g. "developer" → "system").
+    1. Remap developer → system (if model lacks developer role support).
     2. Flatten content arrays to plain strings.
     """
     messages = body.get("messages")
     if not messages:
         return body
+
+    # Check if the target model supports the developer role
+    cfg = load_config()
+    supports_dev = False
+    if model_index is not None and model_index < len(cfg.models):
+        supports_dev = cfg.models[model_index].advanced.supports_developer_role
+
+    if not supports_dev:
+        messages = _remap_developer_role(messages)
+
     out = []
     for msg in messages:
-        role = _ROLE_MAP.get(msg.get("role", ""), msg.get("role", ""))
         content = msg.get("content")
         if isinstance(content, list):
             # [{"type":"text","text":"..."},...]  →  "..."
             content = "\n".join(
                 b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"
             )
-        out.append({**msg, "role": role, "content": content})
+            msg = {**msg, "content": content}
+        out.append(msg)
     return {**body, "messages": out}
 
 
@@ -579,7 +594,7 @@ async def openai_proxy(path: str, request: Request):
 
     try:
         if method == "POST":
-            body = _normalize_messages(await request.json())
+            body = await request.json()
             model_id = body.get("model")
 
             model_index = _resolve_model_index(model_id)
@@ -592,6 +607,7 @@ async def openai_proxy(path: str, request: Request):
                     status_code=404,
                 )
 
+            body = _normalize_messages(body, model_index)
             server_name = _resolve_server_name(model_id)
             _log_req(server_name, method, f"/v1/{path}", http_ver, req_size)
 

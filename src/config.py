@@ -16,8 +16,11 @@ def _find_llama_server() -> str:
 
 
 class ModelAdvanced(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     llama_server_path: str = ""
     stream: bool = True
+    supports_developer_role: bool = Field(default=False, alias="supports-developer-role")
     slot_prompt_similarity: float | None = None
     repeat_penalty: float | None = None
     repeat_last_n: int | None = None

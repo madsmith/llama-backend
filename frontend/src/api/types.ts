@@ -9,6 +9,7 @@ export interface ServerStatus {
 export interface ModelAdvanced {
   llama_server_path: string;
   stream: boolean;
+  "supports-developer-role": boolean;
   slot_prompt_similarity: number | null;
   repeat_penalty: number | null;
   repeat_last_n: number | null;

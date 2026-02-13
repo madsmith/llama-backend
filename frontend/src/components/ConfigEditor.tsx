@@ -19,6 +19,7 @@ export const defaultConfig: ServerConfig = {
       advanced: {
         llama_server_path: "",
         stream: true,
+        "supports-developer-role": false,
         slot_prompt_similarity: null,
         repeat_penalty: null,
         repeat_last_n: null,
@@ -338,7 +339,7 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
             type="button"
             onClick={() => updateModel({ type: "local" })}
             className={`px-4 py-2 text-sm font-medium rounded-t-lg transition ${
-              !isRemote ? `${NESTED_BG} text-gray-100` : "text-gray-500 hover:text-gray-300"
+              !isRemote ? `${NESTED_BG} text-gray-100` : "bg-gray-800/40 text-gray-500 hover:text-gray-300"
             }`}
           >
             Local
@@ -347,7 +348,7 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
             type="button"
             onClick={() => updateModel({ type: "remote" })}
             className={`px-4 py-2 text-sm font-medium rounded-t-lg transition ${
-              isRemote ? `${NESTED_BG} text-gray-100` : "text-gray-500 hover:text-gray-300"
+              isRemote ? `${NESTED_BG} text-gray-100` : "bg-gray-800/40 text-gray-500 hover:text-gray-300"
             }`}
           >
             Remote
@@ -495,6 +496,18 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
                       type="checkbox"
                       checked={adv.stream}
                       onChange={(e) => updateAdv({ stream: e.target.checked })}
+                      className="h-4 w-4 rounded border-gray-700 bg-gray-900 accent-blue-500"
+                    />
+                  </label>
+
+                  <label className="flex items-center justify-between cursor-pointer">
+                    <span className="text-sm font-medium text-gray-400">
+                      Supports Developer Role
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={adv["supports-developer-role"]}
+                      onChange={(e) => updateAdv({ "supports-developer-role": e.target.checked })}
                       className="h-4 w-4 rounded border-gray-700 bg-gray-900 accent-blue-500"
                     />
                   </label>
