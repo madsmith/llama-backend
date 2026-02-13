@@ -30,6 +30,9 @@ async def logs_ws(ws: WebSocket, source: str = Query(default="model-0")):
             await ws.close(code=1008, reason="Invalid model index")
             return
         process_manager = pms[model_index]
+        if process_manager is None:
+            await ws.close(code=1008, reason="No logs for remote model")
+            return
         log_buffer = process_manager.log_buffer
         subscribe = process_manager.subscribe
         unsubscribe = process_manager.unsubscribe

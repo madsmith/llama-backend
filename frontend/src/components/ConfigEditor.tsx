@@ -7,6 +7,7 @@ export type SettingsTab = string;
 export const defaultConfig: ServerConfig = {
   models: [
     {
+      type: "local",
       name: null,
       id: null,
       model_path: "",
@@ -23,6 +24,8 @@ export const defaultConfig: ServerConfig = {
         swa_full: false,
         extra_args: [],
       },
+      "remote-address": "",
+      "remote-model-id": null,
     },
   ],
   "web-ui": {
@@ -104,7 +107,7 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
             [key]: type === "number" ? Number(e.target.value) : e.target.value,
           })
         }
-        className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
+        className="w-full rounded-md border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
       />
     </div>
   );
@@ -291,6 +294,10 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
     );
   }
 
+  const isRemote = (model.type ?? "local") === "remote";
+
+  const NESTED_BG = "bg-gray-800";
+
   return (
     <div className="space-y-4 max-w-xl">
       <div>
@@ -321,245 +328,308 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
           className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
         />
       </div>
-      {modelField("Model Path", "model_path")}
 
+      {/* Local/Remote tabs + nested panel */}
       <div>
-        <label className="block text-sm font-medium text-gray-400 mb-1">
-          Context Size per Slot
-        </label>
-        <div className="flex items-center gap-3">
-          <input
-            type="range"
-            min={CTX_MIN}
-            max={CTX_MAX}
-            value={model.ctx_size}
-            onChange={(e) => setCtxSize(Number(e.target.value), true)}
-            className="flex-1 accent-blue-500"
-          />
-          <input
-            type="number"
-            min={1}
-            max={CTX_MAX}
-            value={model.ctx_size}
-            onChange={(e) => setCtxSize(Number(e.target.value))}
-            className="w-24 rounded-md border border-gray-700 bg-gray-800 pl-3 pr-1 py-2 text-sm text-gray-100 font-mono text-right focus:border-blue-500 focus:outline-none"
-          />
+        <div className="flex items-end gap-1">
+          <button
+            type="button"
+            onClick={() => updateModel({ type: "local" })}
+            className={`px-4 py-2 text-sm font-medium rounded-t-lg transition ${
+              !isRemote ? `${NESTED_BG} text-gray-100` : "text-gray-500 hover:text-gray-300"
+            }`}
+          >
+            Local
+          </button>
+          <button
+            type="button"
+            onClick={() => updateModel({ type: "remote" })}
+            className={`px-4 py-2 text-sm font-medium rounded-t-lg transition ${
+              isRemote ? `${NESTED_BG} text-gray-100` : "text-gray-500 hover:text-gray-300"
+            }`}
+          >
+            Remote
+          </button>
         </div>
-        <div className="mt-1 text-xs text-gray-500">
-          Total context: {totalCtx.toLocaleString()} ({model.ctx_size.toLocaleString()} &times; {model.parallel} slots)
+        <div className={`${NESTED_BG} rounded-b-lg rounded-tr-lg p-5 space-y-4`}>
+          {isRemote ? (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-1">
+                  Remote Address
+                </label>
+                <input
+                  type="text"
+                  value={model["remote-address"] ?? ""}
+                  placeholder="http://192.168.1.100:8080"
+                  onChange={(e) =>
+                    updateModel({ "remote-address": e.target.value })
+                  }
+                  className="w-full rounded-md border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-1">
+                  Remote Model ID
+                  <span className="ml-1 text-xs text-gray-600">(optional, rewrites model field in forwarded requests)</span>
+                </label>
+                <input
+                  type="text"
+                  value={model["remote-model-id"] ?? ""}
+                  placeholder="model-id-on-remote"
+                  onChange={(e) =>
+                    updateModel({ "remote-model-id": e.target.value || null })
+                  }
+                  className="w-full rounded-md border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              {modelField("Model Path", "model_path")}
+
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-1">
+                  Context Size per Slot
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min={CTX_MIN}
+                    max={CTX_MAX}
+                    value={model.ctx_size}
+                    onChange={(e) => setCtxSize(Number(e.target.value), true)}
+                    className="flex-1 accent-blue-500"
+                  />
+                  <input
+                    type="number"
+                    min={1}
+                    max={CTX_MAX}
+                    value={model.ctx_size}
+                    onChange={(e) => setCtxSize(Number(e.target.value))}
+                    className="w-24 rounded-md border border-gray-700 bg-gray-900 pl-3 pr-1 py-2 text-sm text-gray-100 font-mono text-right focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div className="mt-1 text-xs text-gray-500">
+                  Total context: {totalCtx.toLocaleString()} ({model.ctx_size.toLocaleString()} &times; {model.parallel} slots)
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-1">
+                  Parallel Slots
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min={1}
+                    max={8}
+                    value={model.parallel}
+                    onChange={(e) =>
+                      updateModel({ parallel: Number(e.target.value) })
+                    }
+                    className="flex-1 accent-blue-500"
+                  />
+                  <input
+                    type="number"
+                    min={1}
+                    max={8}
+                    value={model.parallel}
+                    onChange={(e) =>
+                      updateModel({ parallel: Math.max(1, Math.min(8, Number(e.target.value))) })
+                    }
+                    className="w-24 rounded-md border border-gray-700 bg-gray-900 pl-3 pr-1 py-2 text-sm text-gray-100 font-mono text-right focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+              {modelField("GPU Layers", "n_gpu_layers", "number")}
+
+              <button
+                type="button"
+                onClick={() => setAdvanced(!advanced)}
+                className="flex items-center gap-1.5 text-sm font-medium text-gray-400 hover:text-gray-200 transition"
+              >
+                <span className={`inline-block transition-transform ${advanced ? "rotate-90" : ""}`}>&#9654;</span>
+                Advanced
+              </button>
+
+              {advanced && (
+                <div className="space-y-4 border-l-2 border-gray-700 pl-6">
+                  <label className="flex items-center justify-between cursor-pointer">
+                    <span className="text-sm font-medium text-gray-400">
+                      Stream responses
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={adv.stream}
+                      onChange={(e) => updateAdv({ stream: e.target.checked })}
+                      className="h-4 w-4 rounded border-gray-700 bg-gray-900 accent-blue-500"
+                    />
+                  </label>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-1">
+                      Slot Prompt Similarity
+                      <span className="ml-1 text-xs text-gray-600">(-sps{adv.slot_prompt_similarity == null ? ", disabled" : ""})</span>
+                    </label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        value={adv.slot_prompt_similarity == null ? 0 : adv.slot_prompt_similarity * 100}
+                        onChange={(e) => {
+                          const v = Number(e.target.value);
+                          updateAdv({ slot_prompt_similarity: v === 0 ? null : v / 100 });
+                        }}
+                        className={`flex-1 ${adv.slot_prompt_similarity == null ? "opacity-30" : "accent-blue-500"}`}
+                      />
+                      <input
+                        type="number"
+                        step="0.01"
+                        min={0}
+                        max={1}
+                        value={adv.slot_prompt_similarity ?? ""}
+                        placeholder="off"
+                        onChange={(e) =>
+                          updateAdv({ slot_prompt_similarity: e.target.value === "" ? null : Number(e.target.value) })
+                        }
+                        className="w-24 rounded-md border border-gray-700 bg-gray-900 pl-3 pr-1 py-2 text-sm text-gray-100 font-mono text-right focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-1">
+                      Repeat Penalty
+                      <span className="ml-1 text-xs text-gray-600">(1.0 = disabled{adv.repeat_penalty == null ? ", off" : ""})</span>
+                    </label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        value={adv.repeat_penalty == null ? 0 : Math.round((adv.repeat_penalty - 1.0) * 100)}
+                        onChange={(e) => {
+                          const v = Number(e.target.value);
+                          updateAdv({ repeat_penalty: v === 0 ? null : 1.0 + v / 100 });
+                        }}
+                        className={`flex-1 ${adv.repeat_penalty == null ? "opacity-30" : "accent-blue-500"}`}
+                      />
+                      <input
+                        type="number"
+                        step="0.05"
+                        min={1.0}
+                        max={2.0}
+                        value={adv.repeat_penalty ?? ""}
+                        placeholder="off"
+                        onChange={(e) =>
+                          updateAdv({ repeat_penalty: e.target.value === "" ? null : Number(e.target.value) })
+                        }
+                        className="w-24 rounded-md border border-gray-700 bg-gray-900 pl-3 pr-1 py-2 text-sm text-gray-100 font-mono text-right focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-1">
+                      Repeat Last N
+                      <span className="ml-1 text-xs text-gray-600">(-1 = ctx_size{adv.repeat_last_n == null ? ", off" : ""})</span>
+                    </label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="range"
+                        min={-1}
+                        max={4096}
+                        value={adv.repeat_last_n ?? -1}
+                        onChange={(e) => {
+                          const v = Number(e.target.value);
+                          updateAdv({ repeat_last_n: v === -1 ? null : v });
+                        }}
+                        className={`flex-1 ${adv.repeat_last_n == null ? "opacity-30" : "accent-blue-500"}`}
+                      />
+                      <input
+                        type="number"
+                        step="1"
+                        min={-1}
+                        max={4096}
+                        value={adv.repeat_last_n ?? ""}
+                        placeholder="off"
+                        onChange={(e) =>
+                          updateAdv({ repeat_last_n: e.target.value === "" ? null : Number(e.target.value) })
+                        }
+                        className="w-24 rounded-md border border-gray-700 bg-gray-900 pl-3 pr-1 py-2 text-sm text-gray-100 font-mono text-right focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-1">
+                      Slot Save Path
+                      <span className="ml-1 text-xs text-gray-600">(prompt cache persistence, blank = disabled)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={adv.slot_save_path}
+                      placeholder="/tmp/llama-slots"
+                      onChange={(e) => updateAdv({ slot_save_path: e.target.value })}
+                      className="w-full rounded-md border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={adv.swa_full}
+                      onChange={(e) => updateAdv({ swa_full: e.target.checked })}
+                      className="h-4 w-4 rounded border-gray-700 bg-gray-900 accent-blue-500"
+                    />
+                    <span className="text-sm font-medium text-gray-400">
+                      SWA Full Cache
+                      <span className="ml-1 text-xs text-gray-600">(for Gemma 2/3 when context exceeds window size)</span>
+                    </span>
+                  </label>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-1">
+                      llama-server Path Override
+                      <span className="ml-1 text-xs text-gray-600">(blank = use default from Proxy Server tab)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={adv.llama_server_path}
+                      placeholder={config["api-server"]["llama-server-path"] || "not set"}
+                      onChange={(e) => updateAdv({ llama_server_path: e.target.value })}
+                      className="w-full rounded-md border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-400 mb-1">
+                      Extra Arguments
+                      <span className="ml-1 text-xs text-gray-600">(comma-separated)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={adv.extra_args.join(", ")}
+                      onChange={(e) =>
+                        updateAdv({
+                          extra_args: e.target.value
+                            .split(",")
+                            .map((s) => s.trim())
+                            .filter(Boolean),
+                        })
+                      }
+                      className="w-full rounded-md border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
       </div>
 
-      <div>
-        <label className="block text-sm font-medium text-gray-400 mb-1">
-          Parallel Slots
-        </label>
-        <div className="flex items-center gap-3">
-          <input
-            type="range"
-            min={1}
-            max={8}
-            value={model.parallel}
-            onChange={(e) =>
-              updateModel({ parallel: Number(e.target.value) })
-            }
-            className="flex-1 accent-blue-500"
-          />
-          <input
-            type="number"
-            min={1}
-            max={8}
-            value={model.parallel}
-            onChange={(e) =>
-              updateModel({ parallel: Math.max(1, Math.min(8, Number(e.target.value))) })
-            }
-            className="w-24 rounded-md border border-gray-700 bg-gray-800 pl-3 pr-1 py-2 text-sm text-gray-100 font-mono text-right focus:border-blue-500 focus:outline-none"
-          />
-        </div>
-      </div>
-      {modelField("GPU Layers", "n_gpu_layers", "number")}
-
-      <button
-        type="button"
-        onClick={() => setAdvanced(!advanced)}
-        className="flex items-center gap-1.5 text-sm font-medium text-gray-400 hover:text-gray-200 transition"
-      >
-        <span className={`inline-block transition-transform ${advanced ? "rotate-90" : ""}`}>&#9654;</span>
-        Advanced
-      </button>
-
-      {advanced && (
-        <div className="space-y-4 border-l-2 border-gray-800 pl-6">
-          <label className="flex items-center justify-between cursor-pointer">
-            <span className="text-sm font-medium text-gray-400">
-              Stream responses
-            </span>
-            <input
-              type="checkbox"
-              checked={adv.stream}
-              onChange={(e) => updateAdv({ stream: e.target.checked })}
-              className="h-4 w-4 rounded border-gray-700 bg-gray-800 accent-blue-500"
-            />
-          </label>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">
-              Slot Prompt Similarity
-              <span className="ml-1 text-xs text-gray-600">(-sps{adv.slot_prompt_similarity == null ? ", disabled" : ""})</span>
-            </label>
-            <div className="flex items-center gap-3">
-              <input
-                type="range"
-                min={0}
-                max={100}
-                value={adv.slot_prompt_similarity == null ? 0 : adv.slot_prompt_similarity * 100}
-                onChange={(e) => {
-                  const v = Number(e.target.value);
-                  updateAdv({ slot_prompt_similarity: v === 0 ? null : v / 100 });
-                }}
-                className={`flex-1 ${adv.slot_prompt_similarity == null ? "opacity-30" : "accent-blue-500"}`}
-              />
-              <input
-                type="number"
-                step="0.01"
-                min={0}
-                max={1}
-                value={adv.slot_prompt_similarity ?? ""}
-                placeholder="off"
-                onChange={(e) =>
-                  updateAdv({ slot_prompt_similarity: e.target.value === "" ? null : Number(e.target.value) })
-                }
-                className="w-24 rounded-md border border-gray-700 bg-gray-800 pl-3 pr-1 py-2 text-sm text-gray-100 font-mono text-right focus:border-blue-500 focus:outline-none"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">
-              Repeat Penalty
-              <span className="ml-1 text-xs text-gray-600">(1.0 = disabled{adv.repeat_penalty == null ? ", off" : ""})</span>
-            </label>
-            <div className="flex items-center gap-3">
-              <input
-                type="range"
-                min={0}
-                max={100}
-                value={adv.repeat_penalty == null ? 0 : Math.round((adv.repeat_penalty - 1.0) * 100)}
-                onChange={(e) => {
-                  const v = Number(e.target.value);
-                  updateAdv({ repeat_penalty: v === 0 ? null : 1.0 + v / 100 });
-                }}
-                className={`flex-1 ${adv.repeat_penalty == null ? "opacity-30" : "accent-blue-500"}`}
-              />
-              <input
-                type="number"
-                step="0.05"
-                min={1.0}
-                max={2.0}
-                value={adv.repeat_penalty ?? ""}
-                placeholder="off"
-                onChange={(e) =>
-                  updateAdv({ repeat_penalty: e.target.value === "" ? null : Number(e.target.value) })
-                }
-                className="w-24 rounded-md border border-gray-700 bg-gray-800 pl-3 pr-1 py-2 text-sm text-gray-100 font-mono text-right focus:border-blue-500 focus:outline-none"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">
-              Repeat Last N
-              <span className="ml-1 text-xs text-gray-600">(-1 = ctx_size{adv.repeat_last_n == null ? ", off" : ""})</span>
-            </label>
-            <div className="flex items-center gap-3">
-              <input
-                type="range"
-                min={-1}
-                max={4096}
-                value={adv.repeat_last_n ?? -1}
-                onChange={(e) => {
-                  const v = Number(e.target.value);
-                  updateAdv({ repeat_last_n: v === -1 ? null : v });
-                }}
-                className={`flex-1 ${adv.repeat_last_n == null ? "opacity-30" : "accent-blue-500"}`}
-              />
-              <input
-                type="number"
-                step="1"
-                min={-1}
-                max={4096}
-                value={adv.repeat_last_n ?? ""}
-                placeholder="off"
-                onChange={(e) =>
-                  updateAdv({ repeat_last_n: e.target.value === "" ? null : Number(e.target.value) })
-                }
-                className="w-24 rounded-md border border-gray-700 bg-gray-800 pl-3 pr-1 py-2 text-sm text-gray-100 font-mono text-right focus:border-blue-500 focus:outline-none"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">
-              Slot Save Path
-              <span className="ml-1 text-xs text-gray-600">(prompt cache persistence, blank = disabled)</span>
-            </label>
-            <input
-              type="text"
-              value={adv.slot_save_path}
-              placeholder="/tmp/llama-slots"
-              onChange={(e) => updateAdv({ slot_save_path: e.target.value })}
-              className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
-            />
-          </div>
-
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={adv.swa_full}
-              onChange={(e) => updateAdv({ swa_full: e.target.checked })}
-              className="h-4 w-4 rounded border-gray-700 bg-gray-800 accent-blue-500"
-            />
-            <span className="text-sm font-medium text-gray-400">
-              SWA Full Cache
-              <span className="ml-1 text-xs text-gray-600">(for Gemma 2/3 when context exceeds window size)</span>
-            </span>
-          </label>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">
-              llama-server Path Override
-              <span className="ml-1 text-xs text-gray-600">(blank = use default from Proxy Server tab)</span>
-            </label>
-            <input
-              type="text"
-              value={adv.llama_server_path}
-              placeholder={config["api-server"]["llama-server-path"] || "not set"}
-              onChange={(e) => updateAdv({ llama_server_path: e.target.value })}
-              className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">
-              Extra Arguments
-              <span className="ml-1 text-xs text-gray-600">(comma-separated)</span>
-            </label>
-            <input
-              type="text"
-              value={adv.extra_args.join(", ")}
-              onChange={(e) =>
-                updateAdv({
-                  extra_args: e.target.value
-                    .split(",")
-                    .map((s) => s.trim())
-                    .filter(Boolean),
-                })
-              }
-              className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
-            />
-          </div>
-        </div>
-      )}
       <div className="flex items-center gap-3">
         <button
           onClick={save}

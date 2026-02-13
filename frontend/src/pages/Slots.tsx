@@ -9,6 +9,8 @@ export default function Slots() {
   const idx = Number(modelIndex ?? 0);
   const navigate = useNavigate();
   const [slots, setSlots] = useState<SlotInfo[] | null>(null);
+
+  useEffect(() => { document.title = "Llama Manager - Slots"; }, []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [modelName, setModelName] = useState<string | null>(null);

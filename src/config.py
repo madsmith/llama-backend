@@ -27,6 +27,9 @@ class ModelAdvanced(BaseModel):
 
 
 class ModelConfig(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    type: str = "local"
     name: str | None = None
     id: str | None = None
     model_path: str = ""
@@ -34,13 +37,21 @@ class ModelConfig(BaseModel):
     n_gpu_layers: int = -1
     parallel: int = 2
     advanced: ModelAdvanced = ModelAdvanced()
+    remote_address: str = Field(default="", alias="remote-address")
+    remote_model_id: str | None = Field(default=None, alias="remote-model-id")
 
 
     @property
     def effective_id(self) -> str:
-        """Return explicit id, or derive from model_path filename."""
+        """Return explicit id, or derive from model_path/remote info."""
         if self.id:
             return self.id
+        if self.type == "remote":
+            if self.remote_model_id:
+                return self.remote_model_id
+            if self.remote_address:
+                return self.remote_address.rstrip("/").rsplit("/", 1)[-1].rsplit(":", 1)[0]
+            return ""
         if self.model_path:
             from pathlib import PurePosixPath
             stem = PurePosixPath(self.model_path).stem

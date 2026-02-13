@@ -16,9 +16,12 @@ const Cross = () => <span className="text-red-500">&#10005;</span>;
 
 export default function HealthCard({ proxyStatus, servers }: Props) {
   const proxyOk = proxyStatus.state === "running";
-  const allServersOk = servers.every(
-    (s) => s.status.state === "running" && (s.health?.status === "ok" || s.health?.status === "no slot available"),
-  );
+  const serverOk = (s: ServerInfo) => {
+    const healthOk = s.health?.status === "ok" || s.health?.status === "no slot available";
+    if (s.status.state === "remote") return healthOk || s.health?.status === "unknown";
+    return s.status.state === "running" && healthOk;
+  };
+  const allServersOk = servers.every(serverOk);
   const allOk = proxyOk && allServersOk;
 
   return (
@@ -35,14 +38,19 @@ export default function HealthCard({ proxyStatus, servers }: Props) {
           </span>
         </div>
         {servers.map((s) => {
-          const ok = s.status.state === "running";
+          const ok = serverOk(s);
+          const isRemote = s.status.state === "remote";
+          const displayState = isRemote
+            ? (s.health?.status === "ok" ? "running" : s.health?.status ?? "offline")
+            : s.status.state;
           return (
             <div key={s.name} className="flex items-center gap-3">
               {ok ? <Check /> : <Cross />}
               <span className="text-sm text-gray-300">{s.name}</span>
-              <span className={`text-sm ${ok ? "text-green-400" : s.status.state === "starting" ? "text-yellow-400" : "text-red-400"}`}>
-                {s.status.state}
+              <span className={`text-sm ${ok ? "text-green-400" : displayState === "starting" || displayState === "unknown" ? "text-yellow-400" : "text-red-400"}`}>
+                {displayState}
               </span>
+              {isRemote && <span className="text-xs text-gray-600">remote</span>}
               {s.health && (s.health.slots_idle != null || s.health.slots_processing != null) && (
                 <span className="text-sm text-gray-500">
                   &middot; Idle: {s.health.slots_idle ?? "?"} &middot; Processing: {s.health.slots_processing ?? "?"}

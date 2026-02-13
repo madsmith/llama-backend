@@ -10,11 +10,15 @@ from ..proxy import get_proxy_status, start_proxy, stop_proxy, restart_proxy
 router = APIRouter(prefix="/api/server", tags=["server"])
 
 
-def _process_manager(request: Request, model: int = 0) -> ProcessManager:
+def _process_manager(request: Request, model: int = 0) -> ProcessManager | None:
     pms = request.app.state.process_managers
     if model < 0 or model >= len(pms):
         raise IndexError(f"model index {model} out of range")
     return pms[model]
+
+
+def _remote_status() -> dict:
+    return {"state": "remote", "pid": None, "host": None, "port": None, "uptime": None}
 
 
 def _status_response(process_manager):
@@ -28,28 +32,37 @@ def _status_response(process_manager):
 
 @router.get("/status")
 async def status(request: Request, model: int = Query(default=0)):
-    return _process_manager(request, model).get_status()
+    pm = _process_manager(request, model)
+    if pm is None:
+        return _remote_status()
+    return pm.get_status()
 
 
 @router.post("/start")
 async def start(request: Request, model: int = Query(default=0)):
-    process_manager = _process_manager(request, model)
-    await process_manager.start()
-    return _status_response(process_manager)
+    pm = _process_manager(request, model)
+    if pm is None:
+        return JSONResponse({"error": "Cannot start a remote model"}, status_code=400)
+    await pm.start()
+    return _status_response(pm)
 
 
 @router.post("/stop")
 async def stop(request: Request, model: int = Query(default=0)):
-    process_manager = _process_manager(request, model)
-    await process_manager.stop()
-    return _status_response(process_manager)
+    pm = _process_manager(request, model)
+    if pm is None:
+        return JSONResponse({"error": "Cannot stop a remote model"}, status_code=400)
+    await pm.stop()
+    return _status_response(pm)
 
 
 @router.post("/restart")
 async def restart(request: Request, model: int = Query(default=0)):
-    process_manager = _process_manager(request, model)
-    await process_manager.restart()
-    return _status_response(process_manager)
+    pm = _process_manager(request, model)
+    if pm is None:
+        return JSONResponse({"error": "Cannot restart a remote model"}, status_code=400)
+    await pm.restart()
+    return _status_response(pm)
 
 
 @router.get("/proxy-status")
@@ -83,12 +96,27 @@ async def get_config():
 @router.put("/config")
 async def put_config(cfg: AppConfig, request: Request):
     save_config(cfg)
-    # Sync process managers list to match new model count
-    pms: list[ProcessManager] = request.app.state.process_managers
+    # Sync process managers list to match new model count and types
+    pms: list[ProcessManager | None] = request.app.state.process_managers
     while len(pms) < len(cfg.models):
-        pms.append(ProcessManager(len(pms)))
+        idx = len(pms)
+        m = cfg.models[idx]
+        pms.append(None if m.type == "remote" else ProcessManager(idx))
+    # Update type for existing indices (local<->remote switch)
+    for i, m in enumerate(cfg.models):
+        if i >= len(pms):
+            break
+        if m.type == "remote" and pms[i] is not None:
+            pm = pms[i]
+            if pm is not None and pm.state.value == "stopped":
+                pms[i] = None
+        elif m.type != "remote" and pms[i] is None:
+            pms[i] = ProcessManager(i)
     # Shrink if models were removed (only trim stopped managers from the end)
-    while len(pms) > len(cfg.models) and pms[-1].state.value == "stopped":
+    while len(pms) > len(cfg.models):
+        pm = pms[-1]
+        if pm is not None and pm.state.value != "stopped":
+            break
         pms.pop()
     from ..proxy import set_process_managers
     set_process_managers(pms)

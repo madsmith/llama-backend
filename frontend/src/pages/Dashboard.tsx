@@ -15,9 +15,11 @@ interface ServerSnapshot {
   health: HealthStatus | null;
 }
 
-function ModelPanel({ modelIndex, name, onSnapshot }: {
+function ModelPanel({ modelIndex, name, isRemote, remoteAddress, onSnapshot }: {
   modelIndex: number;
   name: string;
+  isRemote: boolean;
+  remoteAddress?: string;
   onSnapshot: (index: number, snap: ServerSnapshot) => void;
 }) {
   const navigate = useNavigate();
@@ -36,9 +38,11 @@ function ModelPanel({ modelIndex, name, onSnapshot }: {
         status={status}
         slots={slots}
         modelIndex={modelIndex}
-        onClick={() => navigate(`/logs/${modelIndex}`)}
+        onClick={isRemote ? undefined : () => navigate(`/logs/${modelIndex}`)}
+        remoteAddress={remoteAddress}
+        health={isRemote ? health : undefined}
       />
-      <ServerControls status={status} modelIndex={modelIndex} onAction={refresh} />
+      {!isRemote && <ServerControls status={status} modelIndex={modelIndex} onAction={refresh} />}
     </div>
   );
 }
@@ -47,6 +51,8 @@ export default function Dashboard() {
   const { status: proxyStatus, refresh: refreshProxy } = useProxyStatus();
   const [config, setConfig] = useState<ServerConfig | null>(null);
   const [snapshots, setSnapshots] = useState<Map<number, ServerSnapshot>>(new Map());
+
+  useEffect(() => { document.title = "Llama Manager - Dashboard"; }, []);
 
   useEffect(() => {
     api.getConfig().then(setConfig).catch(() => {});
@@ -76,6 +82,8 @@ export default function Dashboard() {
             key={i}
             modelIndex={i}
             name={m.name ?? `Llama Server ${i + 1}`}
+            isRemote={(m.type ?? "local") === "remote"}
+            remoteAddress={m["remote-address"]}
             onSnapshot={handleSnapshot}
           />
         ))}

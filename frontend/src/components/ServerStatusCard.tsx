@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import type { ServerStatus, SlotInfo } from "../api/types";
+import type { ServerStatus, SlotInfo, HealthStatus } from "../api/types";
 
 const stateColors: Record<string, string> = {
   stopped: "bg-gray-600",
@@ -8,6 +8,7 @@ const stateColors: Record<string, string> = {
   running: "bg-green-500",
   stopping: "bg-yellow-500",
   error: "bg-red-500",
+  remote: "bg-blue-500",
 };
 
 const stateLabels: Record<string, string> = {
@@ -16,6 +17,7 @@ const stateLabels: Record<string, string> = {
   running: "Running",
   stopping: "Stopping",
   error: "Error",
+  remote: "Remote",
 };
 
 function formatUptime(seconds: number): string {
@@ -121,6 +123,13 @@ function SlotRow({ slot, modelIndex }: { slot: SlotInfo; modelIndex: number }) {
   );
 }
 
+function remoteDisplay(health: HealthStatus | null): { label: string; color: string } {
+  if (health == null) return { label: "Offline", color: "bg-red-500" };
+  if (health.status === "ok") return { label: "Running", color: "bg-green-500" };
+  if (health.status === "unknown") return { label: "Unknown", color: "bg-yellow-500" };
+  return { label: health.status, color: "bg-red-500" };
+}
+
 interface Props {
   name: string;
   status: ServerStatus;
@@ -128,10 +137,14 @@ interface Props {
   modelIndex: number;
   onClick?: () => void;
   selected?: boolean;
+  remoteAddress?: string;
+  health?: HealthStatus | null;
 }
 
-export default function ServerStatusCard({ name, status, slots, modelIndex, onClick, selected }: Props) {
+export default function ServerStatusCard({ name, status, slots, modelIndex, onClick, selected, remoteAddress, health }: Props) {
   const navigate = useNavigate();
+  const isRemote = status.state === "remote";
+  const remote = isRemote ? remoteDisplay(health ?? null) : null;
   return (
     <div
       className={`w-96 min-h-[220px] rounded-xl border border-gray-800 bg-gray-900 pt-5 px-5 pb-3 flex flex-col ${selected ? "ring-2 ring-blue-500" : ""} ${onClick ? "cursor-pointer" : ""}`}
@@ -152,16 +165,18 @@ export default function ServerStatusCard({ name, status, slots, modelIndex, onCl
       <div className="flex items-baseline justify-between">
         <div className="flex items-baseline gap-2.5">
           <span
-            className={`inline-block h-3 w-3 rounded-full translate-y-[-1px] ${stateColors[status.state] ?? "bg-gray-600"}`}
+            className={`inline-block h-3 w-3 rounded-full translate-y-[-1px] ${isRemote ? remote!.color : (stateColors[status.state] ?? "bg-gray-600")}`}
           />
           <span className="text-lg font-semibold">
-            {stateLabels[status.state] ?? status.state}
+            {isRemote ? remote!.label : (stateLabels[status.state] ?? status.state)}
           </span>
         </div>
         <span className="text-sm text-gray-400 font-mono">
-          {status.host != null && status.port != null
-            ? `http://${status.host}:${status.port}`
-            : "—"}
+          {isRemote
+            ? (remoteAddress || "—")
+            : status.host != null && status.port != null
+              ? `http://${status.host}:${status.port}`
+              : "—"}
         </span>
       </div>
 
@@ -174,8 +189,17 @@ export default function ServerStatusCard({ name, status, slots, modelIndex, onCl
       )}
 
       <div className="mt-auto pt-2 flex justify-between text-xs text-gray-600 leading-none">
-        <span>Uptime: {status.uptime != null ? formatUptime(status.uptime) : "—"}</span>
-        <span>PID {status.pid ?? "—"}</span>
+        {isRemote ? (
+          <>
+            <span />
+            <span>Remote</span>
+          </>
+        ) : (
+          <>
+            <span>Uptime: {status.uptime != null ? formatUptime(status.uptime) : "—"}</span>
+            <span>PID {status.pid ?? "—"}</span>
+          </>
+        )}
       </div>
     </div>
   );

@@ -13,6 +13,14 @@ from pathlib import Path
 
 import httpx
 
+def parse_token_count(value: str) -> int:
+    """Parse a token count like '16k', '4K', '2048'."""
+    v = value.strip().lower()
+    if v.endswith("k"):
+        return int(float(v[:-1]) * 1024)
+    return int(v)
+
+
 TOPICS = [
     "the history of bread making",
     "how black holes form and evolve",
@@ -48,10 +56,12 @@ async def run_completion(
     index: int,
     model: str | None,
     output_dir: Path | None,
+    max_tokens: int = 16384,
 ) -> None:
     stream = output_dir is not None
     body: dict = {
         "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
         "stream": stream,
     }
     if model:
@@ -159,10 +169,11 @@ def print_models(data: dict) -> None:
 
 
 async def fetch_slots(client: httpx.AsyncClient, base: str, raw: bool) -> None:
+    url = f"{base}/slots"
     try:
-        resp = await client.get(f"{base}/slots", timeout=5)
+        resp = await client.get(url, timeout=5)
         if resp.status_code != 200:
-            print(f"\n[slots] ERROR {resp.status_code}")
+            print(f"\n[slots] ERROR {resp.status_code} from {url}: {resp.text[:200]}")
             return
         data = resp.json()
         if raw:
@@ -170,14 +181,15 @@ async def fetch_slots(client: httpx.AsyncClient, base: str, raw: bool) -> None:
         else:
             print_slots(data)
     except Exception as exc:
-        print(f"\n[slots] error: {exc}\n")
+        print(f"\n[slots] error fetching {url}: {exc}\n")
 
 
 async def fetch_models(client: httpx.AsyncClient, base: str, raw: bool) -> None:
+    url = f"{base}/v1/models"
     try:
-        resp = await client.get(f"{base}/v1/models", timeout=5)
+        resp = await client.get(url, timeout=5)
         if resp.status_code != 200:
-            print(f"\n[models] ERROR {resp.status_code}")
+            print(f"\n[models] ERROR {resp.status_code} from {url}: {resp.text[:200]}")
             return
         data = resp.json()
         if raw:
@@ -185,7 +197,7 @@ async def fetch_models(client: httpx.AsyncClient, base: str, raw: bool) -> None:
         else:
             print_models(data)
     except Exception as exc:
-        print(f"\n[models] error: {exc}\n")
+        print(f"\n[models] error fetching {url}: {exc}\n")
 
 
 async def show_once(client: httpx.AsyncClient, base: str,
@@ -223,6 +235,7 @@ async def main() -> None:
     parser.add_argument("--prompt", action="append", default=[], help="explicit prompt for request N (repeatable)")
     parser.add_argument("--model", action="append", default=[], help="model ID for request N (repeatable, cycles)")
     parser.add_argument("-o", "--output", default=None, help="output directory for streamed responses (prompt_<n>.txt)")
+    parser.add_argument("--max-tokens", type=parse_token_count, default=16384, help="max tokens per response (default: 16k, e.g. 4k, 8192)")
     parser.add_argument("--show-slots", action="store_true", help="query /slots")
     parser.add_argument("--show-models", action="store_true", help="query /v1/models")
     parser.add_argument("--show-delay", type=float, default=None, help="wait N seconds before displaying (once)")
@@ -271,7 +284,7 @@ async def main() -> None:
     async with httpx.AsyncClient() as client:
         # Launch inference requests
         tasks = [
-            asyncio.create_task(run_completion(client, base, prompts[i], i, models[i], output_dir))
+            asyncio.create_task(run_completion(client, base, prompts[i], i, models[i], output_dir, args.max_tokens))
             for i in range(n)
         ]
 

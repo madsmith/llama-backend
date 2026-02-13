@@ -59,6 +59,16 @@ def _proxy_log(text: str) -> None:
             pass
 
 
+# Transport-level errors when the backend dies or is unreachable
+_BACKEND_ERRORS = (httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError)
+
+
+def _backend_error_msg(exc: Exception) -> str:
+    if isinstance(exc, httpx.ConnectError):
+        return "Backend server is not reachable"
+    return "Backend server disconnected"
+
+
 proxy_app = FastAPI(title="Llama Proxy")
 
 proxy_app.add_middleware(
@@ -79,10 +89,10 @@ _proxy_started_at: float | None = None
 # ---------------------------------------------------------------------------
 from .process_manager import ProcessManager
 
-_process_managers: list[ProcessManager] = []
+_process_managers: list[ProcessManager | None] = []
 
 
-def set_process_managers(pms: list[ProcessManager]) -> None:
+def set_process_managers(pms: list[ProcessManager | None]) -> None:
     global _process_managers
     _process_managers = pms
 
@@ -95,6 +105,8 @@ async def _ensure_model_server(model_index: int = 0) -> None:
     if model_index < 0 or model_index >= len(_process_managers):
         return
     pm = _process_managers[model_index]
+    if pm is None:
+        return  # remote model — no local process to start
     if pm.state.value == "running":
         return
     if pm.state.value not in ("stopped", "error"):
@@ -135,12 +147,27 @@ def _resolve_backend(model_id: str | None) -> str | None:
     if idx is None:
         return None
     cfg = load_config()
+    m = cfg.models[idx]
+    if m.type == "remote":
+        return m.remote_address.rstrip("/") if m.remote_address else None
     return f"http://127.0.0.1:{cfg.api_server.llama_server_starting_port + idx}"
 
 
 def _default_backend() -> str:
     cfg = load_config()
     return f"http://127.0.0.1:{cfg.api_server.llama_server_starting_port}"
+
+
+def _rewrite_model_field(body: dict, model_id: str | None) -> dict:
+    """If the target model is remote with a remote_model_id, rewrite the model field."""
+    idx = _resolve_model_index(model_id)
+    if idx is None:
+        return body
+    cfg = load_config()
+    m = cfg.models[idx]
+    if m.type == "remote" and m.remote_model_id:
+        return {**body, "model": m.remote_model_id}
+    return body
 
 
 def _resolve_server_name(model_id: str | None) -> str:
@@ -285,7 +312,7 @@ def _openai_to_anthropic(oai_resp: dict, model: str) -> dict:
 
 
 async def _handle_anthropic_stream(
-    body: dict, backend: str, model: str, t0: float, server_name: str,
+    body: dict, backend: str, model: str, t0: float, server_name: str, request: Request,
 ) -> StreamingResponse:
     """Translate an OpenAI SSE stream into Anthropic SSE events."""
     oai_body = _anthropic_to_openai(body)
@@ -331,6 +358,9 @@ async def _handle_anthropic_stream(
                 ) as resp:
                     _log_resp(server_name, resp.status_code, streaming=True, elapsed=time.monotonic() - t0)
                     async for line in resp.aiter_lines():
+                        if await request.is_disconnected():
+                            _proxy_log(f"← [{server_name}] client disconnected, aborting stream")
+                            return
                         if not line.startswith("data: "):
                             continue
                         data = line[6:]
@@ -371,11 +401,13 @@ async def _handle_anthropic_stream(
                                     "delta": {"type": "text_delta", "text": text},
                                 },
                             ))
-        except httpx.ConnectError:
+        except _BACKEND_ERRORS as exc:
+            msg = _backend_error_msg(exc)
             _log_resp(server_name, 502, elapsed=time.monotonic() - t0)
+            _proxy_log(f"[{server_name}] {msg}")
             yield _emit(_sse(
                 "error",
-                {"type": "error", "error": {"type": "server_error", "message": "Backend unavailable"}},
+                {"type": "error", "error": {"type": "server_error", "message": msg}},
             ))
             return
 
@@ -429,8 +461,10 @@ async def _handle_anthropic(request: Request) -> JSONResponse | StreamingRespons
             status_code=503,
         )
 
+    body = _rewrite_model_field(body, model_id)
+
     if body.get("stream"):
-        return await _handle_anthropic_stream(body, backend, model, t0, server_name)
+        return await _handle_anthropic_stream(body, backend, model, t0, server_name, request)
 
     oai_body = _anthropic_to_openai(body)
     try:
@@ -444,16 +478,15 @@ async def _handle_anthropic(request: Request) -> JSONResponse | StreamingRespons
         oai_resp = resp.json()
         _log_resp(server_name, 200, elapsed=elapsed, size=len(resp.content))
         return JSONResponse(_openai_to_anthropic(oai_resp, model))
-    except httpx.ConnectError:
+    except _BACKEND_ERRORS as exc:
         elapsed = time.monotonic() - t0
+        msg = _backend_error_msg(exc)
         _log_resp(server_name, 502, elapsed=elapsed)
+        _proxy_log(f"[{server_name}] {msg}")
         return JSONResponse(
             {
                 "type": "error",
-                "error": {
-                    "type": "server_error",
-                    "message": "Backend llama-server is not running",
-                },
+                "error": {"type": "server_error", "message": msg},
             },
             status_code=502,
         )
@@ -531,9 +564,11 @@ async def openai_proxy(path: str, request: Request):
                     status_code=503,
                 )
 
+            body = _rewrite_model_field(body, model_id)
+
             # Streaming SSE passthrough
             if body.get("stream"):
-                return await _stream_passthrough(backend, path, body, t0, server_name)
+                return await _stream_passthrough(backend, path, body, t0, server_name, request)
 
             async with httpx.AsyncClient() as client:
                 resp = await client.request(
@@ -569,16 +604,18 @@ async def openai_proxy(path: str, request: Request):
             _log_resp(server_name, resp.status_code, elapsed=elapsed, size=len(resp.content))
             return JSONResponse(resp.json(), status_code=resp.status_code)
 
-    except httpx.ConnectError:
+    except _BACKEND_ERRORS as exc:
         elapsed = time.monotonic() - t0
+        msg = _backend_error_msg(exc)
         _log_resp(server_name, 502, elapsed=elapsed)
+        _proxy_log(f"[{server_name}] {msg}")
         return JSONResponse(
-            {"error": {"message": "Backend llama-server is not running", "type": "server_error"}},
+            {"error": {"message": msg, "type": "server_error"}},
             status_code=502,
         )
 
 
-async def _stream_passthrough(backend: str, path: str, body: dict, t0: float, server_name: str) -> StreamingResponse:
+async def _stream_passthrough(backend: str, path: str, body: dict, t0: float, server_name: str, request: Request) -> StreamingResponse:
     async def generate():
         total_bytes = 0
         try:
@@ -591,13 +628,18 @@ async def _stream_passthrough(backend: str, path: str, body: dict, t0: float, se
                 ) as resp:
                     _log_resp(server_name, resp.status_code, streaming=True, elapsed=time.monotonic() - t0)
                     async for line in resp.aiter_lines():
+                        if await request.is_disconnected():
+                            _proxy_log(f"← [{server_name}] client disconnected, aborting stream")
+                            return
                         chunk = line + "\n"
                         total_bytes += len(chunk.encode())
                         yield chunk
             _log_stream_end(server_name, time.monotonic() - t0, total_bytes)
-        except httpx.ConnectError:
+        except _BACKEND_ERRORS as exc:
+            msg = _backend_error_msg(exc)
             _log_resp(server_name, 502, elapsed=time.monotonic() - t0)
-            error = json.dumps({"error": {"message": "Backend llama-server is not running", "type": "server_error"}})
+            _proxy_log(f"[{server_name}] {msg}")
+            error = json.dumps({"error": {"message": msg, "type": "server_error"}})
             yield f"data: {error}\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")

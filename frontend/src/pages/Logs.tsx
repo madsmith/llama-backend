@@ -36,6 +36,8 @@ export default function Logs() {
   const { lines, connected, clear } = useLogs(wsSource);
   const [config, setConfig] = useState<ServerConfig | null>(null);
 
+  useEffect(() => { document.title = "Llama Manager - Logs"; }, []);
+
   useEffect(() => {
     api.getConfig().then(setConfig).catch(() => {});
   }, []);
@@ -45,6 +47,20 @@ export default function Logs() {
   const logHeader = source === "proxy"
     ? "Proxy Server"
     : models[modelIndex!]?.name ?? `Llama Server ${(modelIndex ?? 0) + 1}`;
+
+  // Redirect to proxy logs if current source is a remote model
+  useEffect(() => {
+    if (modelIndex != null && models.length > 0 && modelIndex < models.length) {
+      if ((models[modelIndex].type ?? "local") === "remote") {
+        navigate("/logs/proxy", { replace: true });
+      }
+    }
+  }, [modelIndex, models, navigate]);
+
+  // Only show local models in the card list
+  const localModels = models
+    .map((m, i) => ({ model: m, index: i }))
+    .filter(({ model }) => (model.type ?? "local") !== "remote");
 
   return (
     <div className="flex flex-col h-full">
@@ -58,7 +74,7 @@ export default function Logs() {
           />
           <ProxyControls status={proxyStatus} onAction={refreshProxy} />
         </div>
-        {models.map((m, i) => (
+        {localModels.map(({ model: m, index: i }) => (
           <ModelLogCard
             key={i}
             modelIndex={i}

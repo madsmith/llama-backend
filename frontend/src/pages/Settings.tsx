@@ -9,6 +9,8 @@ export default function Settings() {
   const [config, setConfig] = useState<ServerConfig>(defaultConfig);
   const [tab, setTab] = useState<SettingsTab>("manager");
 
+  useEffect(() => { document.title = "Llama Manager - Settings"; }, []);
+
   useEffect(() => {
     api.getConfig().then(setConfig).catch(() => {});
   }, []);

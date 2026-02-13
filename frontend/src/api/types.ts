@@ -1,5 +1,5 @@
 export interface ServerStatus {
-  state: "stopped" | "starting" | "running" | "stopping" | "error";
+  state: "stopped" | "starting" | "running" | "stopping" | "error" | "remote";
   pid: number | null;
   host: string | null;
   port: number | null;
@@ -18,6 +18,7 @@ export interface ModelAdvanced {
 }
 
 export interface ModelConfig {
+  type?: "local" | "remote";
   name: string | null;
   id: string | null;
   model_path: string;
@@ -25,6 +26,8 @@ export interface ModelConfig {
   n_gpu_layers: number;
   parallel: number;
   advanced: ModelAdvanced;
+  "remote-address"?: string;
+  "remote-model-id"?: string | null;
 }
 
 export interface WebUIConfig {
