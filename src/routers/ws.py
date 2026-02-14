@@ -60,7 +60,7 @@ async def logs_ws(ws: WebSocket, source: str = Query(default="model-0")):
                 break
 
             msg = q_task.result()
-            if msg is None:
+            if not msg:
                 break
             await ws.send_json(msg)
     except (WebSocketDisconnect, asyncio.CancelledError):

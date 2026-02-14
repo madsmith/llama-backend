@@ -19,9 +19,7 @@ _RE_PROMPT_PROGRESS = re.compile(
     r"slot update_slots: id\s+(\d+) \|.*\| prompt processing progress,"
     r"\s*(?:n_tokens|n_past)\s*=\s*(\d+).*progress\s*=\s*([\d.]+)"
 )
-_RE_PROMPT_DONE = re.compile(
-    r"slot update_slots: id\s+(\d+) \|.*\| prompt done"
-)
+_RE_PROMPT_DONE = re.compile(r"slot update_slots: id\s+(\d+) \|.*\| prompt done")
 
 log = logging.getLogger(__name__)
 
@@ -49,7 +47,9 @@ class ProcessManager:
         self._reader_task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
         self.prompt_progress: dict[int, dict] = {}  # slot_id -> progress info
-        log.debug("ProcessManager[%d] initialized, state=%s", model_index, self.state.value)
+        log.debug(
+            "ProcessManager[%d] initialized, state=%s", model_index, self.state.value
+        )
 
     def subscribe(self) -> asyncio.Queue[dict]:
         q: asyncio.Queue[dict] = asyncio.Queue(maxsize=256)
@@ -98,7 +98,9 @@ class ProcessManager:
             self.log_buffer.clear()
             self._set_state(ServerState.starting)
 
-            llama_server_path = adv.llama_server_path or cfg.api_server.llama_server_path
+            llama_server_path = (
+                adv.llama_server_path or cfg.api_server.llama_server_path
+            )
             if not llama_server_path:
                 self._fail("llama-server path not configured — set it in Settings")
                 return
@@ -119,12 +121,18 @@ class ProcessManager:
 
             cmd = [
                 str(server_path),
-                "--model", str(model_path),
-                "--host", llama_host,
-                "--port", str(llama_port),
-                "--ctx-size", str(model.ctx_size * model.parallel),
-                "--n-gpu-layers", str(model.n_gpu_layers),
-                "--parallel", str(model.parallel),
+                "--model",
+                str(model_path),
+                "--host",
+                llama_host,
+                "--port",
+                str(llama_port),
+                "--ctx-size",
+                str(model.ctx_size * model.parallel),
+                "--n-gpu-layers",
+                str(model.n_gpu_layers),
+                "--parallel",
+                str(model.parallel),
             ]
             if adv.slot_prompt_similarity is not None:
                 cmd += ["--slot-prompt-similarity", str(adv.slot_prompt_similarity)]
@@ -174,7 +182,9 @@ class ProcessManager:
             await self._stop_internal()
 
     async def _stop_internal(self) -> None:
-        log.debug("_stop_internal: state=%s, process=%s", self.state.value, self.process)
+        log.debug(
+            "_stop_internal: state=%s, process=%s", self.state.value, self.process
+        )
         if self.process is None or self.state == ServerState.stopped:
             log.debug("nothing to stop")
             return
@@ -216,11 +226,11 @@ class ProcessManager:
         await self.start()
 
     def shutdown_subscribers(self) -> None:
-        """Send None sentinel to all subscriber queues so WS handlers exit."""
+        """Send empty dict sentinel to all subscriber queues so WS handlers exit."""
         log.debug("shutting down %d subscribers", len(self._subscribers))
         for q in list(self._subscribers):
             try:
-                q.put_nowait(None)
+                q.put_nowait({})
             except asyncio.QueueFull:
                 pass
 
@@ -262,7 +272,9 @@ class ProcessManager:
                     if m:
                         slot_id = int(m.group(1))
                         self.prompt_progress[slot_id] = {
-                            "n_total": self.prompt_progress.get(slot_id, {}).get("n_total", 0),
+                            "n_total": self.prompt_progress.get(slot_id, {}).get(
+                                "n_total", 0
+                            ),
                             "n_processed": int(m.group(2)),
                             "progress": float(m.group(3)),
                         }
@@ -272,8 +284,7 @@ class ProcessManager:
                             self.prompt_progress.pop(int(m.group(1)), None)
 
                 if self.state == ServerState.starting and (
-                    "listening" in text.lower()
-                    or "server listening" in text.lower()
+                    "listening" in text.lower() or "server listening" in text.lower()
                 ):
                     self._set_state(ServerState.running)
         except asyncio.CancelledError:

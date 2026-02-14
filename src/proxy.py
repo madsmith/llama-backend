@@ -40,10 +40,10 @@ def proxy_unsubscribe(q: asyncio.Queue[dict]) -> None:
 
 
 def shutdown_proxy_subscribers() -> None:
-    """Send None sentinel to all subscriber queues so WS handlers exit."""
+    """Send empty dict sentinel to all subscriber queues so WS handlers exit."""
     for q in list(_proxy_subscribers):
         try:
-            q.put_nowait(None)
+            q.put_nowait({})
         except asyncio.QueueFull:
             pass
 
@@ -166,7 +166,9 @@ async def _ensure_model_server(model_index: int = 0) -> None:
         await asyncio.sleep(0.5)
         elapsed += 0.5
 
-    raise RuntimeError(f"Model server [{model_index}] did not become ready within {timeout}s")
+    raise RuntimeError(
+        f"Model server [{model_index}] did not become ready within {timeout}s"
+    )
 
 
 def _resolve_model_index(model_id: str | None) -> int | None:
@@ -226,9 +228,15 @@ def _resolve_server_name(model_id: str | None) -> str:
 # ---------------------------------------------------------------------------
 
 _STATUS_TEXT = {
-    200: "OK", 201: "Created", 204: "No Content",
-    400: "Bad Request", 404: "Not Found", 422: "Unprocessable Entity",
-    500: "Internal Server Error", 502: "Bad Gateway", 503: "Service Unavailable",
+    200: "OK",
+    201: "Created",
+    204: "No Content",
+    400: "Bad Request",
+    404: "Not Found",
+    422: "Unprocessable Entity",
+    500: "Internal Server Error",
+    502: "Bad Gateway",
+    503: "Service Unavailable",
 }
 
 
@@ -239,8 +247,11 @@ def _fmt_size(n: int) -> str:
 
 
 def _log_req(
-    server_name: str | None, method: str, path: str,
-    http_ver: str = "1.1", size: int | None = None,
+    server_name: str | None,
+    method: str,
+    path: str,
+    http_ver: str = "1.1",
+    size: int | None = None,
 ) -> None:
     route = f"[{server_name}]" if server_name else ""
     msg = f"{method} {path} HTTP/{http_ver}"
@@ -250,8 +261,12 @@ def _log_req(
 
 
 def _log_resp(
-    server_name: str | None, status: int, http_ver: str = "1.1",
-    *, streaming: bool = False, elapsed: float | None = None,
+    server_name: str | None,
+    status: int,
+    http_ver: str = "1.1",
+    *,
+    streaming: bool = False,
+    elapsed: float | None = None,
     size: int | None = None,
 ) -> None:
     route = f"[{server_name}]" if server_name else ""
@@ -269,7 +284,9 @@ def _log_resp(
 
 
 def _log_stream_end(
-    server_name: str | None, elapsed: float, size: int,
+    server_name: str | None,
+    elapsed: float,
+    size: int,
 ) -> None:
     route = f"[{server_name}]" if server_name else ""
     msg = f"stream complete ({elapsed:.2f}s) [{_fmt_size(size)}]"
@@ -279,6 +296,7 @@ def _log_stream_end(
 # ---------------------------------------------------------------------------
 # Anthropic /v1/messages translation
 # ---------------------------------------------------------------------------
+
 
 def _anthropic_to_openai(body: dict) -> dict:
     """Convert an Anthropic Messages API request to OpenAI chat/completions."""
@@ -351,7 +369,12 @@ def _openai_to_anthropic(oai_resp: dict, model: str) -> dict:
 
 
 async def _handle_anthropic_stream(
-    body: dict, backend: str, model: str, t0: float, server_name: str, request: Request,
+    body: dict,
+    backend: str,
+    model: str,
+    t0: float,
+    server_name: str,
+    request: Request,
 ) -> StreamingResponse:
     """Translate an OpenAI SSE stream into Anthropic SSE events."""
     oai_body = _anthropic_to_openai(body)
@@ -370,22 +393,24 @@ async def _handle_anthropic_stream(
             return s
 
         # message_start
-        yield _emit(_sse(
-            "message_start",
-            {
-                "type": "message_start",
-                "message": {
-                    "id": msg_id,
-                    "type": "message",
-                    "role": "assistant",
-                    "model": model,
-                    "content": [],
-                    "stop_reason": None,
-                    "stop_sequence": None,
-                    "usage": {"input_tokens": 0, "output_tokens": 0},
+        yield _emit(
+            _sse(
+                "message_start",
+                {
+                    "type": "message_start",
+                    "message": {
+                        "id": msg_id,
+                        "type": "message",
+                        "role": "assistant",
+                        "model": model,
+                        "content": [],
+                        "stop_reason": None,
+                        "stop_sequence": None,
+                        "usage": {"input_tokens": 0, "output_tokens": 0},
+                    },
                 },
-            },
-        ))
+            )
+        )
 
         try:
             async with httpx.AsyncClient() as client:
@@ -395,10 +420,17 @@ async def _handle_anthropic_stream(
                     json=oai_body,
                     timeout=None,
                 ) as resp:
-                    _log_resp(server_name, resp.status_code, streaming=True, elapsed=time.monotonic() - t0)
+                    _log_resp(
+                        server_name,
+                        resp.status_code,
+                        streaming=True,
+                        elapsed=time.monotonic() - t0,
+                    )
                     async for line in resp.aiter_lines():
                         if await request.is_disconnected():
-                            _proxy_log(f"← [{server_name}] client disconnected, aborting stream")
+                            _proxy_log(
+                                f"← [{server_name}] client disconnected, aborting stream"
+                            )
                             return
                         if not line.startswith("data: "):
                             continue
@@ -423,47 +455,63 @@ async def _handle_anthropic_stream(
                         text = delta.get("content")
                         if text is not None:
                             if not block_started:
-                                yield _emit(_sse(
-                                    "content_block_start",
-                                    {
-                                        "type": "content_block_start",
-                                        "index": 0,
-                                        "content_block": {"type": "text", "text": ""},
-                                    },
-                                ))
+                                yield _emit(
+                                    _sse(
+                                        "content_block_start",
+                                        {
+                                            "type": "content_block_start",
+                                            "index": 0,
+                                            "content_block": {
+                                                "type": "text",
+                                                "text": "",
+                                            },
+                                        },
+                                    )
+                                )
                                 block_started = True
-                            yield _emit(_sse(
-                                "content_block_delta",
-                                {
-                                    "type": "content_block_delta",
-                                    "index": 0,
-                                    "delta": {"type": "text_delta", "text": text},
-                                },
-                            ))
+                            yield _emit(
+                                _sse(
+                                    "content_block_delta",
+                                    {
+                                        "type": "content_block_delta",
+                                        "index": 0,
+                                        "delta": {"type": "text_delta", "text": text},
+                                    },
+                                )
+                            )
         except _BACKEND_ERRORS as exc:
             msg = _backend_error_msg(exc)
             _log_resp(server_name, 502, elapsed=time.monotonic() - t0)
             _proxy_log(f"[{server_name}] {msg}")
-            yield _emit(_sse(
-                "error",
-                {"type": "error", "error": {"type": "server_error", "message": msg}},
-            ))
+            yield _emit(
+                _sse(
+                    "error",
+                    {
+                        "type": "error",
+                        "error": {"type": "server_error", "message": msg},
+                    },
+                )
+            )
             return
 
         if block_started:
-            yield _emit(_sse(
-                "content_block_stop",
-                {"type": "content_block_stop", "index": 0},
-            ))
+            yield _emit(
+                _sse(
+                    "content_block_stop",
+                    {"type": "content_block_stop", "index": 0},
+                )
+            )
 
-        yield _emit(_sse(
-            "message_delta",
-            {
-                "type": "message_delta",
-                "delta": {"stop_reason": finish_reason, "stop_sequence": None},
-                "usage": {"output_tokens": output_tokens},
-            },
-        ))
+        yield _emit(
+            _sse(
+                "message_delta",
+                {
+                    "type": "message_delta",
+                    "delta": {"stop_reason": finish_reason, "stop_sequence": None},
+                    "usage": {"output_tokens": output_tokens},
+                },
+            )
+        )
         yield _emit(_sse("message_stop", {"type": "message_stop"}))
 
         _log_stream_end(server_name, time.monotonic() - t0, total_bytes)
@@ -483,7 +531,10 @@ async def _handle_anthropic(request: Request) -> JSONResponse | StreamingRespons
         _log_req(None, "POST", "/v1/messages", http_ver, req_size)
         _log_resp(None, 404)
         return JSONResponse(
-            {"type": "error", "error": {"type": "not_found", "message": f"Model not found: {model}"}},
+            {
+                "type": "error",
+                "error": {"type": "not_found", "message": f"Model not found: {model}"},
+            },
             status_code=404,
         )
 
@@ -504,7 +555,9 @@ async def _handle_anthropic(request: Request) -> JSONResponse | StreamingRespons
     body = _rewrite_model_field(body, model_id)
 
     if body.get("stream"):
-        return await _handle_anthropic_stream(body, backend, model, t0, server_name, request)
+        return await _handle_anthropic_stream(
+            body, backend, model, t0, server_name, request
+        )
 
     oai_body = _anthropic_to_openai(body)
     try:
@@ -535,6 +588,7 @@ async def _handle_anthropic(request: Request) -> JSONResponse | StreamingRespons
 # ---------------------------------------------------------------------------
 # Normalize OpenAI messages for llama-server compatibility
 # ---------------------------------------------------------------------------
+
 
 def _remap_developer_role(messages: list[dict]) -> list[dict]:
     """Map 'developer' role to 'system' for models that don't support it."""
@@ -569,7 +623,9 @@ def _normalize_messages(body: dict, model_index: int | None) -> dict:
         if isinstance(content, list):
             # [{"type":"text","text":"..."},...]  →  "..."
             content = "\n".join(
-                b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"
+                b.get("text", "")
+                for b in content
+                if isinstance(b, dict) and b.get("type") == "text"
             )
             msg = {**msg, "content": content}
         out.append(msg)
@@ -580,7 +636,10 @@ def _normalize_messages(body: dict, model_index: int | None) -> dict:
 # OpenAI passthrough
 # ---------------------------------------------------------------------------
 
-@proxy_app.api_route("/v1/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+
+@proxy_app.api_route(
+    "/v1/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"]
+)
 async def openai_proxy(path: str, request: Request):
     # Intercept Anthropic messages endpoint
     if path == "messages":
@@ -603,7 +662,12 @@ async def openai_proxy(path: str, request: Request):
                 _log_req(None, method, f"/v1/{path}", http_ver, req_size)
                 _log_resp(None, 404)
                 return JSONResponse(
-                    {"error": {"message": f"Model not found: {model_id}", "type": "not_found"}},
+                    {
+                        "error": {
+                            "message": f"Model not found: {model_id}",
+                            "type": "not_found",
+                        }
+                    },
                     status_code=404,
                 )
 
@@ -625,7 +689,9 @@ async def openai_proxy(path: str, request: Request):
 
             # Streaming SSE passthrough
             if body.get("stream"):
-                return await _stream_passthrough(backend, path, body, t0, server_name, request)
+                return await _stream_passthrough(
+                    backend, path, body, t0, server_name, request
+                )
 
             async with httpx.AsyncClient() as client:
                 resp = await client.request(
@@ -635,7 +701,9 @@ async def openai_proxy(path: str, request: Request):
                     timeout=None,
                 )
             elapsed = time.monotonic() - t0
-            _log_resp(server_name, resp.status_code, elapsed=elapsed, size=len(resp.content))
+            _log_resp(
+                server_name, resp.status_code, elapsed=elapsed, size=len(resp.content)
+            )
             return JSONResponse(resp.json(), status_code=resp.status_code)
         else:
             backend = _default_backend()
@@ -659,7 +727,9 @@ async def openai_proxy(path: str, request: Request):
                     timeout=None,
                 )
             elapsed = time.monotonic() - t0
-            _log_resp(server_name, resp.status_code, elapsed=elapsed, size=len(resp.content))
+            _log_resp(
+                server_name, resp.status_code, elapsed=elapsed, size=len(resp.content)
+            )
             return JSONResponse(resp.json(), status_code=resp.status_code)
 
     except _BACKEND_ERRORS as exc:
@@ -673,7 +743,9 @@ async def openai_proxy(path: str, request: Request):
         )
 
 
-async def _stream_passthrough(backend: str, path: str, body: dict, t0: float, server_name: str, request: Request) -> StreamingResponse:
+async def _stream_passthrough(
+    backend: str, path: str, body: dict, t0: float, server_name: str, request: Request
+) -> StreamingResponse:
     async def generate():
         total_bytes = 0
         try:
@@ -684,10 +756,17 @@ async def _stream_passthrough(backend: str, path: str, body: dict, t0: float, se
                     json=body,
                     timeout=None,
                 ) as resp:
-                    _log_resp(server_name, resp.status_code, streaming=True, elapsed=time.monotonic() - t0)
+                    _log_resp(
+                        server_name,
+                        resp.status_code,
+                        streaming=True,
+                        elapsed=time.monotonic() - t0,
+                    )
                     async for line in resp.aiter_lines():
                         if await request.is_disconnected():
-                            _proxy_log(f"← [{server_name}] client disconnected, aborting stream")
+                            _proxy_log(
+                                f"← [{server_name}] client disconnected, aborting stream"
+                            )
                             return
                         chunk = line + "\n"
                         total_bytes += len(chunk.encode())
@@ -707,6 +786,7 @@ async def _stream_passthrough(backend: str, path: str, body: dict, t0: float, se
 # SSE helper
 # ---------------------------------------------------------------------------
 
+
 def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
@@ -714,6 +794,7 @@ def _sse(event: str, data: dict) -> str:
 # ---------------------------------------------------------------------------
 # Lifecycle
 # ---------------------------------------------------------------------------
+
 
 async def start_proxy() -> None:
     global _server, _task, _proxy_host, _proxy_port, _proxy_started_at, _ttl_task
@@ -723,7 +804,11 @@ async def start_proxy() -> None:
         proxy_app,
         host=api.host,
         port=api.port,
-        log_level="debug" if os.environ.get("LLAMA_DEBUG") else "info" if os.environ.get("LLAMA_VERBOSE") else "warning",
+        log_level="debug"
+        if os.environ.get("LLAMA_DEBUG")
+        else "info"
+        if os.environ.get("LLAMA_VERBOSE")
+        else "warning",
     )
     _server = uvicorn.Server(config)
     _task = asyncio.create_task(_server.serve())
