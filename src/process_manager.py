@@ -173,6 +173,7 @@ class ProcessManager:
             "--parallel",
             str(model.parallel),
         ]
+
         if adv.slot_prompt_similarity is not None:
             cmd += ["--slot-prompt-similarity", str(adv.slot_prompt_similarity)]
 
@@ -181,6 +182,9 @@ class ProcessManager:
 
         if adv.repeat_last_n is not None:
             cmd += ["--repeat-last-n", str(adv.repeat_last_n)]
+
+        if adv.kv_cache or adv.slot_save_path:
+            cmd += ["--slots"]
 
         if adv.kv_cache:
             if adv.slot_save_path:
@@ -191,10 +195,6 @@ class ProcessManager:
                     cfg.models[model_index].effective_id or f"model-{model_index}"
                 )
                 slot_dir = Path(base).expanduser().resolve() / model_id
-            slot_dir.mkdir(parents=True, exist_ok=True)
-            cmd += ["--slots", "--slot-save-path", str(slot_dir)]
-        elif adv.slot_save_path:
-            slot_dir = Path(adv.slot_save_path).expanduser()
             slot_dir.mkdir(parents=True, exist_ok=True)
             cmd += ["--slot-save-path", str(slot_dir)]
 
