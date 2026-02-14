@@ -180,9 +180,11 @@ export default function ServerStatusCard({ name, status, slots, modelIndex, onCl
         </div>
         <span className="text-sm text-gray-400 font-mono">
           {isRemote
-            ? (remoteAddress || "—")
+            ? (remoteAddress
+              ? <a href={remoteAddress} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="hover:text-gray-200 transition">{remoteAddress}</a>
+              : "—")
             : status.host != null && status.port != null
-              ? `http://${status.host}:${status.port}`
+              ? <a href={`http://${status.host}:${status.port}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="hover:text-gray-200 transition">{`http://${status.host}:${status.port}`}</a>
               : "—"}
         </span>
       </div>
