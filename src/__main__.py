@@ -8,15 +8,19 @@ import os
 def main() -> None:
     parser = argparse.ArgumentParser(description="Llama Server Manager")
     parser.add_argument(
-        "--dev", action="store_true",
+        "--dev",
+        action="store_true",
         help="Dev mode: start Vite HMR server alongside the backend",
     )
     parser.add_argument(
-        "--verbose", "-v", action="store_true",
+        "--verbose",
+        "-v",
+        action="store_true",
         help="Show HTTP requests and server activity",
     )
     parser.add_argument(
-        "--debug", action="store_true",
+        "--debug",
+        action="store_true",
         help="Full debug logging (implies --verbose)",
     )
     parser.add_argument("--host", default="127.0.0.1")
@@ -44,7 +48,11 @@ def main() -> None:
     else:
         log_level = "warning"
 
+    if not args.dev:
+        print(f"[frontend] http://{args.host}:{args.port}")
+
     import uvicorn
+
     uvicorn.run(
         "src.main:app",
         host=args.host,
