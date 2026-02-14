@@ -123,27 +123,7 @@ class ProcessManager:
                 server_path, model_path, llama_host, llama_port, model
             )
 
-            self._log(f"$ {shlex.join(cmd)}")
-
-            try:
-                log.debug("calling create_subprocess_exec")
-                self.process = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.STDOUT,
-                )
-            except Exception as exc:
-                log.debug("spawn failed: %r", exc)
-                self._fail(f"failed to spawn: {type(exc).__name__}: {exc}")
-                return
-
-            self.pid = self.process.pid
-            self.host = llama_host
-            self.port = llama_port
-            self.started_at = time.time()
-            self._log(f"spawned pid {self.pid}")
-            log.debug("starting _read_output task")
-            self._reader_task = asyncio.create_task(self._read_output())
+            await self._spawn(cmd, llama_host, llama_port)
 
     @staticmethod
     def _build_command(
@@ -179,6 +159,28 @@ class ProcessManager:
             cmd += ["--swa-full"]
         cmd += adv.extra_args
         return cmd
+
+    async def _spawn(self, cmd: list[str], host: str, port: int) -> None:
+        self._log(f"$ {shlex.join(cmd)}")
+        try:
+            log.debug("calling create_subprocess_exec")
+            self.process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+        except Exception as exc:
+            log.debug("spawn failed: %r", exc)
+            self._fail(f"failed to spawn: {type(exc).__name__}: {exc}")
+            return
+
+        self.pid = self.process.pid
+        self.host = host
+        self.port = port
+        self.started_at = time.time()
+        self._log(f"spawned pid {self.pid}")
+        log.debug("starting _read_output task")
+        self._reader_task = asyncio.create_task(self._read_output())
 
     def _fail(self, msg: str) -> None:
         log.debug("_fail: %s", msg)
