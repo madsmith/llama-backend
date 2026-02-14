@@ -10,8 +10,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from ..config import load_config
+from .lifecycle import _ttl_checker, get_ttl_task, set_ttl_task
 from .openai import openai_proxy
-from .utils import _proxy_log, _ttl_checker, get_ttl_task, set_ttl_task
+from .subscription import proxy_log
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,7 @@ async def start_proxy() -> None:
     _proxy_port = api.port
     _proxy_started_at = time.time()
     logger.info("Proxy server started on %s:%s", api.host, api.port)
-    _proxy_log(f"Proxy started on {api.host}:{api.port}")
+    proxy_log(f"Proxy started on {api.host}:{api.port}")
     print(f"[proxy] started on {api.host}:{api.port}")
     set_ttl_task(asyncio.create_task(_ttl_checker()))
 
@@ -83,7 +84,7 @@ async def stop_proxy() -> None:
     _proxy_host = None
     _proxy_port = None
     _proxy_started_at = None
-    _proxy_log("Proxy stopped")
+    proxy_log("Proxy stopped")
     print("[proxy] stopped")
 
 

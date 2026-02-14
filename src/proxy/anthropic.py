@@ -8,21 +8,18 @@ import httpx
 from fastapi import Request
 from starlette.responses import JSONResponse, StreamingResponse
 
-from .translate import FINISH_MAP, anthropic_to_openai, openai_to_anthropic, sse
-from .utils import (
+from .lifecycle import ensure_model_server, touch_model
+from .logging import log_req, log_resp, log_stream_end
+from .models import (
     BACKEND_ERRORS,
-    _proxy_log,
     backend_error_msg,
-    ensure_model_server,
-    log_req,
-    log_resp,
-    log_stream_end,
     resolve_backend,
     resolve_model_index,
     resolve_server_name,
     rewrite_model_field,
-    touch_model,
 )
+from .subscription import proxy_log
+from .translate import FINISH_MAP, anthropic_to_openai, openai_to_anthropic, sse
 
 
 async def _stream_passthrough(
@@ -85,7 +82,7 @@ async def _stream_passthrough(
                     )
                     async for line in resp.aiter_lines():
                         if await request.is_disconnected():
-                            _proxy_log(
+                            proxy_log(
                                 f"\u2190 [{server_name}] client disconnected, aborting stream"
                             )
                             return
@@ -139,7 +136,7 @@ async def _stream_passthrough(
         except BACKEND_ERRORS as exc:
             msg = backend_error_msg(exc)
             log_resp(server_name, 502, elapsed=time.monotonic() - t0)
-            _proxy_log(f"[{server_name}] {msg}")
+            proxy_log(f"[{server_name}] {msg}")
             yield _emit(
                 sse(
                     "error",
@@ -233,7 +230,7 @@ async def handle_anthropic(request: Request) -> JSONResponse | StreamingResponse
         elapsed = time.monotonic() - t0
         msg = backend_error_msg(exc)
         log_resp(server_name, 502, elapsed=elapsed)
-        _proxy_log(f"[{server_name}] {msg}")
+        proxy_log(f"[{server_name}] {msg}")
         return JSONResponse(
             {
                 "type": "error",
