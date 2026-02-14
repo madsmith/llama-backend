@@ -175,10 +175,13 @@ class ProcessManager:
         ]
         if adv.slot_prompt_similarity is not None:
             cmd += ["--slot-prompt-similarity", str(adv.slot_prompt_similarity)]
+
         if adv.repeat_penalty is not None:
             cmd += ["--repeat-penalty", str(adv.repeat_penalty)]
+
         if adv.repeat_last_n is not None:
             cmd += ["--repeat-last-n", str(adv.repeat_last_n)]
+
         if adv.kv_cache:
             if adv.slot_save_path:
                 slot_dir = Path(adv.slot_save_path).expanduser().resolve()
@@ -194,8 +197,10 @@ class ProcessManager:
             slot_dir = Path(adv.slot_save_path).expanduser()
             slot_dir.mkdir(parents=True, exist_ok=True)
             cmd += ["--slot-save-path", str(slot_dir)]
+
         if adv.swa_full:
             cmd += ["--swa-full"]
+
         cmd += adv.extra_args
         return cmd
 
