@@ -7,12 +7,20 @@ import ServerControls from "../components/ServerControls";
 import ProxyStatusCard from "../components/ProxyStatusCard";
 import ProxyControls from "../components/ProxyControls";
 import HealthCard from "../components/HealthCard";
-import { useServerStatus, useProxyStatus, useHealth, useSlots, pollRatesFromConfig } from "../api/hooks";
+import {
+  useServerStatus,
+  useProxyStatus,
+  useHealth,
+  useSlots,
+  pollRatesFromConfig,
+} from "../api/hooks";
 
 interface ServerSnapshot {
   name: string;
   status: ServerStatus;
   health: HealthStatus | null;
+  autoStart: boolean;
+  hasTTL: boolean;
 }
 
 interface PollRates {
@@ -23,22 +31,38 @@ interface PollRates {
   slotsActive?: number;
 }
 
-function ModelPanel({ modelIndex, name, isRemote, remoteAddress, onSnapshot, poll }: {
+function ModelPanel({
+  modelIndex,
+  name,
+  isRemote,
+  remoteAddress,
+  autoStart,
+  hasTTL,
+  onSnapshot,
+  poll,
+}: {
   modelIndex: number;
   name: string;
   isRemote: boolean;
   remoteAddress?: string;
+  autoStart: boolean;
+  hasTTL: boolean;
   onSnapshot: (index: number, snap: ServerSnapshot) => void;
   poll?: PollRates;
 }) {
   const navigate = useNavigate();
   const { status, refresh } = useServerStatus(modelIndex, poll?.serverStatus);
-  const slots = useSlots(modelIndex, poll?.slots, poll?.slotsActive, status.state);
+  const slots = useSlots(
+    modelIndex,
+    poll?.slots,
+    poll?.slotsActive,
+    status.state,
+  );
   const health = useHealth(modelIndex, poll?.health);
 
   useEffect(() => {
-    onSnapshot(modelIndex, { name, status, health });
-  }, [modelIndex, name, status, health, onSnapshot]);
+    onSnapshot(modelIndex, { name, status, health, autoStart, hasTTL });
+  }, [modelIndex, name, status, health, autoStart, hasTTL, onSnapshot]);
 
   return (
     <div className="space-y-4">
@@ -51,7 +75,13 @@ function ModelPanel({ modelIndex, name, isRemote, remoteAddress, onSnapshot, pol
         remoteAddress={remoteAddress}
         health={isRemote ? health : undefined}
       />
-      {!isRemote && <ServerControls status={status} modelIndex={modelIndex} onAction={refresh} />}
+      {!isRemote && (
+        <ServerControls
+          status={status}
+          modelIndex={modelIndex}
+          onAction={refresh}
+        />
+      )}
     </div>
   );
 }
@@ -59,13 +89,22 @@ function ModelPanel({ modelIndex, name, isRemote, remoteAddress, onSnapshot, pol
 export default function Dashboard() {
   const [config, setConfig] = useState<ServerConfig | null>(null);
   const poll = pollRatesFromConfig(config);
-  const { status: proxyStatus, refresh: refreshProxy } = useProxyStatus(poll.proxyStatus);
-  const [snapshots, setSnapshots] = useState<Map<number, ServerSnapshot>>(new Map());
-
-  useEffect(() => { document.title = "Llama Manager - Dashboard"; }, []);
+  const { status: proxyStatus, refresh: refreshProxy } = useProxyStatus(
+    poll.proxyStatus,
+  );
+  const [snapshots, setSnapshots] = useState<Map<number, ServerSnapshot>>(
+    new Map(),
+  );
 
   useEffect(() => {
-    api.getConfig().then(setConfig).catch(() => {});
+    document.title = "Llama Manager - Dashboard";
+  }, []);
+
+  useEffect(() => {
+    api
+      .getConfig()
+      .then(setConfig)
+      .catch(() => {});
   }, []);
 
   const handleSnapshot = useCallback((index: number, snap: ServerSnapshot) => {
@@ -77,7 +116,9 @@ export default function Dashboard() {
   }, []);
 
   const models = config?.models ?? [];
-  const servers = models.map((_, i) => snapshots.get(i)).filter((s): s is ServerSnapshot => s != null);
+  const servers = models
+    .map((_, i) => snapshots.get(i))
+    .filter((s): s is ServerSnapshot => s != null);
 
   return (
     <div className="space-y-6">
@@ -94,6 +135,8 @@ export default function Dashboard() {
             name={m.name ?? `Llama Server ${i + 1}`}
             isRemote={(m.type ?? "local") === "remote"}
             remoteAddress={m["remote-address"]}
+            autoStart={m["auto-start"] ?? false}
+            hasTTL={m["model-ttl"] != null}
             onSnapshot={handleSnapshot}
             poll={poll}
           />
