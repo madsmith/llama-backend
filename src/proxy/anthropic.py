@@ -25,10 +25,10 @@ from .utils import (
 )
 
 
-async def _handle_anthropic_stream(
-    body: dict,
+async def _stream_passthrough(
     backend: str,
     model: str,
+    body: dict,
     t0: float,
     server_name: str,
     request: Request,
@@ -215,9 +215,7 @@ async def handle_anthropic(request: Request) -> JSONResponse | StreamingResponse
     body = rewrite_model_field(body, model_id)
 
     if body.get("stream"):
-        return await _handle_anthropic_stream(
-            body, backend, model, t0, server_name, request
-        )
+        return await _stream_passthrough(backend, model, body, t0, server_name, request)
 
     oai_body = anthropic_to_openai(body)
     try:
