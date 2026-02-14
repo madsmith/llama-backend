@@ -9,6 +9,7 @@ from enum import Enum
 from pathlib import Path
 
 from .config import AppConfig, load_config
+from .kv_cache import resolve_slot_save_path
 from .log_buffer import LogBuffer
 
 # Regexes for parsing prompt processing progress from llama-server logs
@@ -183,18 +184,11 @@ class ProcessManager:
         if adv.repeat_last_n is not None:
             cmd += ["--repeat-last-n", str(adv.repeat_last_n)]
 
-        if adv.kv_cache or adv.slot_save_path:
+        slot_dir = resolve_slot_save_path(cfg, model_index)
+        if slot_dir is not None or adv.slot_save_path:
             cmd += ["--slots"]
 
-        if adv.kv_cache:
-            if adv.slot_save_path:
-                slot_dir = Path(adv.slot_save_path).expanduser().resolve()
-            else:
-                base = cfg.web_ui.slot_save_path or "./slot_saves"
-                model_id = (
-                    cfg.models[model_index].effective_id or f"model-{model_index}"
-                )
-                slot_dir = Path(base).expanduser().resolve() / model_id
+        if slot_dir is not None:
             slot_dir.mkdir(parents=True, exist_ok=True)
             cmd += ["--slot-save-path", str(slot_dir)]
 

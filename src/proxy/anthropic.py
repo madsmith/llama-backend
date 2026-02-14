@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 import uuid
 
@@ -8,6 +9,14 @@ import httpx
 from fastapi import Request
 from starlette.responses import JSONResponse, StreamingResponse
 
+from ..config import load_config
+from ..kv_cache import (
+    CacheHit,
+    CacheMiss,
+    KVCacheProvider,
+    SlotAvailabilityProvider,
+    resolve_slot_save_path,
+)
 from .lifecycle import ensure_model_server, touch_model
 from .logging import log_req, log_resp, log_stream_end
 from .models import (
@@ -18,8 +27,11 @@ from .models import (
     resolve_server_name,
     rewrite_model_field,
 )
+from .slots import slot_restore, slot_save
 from .subscription import proxy_log
 from .translate import FINISH_MAP, anthropic_to_openai, openai_to_anthropic, sse
+
+logger = logging.getLogger(__name__)
 
 
 async def _stream_passthrough(
@@ -29,9 +41,15 @@ async def _stream_passthrough(
     t0: float,
     server_name: str,
     request: Request,
+    oai_body: dict | None = None,
+    cache_save: tuple | None = None,
 ) -> StreamingResponse:
-    """Translate an OpenAI SSE stream into Anthropic SSE events."""
-    oai_body = anthropic_to_openai(body)
+    """Translate an OpenAI SSE stream into Anthropic SSE events.
+
+    cache_save: optional (kv_cache, cache_id, slot_id, slots) tuple for post-stream save.
+    """
+    if oai_body is None:
+        oai_body = anthropic_to_openai(body)
 
     async def generate():
         msg_id = f"msg_{uuid.uuid4().hex[:24]}"
@@ -173,6 +191,12 @@ async def _stream_passthrough(
 
         log_stream_end(server_name, time.monotonic() - t0, total_bytes)
 
+        if cache_save:
+            kv, cache_id, sid, sa = cache_save
+            if await slot_save(backend, sid, f"{cache_id}.bin"):
+                kv.record_save(cache_id, sid)
+            await sa.free(sid, cache_id)
+
     return StreamingResponse(generate(), media_type="text/event-stream")
 
 
@@ -211,10 +235,66 @@ async def handle_anthropic(request: Request) -> JSONResponse | StreamingResponse
     touch_model(model_index)
     body = rewrite_model_field(body, model_id)
 
-    if body.get("stream"):
-        return await _stream_passthrough(backend, model, body, t0, server_name, request)
-
+    # ----- KV cache logic (operates on translated OAI messages) -----
     oai_body = anthropic_to_openai(body)
+    cfg = load_config()
+    slot_dir = resolve_slot_save_path(cfg, model_index)
+    kv = None
+    result = None  # CacheHit | CacheMiss | CacheInvalid
+    slot_id = None
+    slots = None
+
+    if slot_dir is not None:
+        kv = KVCacheProvider.get(slot_dir)
+        slots = SlotAvailabilityProvider.get(
+            model_index,
+            cfg.models[model_index].parallel,
+        )
+        assert kv is not None
+        assert slots is not None
+        messages = oai_body.get("messages", [])
+        result = kv.get(messages)
+        # TODO - Remove
+        logger.warning("KV cache: %s", type(result).__name__)
+
+        if isinstance(result, (CacheHit, CacheMiss)):
+            slot_id = await slots.get_available()
+            if slot_id is None:
+                # TODO - Remove
+                logger.warning("KV cache: no slots available")
+            elif isinstance(result, CacheHit):
+                cache_id = result.get_cache_id()
+                restored = await slot_restore(backend, slot_id, f"{cache_id}.bin")
+                if restored:
+                    kv.record_restore(cache_id, slot_id)
+                    oai_body = {**oai_body, "id_slot": slot_id}
+                else:
+                    await slots.free(slot_id)
+                    slot_id = None
+            else:
+                # TODO - Remove
+                logger.warning("KV cache: miss, using slot %d", slot_id)
+                oai_body = {**oai_body, "id_slot": slot_id}
+
+    if body.get("stream"):
+        cs = (
+            (kv, result.get_cache_id(), slot_id, slots)
+            if isinstance(result, CacheMiss) and slot_id is not None
+            else None
+        )
+        if slot_id is not None and slots is not None and cs is None:
+            await slots.free(slot_id)
+        return await _stream_passthrough(
+            backend,
+            model,
+            body,
+            t0,
+            server_name,
+            request,
+            oai_body=oai_body,
+            cache_save=cs,
+        )
+
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(
@@ -225,6 +305,18 @@ async def handle_anthropic(request: Request) -> JSONResponse | StreamingResponse
         elapsed = time.monotonic() - t0
         oai_resp = resp.json()
         log_resp(server_name, 200, elapsed=elapsed, size=len(resp.content))
+
+        # Save KV cache on non-streaming cache miss
+        if (
+            isinstance(result, CacheMiss)
+            and slot_id is not None
+            and resp.status_code == 200
+        ):
+            assert kv is not None
+            cache_id = result.get_cache_id()
+            if await slot_save(backend, slot_id, f"{cache_id}.bin"):
+                kv.record_save(cache_id, slot_id)
+
         return JSONResponse(openai_to_anthropic(oai_resp, model))
     except BACKEND_ERRORS as exc:
         elapsed = time.monotonic() - t0
@@ -238,3 +330,11 @@ async def handle_anthropic(request: Request) -> JSONResponse | StreamingResponse
             },
             status_code=502,
         )
+    finally:
+        if slot_id is not None and slots is not None:
+            cache_id = (
+                result.get_cache_id()
+                if isinstance(result, (CacheHit, CacheMiss))
+                else None
+            )
+            await slots.free(slot_id, cache_id)

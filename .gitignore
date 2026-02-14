@@ -20,3 +20,4 @@ uv.lock
 *.swo
 .DS_Store
 slot_output/*
+slot_saves
