@@ -20,7 +20,9 @@ class ModelAdvanced(BaseModel):
 
     llama_server_path: str = ""
     stream: bool = True
-    supports_developer_role: bool = Field(default=False, alias="supports-developer-role")
+    supports_developer_role: bool = Field(
+        default=False, alias="supports-developer-role"
+    )
     slot_prompt_similarity: float | None = None
     repeat_penalty: float | None = None
     repeat_last_n: int | None = None
@@ -45,7 +47,6 @@ class ModelConfig(BaseModel):
     remote_address: str = Field(default="", alias="remote-address")
     remote_model_id: str | None = Field(default=None, alias="remote-model-id")
 
-
     @property
     def effective_id(self) -> str:
         """Return explicit id, or derive from model_path/remote info."""
@@ -55,10 +56,13 @@ class ModelConfig(BaseModel):
             if self.remote_model_id:
                 return self.remote_model_id
             if self.remote_address:
-                return self.remote_address.rstrip("/").rsplit("/", 1)[-1].rsplit(":", 1)[0]
+                return (
+                    self.remote_address.rstrip("/").rsplit("/", 1)[-1].rsplit(":", 1)[0]
+                )
             return ""
         if self.model_path:
             from pathlib import PurePosixPath
+
             stem = PurePosixPath(self.model_path).stem
             return stem.lower()
         return ""
@@ -80,7 +84,9 @@ class ApiServerConfig(BaseModel):
 
     host: str = "0.0.0.0"
     port: int = 1234
-    llama_server_starting_port: int = Field(default=3210, alias="llama-server-starting-port")
+    llama_server_starting_port: int = Field(
+        default=3210, alias="llama-server-starting-port"
+    )
     llama_server_path: str = Field(default="", alias="llama-server-path")
     jit_model_server: bool = Field(default=True, alias="jit-model-server")
     jit_timeout: int | None = Field(default=None, alias="jit-timeout")
@@ -91,20 +97,25 @@ class AppConfig(BaseModel):
 
     models: list[ModelConfig] = [ModelConfig()]
     web_ui: WebUIConfig = Field(default_factory=WebUIConfig, alias="web-ui")
-    api_server: ApiServerConfig = Field(default_factory=ApiServerConfig, alias="api-server")
+    api_server: ApiServerConfig = Field(
+        default_factory=ApiServerConfig, alias="api-server"
+    )
 
 
 def load_config() -> AppConfig:
-    if CONFIG_PATH.exists():
+    is_missing = not CONFIG_PATH.exists()
+    if is_missing:
+        cfg = AppConfig()
+    else:
         data = json.loads(CONFIG_PATH.read_text())
         cfg = AppConfig(**data)
-    else:
-        cfg = AppConfig()
 
     if not cfg.api_server.llama_server_path:
         cfg.api_server.llama_server_path = _find_llama_server()
 
-    save_config(cfg)
+    if is_missing:
+        save_config(cfg)
+
     return cfg
 
 
