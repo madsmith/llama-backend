@@ -98,32 +98,38 @@ class ProcessManager:
             self.log_buffer.clear()
             self._set_state(ServerState.starting)
 
-            llama_server_path = (
-                adv.llama_server_path or cfg.api_server.llama_server_path
-            )
-            if not llama_server_path:
-                self._fail("llama-server path not configured — set it in Settings")
-                return
-            if not model.model_path:
-                self._fail("model path not configured — set it in Settings")
+            try:
+                server_path = self._resolve_llama_server_path(cfg, model)
+                model_path = self._resolve_model_path(model)
+            except FileNotFoundError:
                 return
 
-            server_path = Path(llama_server_path).expanduser()
-            model_path = Path(model.model_path).expanduser()
             log.debug("resolved server_path=%s, model_path=%s", server_path, model_path)
-
-            if not server_path.exists():
-                self._fail(f"llama-server not found: {server_path}")
-                return
-            if not model_path.exists():
-                self._fail(f"model not found: {model_path}")
-                return
-
             cmd = self._build_command(
                 server_path, model_path, llama_host, llama_port, model
             )
-
             await self._spawn(cmd, llama_host, llama_port)
+
+    def _resolve_llama_server_path(self, cfg: AppConfig, model) -> Path:
+        raw = model.advanced.llama_server_path or cfg.api_server.llama_server_path
+        if not raw:
+            self._fail("llama-server path not configured — set it in Settings")
+            raise FileNotFoundError
+        path = Path(raw).expanduser()
+        if not path.exists():
+            self._fail(f"llama-server not found: {path}")
+            raise FileNotFoundError
+        return path
+
+    def _resolve_model_path(self, model) -> Path:
+        if not model.model_path:
+            self._fail("model path not configured — set it in Settings")
+            raise FileNotFoundError
+        path = Path(model.model_path).expanduser()
+        if not path.exists():
+            self._fail(f"model not found: {path}")
+            raise FileNotFoundError
+        return path
 
     @staticmethod
     def _build_command(
