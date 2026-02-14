@@ -9,7 +9,7 @@ export interface ServerStatus {
 export interface ModelAdvanced {
   llama_server_path: string;
   stream: boolean;
-  "supports-developer-role": boolean;
+  supports_developer_role: boolean;
   slot_prompt_similarity: number | null;
   repeat_penalty: number | null;
   repeat_last_n: number | null;
@@ -27,36 +27,36 @@ export interface ModelConfig {
   ctx_size: number;
   n_gpu_layers: number;
   parallel: number;
-  "auto-start": boolean;
-  "model-ttl": number | null;
+  auto_start: boolean;
+  model_ttl: number | null;
   advanced: ModelAdvanced;
-  "remote-address"?: string;
-  "remote-model-id"?: string | null;
+  remote_address?: string;
+  remote_model_id?: string | null;
 }
 
 export interface WebUIConfig {
   log_buffer_size: number;
-  "slot-save-path"?: string;
-  "poll-server-status"?: number | null;
-  "poll-proxy-status"?: number | null;
-  "poll-health"?: number | null;
-  "poll-slots"?: number | null;
-  "poll-slots-active"?: number | null;
+  slot_save_path?: string;
+  poll_server_status?: number | null;
+  poll_proxy_status?: number | null;
+  poll_health?: number | null;
+  poll_slots?: number | null;
+  poll_slots_active?: number | null;
 }
 
 export interface ApiServerConfig {
   host: string;
   port: number;
-  "llama-server-starting-port": number;
-  "llama-server-path": string;
-  "jit-model-server": boolean;
-  "jit-timeout"?: number | null;
+  llama_server_starting_port: number;
+  llama_server_path: string;
+  jit_model_server: boolean;
+  jit_timeout?: number | null;
 }
 
 export interface ServerConfig {
   models: ModelConfig[];
-  "web-ui": WebUIConfig;
-  "api-server": ApiServerConfig;
+  web_ui: WebUIConfig;
+  api_server: ApiServerConfig;
 }
 
 export interface ProxyStatus {

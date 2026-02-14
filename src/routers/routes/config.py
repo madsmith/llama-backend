@@ -7,7 +7,7 @@ from ...process_manager import ProcessManager
 
 
 async def get_config():
-    return load_config().model_dump(by_alias=True)
+    return load_config().model_dump()
 
 
 async def put_config(cfg: AppConfig, request: Request):
@@ -37,4 +37,4 @@ async def put_config(cfg: AppConfig, request: Request):
     from ...proxy import set_process_managers
 
     set_process_managers(pms)
-    return cfg.model_dump(by_alias=True)
+    return cfg.model_dump()

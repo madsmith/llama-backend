@@ -134,9 +134,9 @@ export default function Dashboard() {
             modelIndex={i}
             name={m.name ?? `Llama Server ${i + 1}`}
             isRemote={(m.type ?? "local") === "remote"}
-            remoteAddress={m["remote-address"]}
-            autoStart={m["auto-start"] ?? false}
-            hasTTL={m["model-ttl"] != null}
+            remoteAddress={m.remote_address}
+            autoStart={m.auto_start ?? false}
+            hasTTL={m.model_ttl != null}
             onSnapshot={handleSnapshot}
             poll={poll}
           />

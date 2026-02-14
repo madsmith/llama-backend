@@ -14,12 +14,12 @@ export const defaultConfig: ServerConfig = {
       ctx_size: 65536,
       n_gpu_layers: -1,
       parallel: 2,
-      "auto-start": false,
-      "model-ttl": null,
+      auto_start: false,
+      model_ttl: null,
       advanced: {
         llama_server_path: "",
         stream: true,
-        "supports-developer-role": false,
+        supports_developer_role: false,
         slot_prompt_similarity: null,
         repeat_penalty: null,
         repeat_last_n: null,
@@ -28,25 +28,25 @@ export const defaultConfig: ServerConfig = {
         swa_full: false,
         extra_args: [],
       },
-      "remote-address": "",
-      "remote-model-id": null,
+      remote_address: "",
+      remote_model_id: null,
     },
   ],
-  "web-ui": {
+  web_ui: {
     log_buffer_size: 10_000,
-    "slot-save-path": "",
-    "poll-server-status": null,
-    "poll-proxy-status": null,
-    "poll-health": null,
-    "poll-slots": null,
-    "poll-slots-active": null,
+    slot_save_path: "",
+    poll_server_status: null,
+    poll_proxy_status: null,
+    poll_health: null,
+    poll_slots: null,
+    poll_slots_active: null,
   },
-  "api-server": {
+  api_server: {
     host: "0.0.0.0",
     port: 1234,
-    "llama-server-starting-port": 3210,
-    "llama-server-path": "",
-    "jit-model-server": true,
+    llama_server_starting_port: 3210,
+    llama_server_path: "",
+    jit_model_server: true,
   },
 };
 
@@ -142,12 +142,12 @@ export default function ConfigEditor({
           </label>
           <input
             type="number"
-            value={config["web-ui"].log_buffer_size}
+            value={config.web_ui.log_buffer_size}
             onChange={(e) =>
               setConfig({
                 ...config,
-                "web-ui": {
-                  ...config["web-ui"],
+                web_ui: {
+                  ...config.web_ui,
                   log_buffer_size: Number(e.target.value),
                 },
               })
@@ -164,14 +164,14 @@ export default function ConfigEditor({
           </label>
           <input
             type="text"
-            value={config["web-ui"]["slot-save-path"] ?? ""}
+            value={config.web_ui.slot_save_path ?? ""}
             placeholder="./slot_saves"
             onChange={(e) =>
               setConfig({
                 ...config,
-                "web-ui": {
-                  ...config["web-ui"],
-                  "slot-save-path": e.target.value,
+                web_ui: {
+                  ...config.web_ui,
+                  slot_save_path: e.target.value,
                 },
               })
             }
@@ -206,21 +206,21 @@ export default function ConfigEditor({
                     [
                       "Server Status",
                       "3000",
-                      "poll-server-status",
+                      "poll_server_status",
                       "Process state and uptime",
                     ],
                     [
                       "Proxy Status",
                       "5000",
-                      "poll-proxy-status",
+                      "poll_proxy_status",
                       "Proxy server availability",
                     ],
-                    ["Health", "5000", "poll-health", "Endpoint health checks"],
-                    ["Slots", "5000", "poll-slots", "Slot utilization data"],
+                    ["Health", "5000", "poll_health", "Endpoint health checks"],
+                    ["Slots", "5000", "poll_slots", "Slot utilization data"],
                     [
                       "Slots (active)",
                       "500",
-                      "poll-slots-active",
+                      "poll_slots_active",
                       "Rate when a slot is processing",
                     ],
                   ] as const
@@ -233,13 +233,13 @@ export default function ConfigEditor({
                     <input
                       type="number"
                       min={500}
-                      value={config["web-ui"][key] ?? ""}
+                      value={config.web_ui[key] ?? ""}
                       placeholder={placeholder}
                       onChange={(e) =>
                         setConfig({
                           ...config,
-                          "web-ui": {
-                            ...config["web-ui"],
+                          web_ui: {
+                            ...config.web_ui,
                             [key]:
                               e.target.value === ""
                                 ? null
@@ -283,13 +283,13 @@ export default function ConfigEditor({
           </label>
           <input
             type="text"
-            value={config["api-server"]["llama-server-path"]}
+            value={config.api_server.llama_server_path}
             onChange={(e) =>
               setConfig({
                 ...config,
-                "api-server": {
-                  ...config["api-server"],
-                  "llama-server-path": e.target.value,
+                api_server: {
+                  ...config.api_server,
+                  llama_server_path: e.target.value,
                 },
               })
             }
@@ -303,12 +303,12 @@ export default function ConfigEditor({
             </label>
             <input
               type="text"
-              value={config["api-server"].host}
+              value={config.api_server.host}
               onChange={(e) =>
                 setConfig({
                   ...config,
-                  "api-server": {
-                    ...config["api-server"],
+                  api_server: {
+                    ...config.api_server,
                     host: e.target.value,
                   },
                 })
@@ -322,12 +322,12 @@ export default function ConfigEditor({
             </label>
             <input
               type="number"
-              value={config["api-server"].port}
+              value={config.api_server.port}
               onChange={(e) =>
                 setConfig({
                   ...config,
-                  "api-server": {
-                    ...config["api-server"],
+                  api_server: {
+                    ...config.api_server,
                     port: Number(e.target.value),
                   },
                 })
@@ -342,13 +342,13 @@ export default function ConfigEditor({
           </label>
           <input
             type="number"
-            value={config["api-server"]["llama-server-starting-port"]}
+            value={config.api_server.llama_server_starting_port}
             onChange={(e) =>
               setConfig({
                 ...config,
-                "api-server": {
-                  ...config["api-server"],
-                  "llama-server-starting-port": Number(e.target.value),
+                api_server: {
+                  ...config.api_server,
+                  llama_server_starting_port: Number(e.target.value),
                 },
               })
             }
@@ -371,20 +371,20 @@ export default function ConfigEditor({
           </div>
           <input
             type="checkbox"
-            checked={config["api-server"]["jit-model-server"]}
+            checked={config.api_server.jit_model_server}
             onChange={(e) =>
               setConfig({
                 ...config,
-                "api-server": {
-                  ...config["api-server"],
-                  "jit-model-server": e.target.checked,
+                api_server: {
+                  ...config.api_server,
+                  jit_model_server: e.target.checked,
                 },
               })
             }
             className="h-4 w-4 rounded border-gray-700 bg-gray-800 accent-blue-500"
           />
         </label>
-        {config["api-server"]["jit-model-server"] && (
+        {config.api_server.jit_model_server && (
           <div>
             <label className="block text-sm font-medium text-gray-400 mb-1">
               JIT Timeout (seconds)
@@ -393,14 +393,14 @@ export default function ConfigEditor({
               type="number"
               min={10}
               max={600}
-              value={config["api-server"]["jit-timeout"] ?? ""}
+              value={config.api_server.jit_timeout ?? ""}
               placeholder="80"
               onChange={(e) =>
                 setConfig({
                   ...config,
-                  "api-server": {
-                    ...config["api-server"],
-                    "jit-timeout":
+                  api_server: {
+                    ...config.api_server,
+                    jit_timeout:
                       e.target.value === "" ? null : Number(e.target.value),
                   },
                 })
@@ -508,10 +508,10 @@ export default function ConfigEditor({
                 </label>
                 <input
                   type="text"
-                  value={model["remote-address"] ?? ""}
+                  value={model.remote_address ?? ""}
                   placeholder="http://192.168.1.100:8080"
                   onChange={(e) =>
-                    updateModel({ "remote-address": e.target.value })
+                    updateModel({ remote_address: e.target.value })
                   }
                   className="w-full rounded-md border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
                 />
@@ -525,10 +525,10 @@ export default function ConfigEditor({
                 </label>
                 <input
                   type="text"
-                  value={model["remote-model-id"] ?? ""}
+                  value={model.remote_model_id ?? ""}
                   placeholder="model-id-on-remote"
                   onChange={(e) =>
-                    updateModel({ "remote-model-id": e.target.value || null })
+                    updateModel({ remote_model_id: e.target.value || null })
                   }
                   className="w-full rounded-md border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
                 />
@@ -609,9 +609,9 @@ export default function ConfigEditor({
                 </div>
                 <input
                   type="checkbox"
-                  checked={model["auto-start"]}
+                  checked={model.auto_start}
                   onChange={(e) =>
-                    updateModel({ "auto-start": e.target.checked })
+                    updateModel({ auto_start: e.target.checked })
                   }
                   className="h-4 w-4 rounded border-gray-700 bg-gray-900 accent-blue-500"
                 />
@@ -624,11 +624,11 @@ export default function ConfigEditor({
                 <input
                   type="number"
                   min={1}
-                  value={model["model-ttl"] ?? ""}
+                  value={model.model_ttl ?? ""}
                   placeholder="indefinite"
                   onChange={(e) =>
                     updateModel({
-                      "model-ttl":
+                      model_ttl:
                         e.target.value === "" ? null : Number(e.target.value),
                     })
                   }
@@ -669,10 +669,10 @@ export default function ConfigEditor({
                     </span>
                     <input
                       type="checkbox"
-                      checked={adv["supports-developer-role"]}
+                      checked={adv.supports_developer_role}
                       onChange={(e) =>
                         updateAdv({
-                          "supports-developer-role": e.target.checked,
+                          supports_developer_role: e.target.checked,
                         })
                       }
                       className="h-4 w-4 rounded border-gray-700 bg-gray-900 accent-blue-500"
@@ -877,7 +877,7 @@ export default function ConfigEditor({
                       type="text"
                       value={adv.llama_server_path}
                       placeholder={
-                        config["api-server"]["llama-server-path"] || "not set"
+                        config.api_server.llama_server_path || "not set"
                       }
                       onChange={(e) =>
                         updateAdv({ llama_server_path: e.target.value })

@@ -11,13 +11,13 @@ import type {
 } from "./types";
 
 export function pollRatesFromConfig(cfg: ServerConfig | null) {
-  const w = cfg?.["web-ui"];
+  const w = cfg?.web_ui;
   return {
-    serverStatus: w?.["poll-server-status"] ?? undefined,
-    proxyStatus: w?.["poll-proxy-status"] ?? undefined,
-    health: w?.["poll-health"] ?? undefined,
-    slots: w?.["poll-slots"] ?? undefined,
-    slotsActive: w?.["poll-slots-active"] ?? undefined,
+    serverStatus: w?.poll_server_status ?? undefined,
+    proxyStatus: w?.poll_proxy_status ?? undefined,
+    health: w?.poll_health ?? undefined,
+    slots: w?.poll_slots ?? undefined,
+    slotsActive: w?.poll_slots_active ?? undefined,
   };
 }
 
@@ -31,7 +31,10 @@ export function useServerStatus(modelIndex = 0, pollMs = 3000) {
   });
 
   const poll = useCallback(() => {
-    api.getStatus(modelIndex).then(setStatus).catch(() => {});
+    api
+      .getStatus(modelIndex)
+      .then(setStatus)
+      .catch(() => {});
   }, [modelIndex]);
 
   useEffect(() => {
@@ -53,7 +56,10 @@ export function useProxyStatus(pollMs = 5000) {
   });
 
   const poll = useCallback(() => {
-    api.getProxyStatus().then(setStatus).catch(() => {});
+    api
+      .getProxyStatus()
+      .then(setStatus)
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -83,7 +89,12 @@ export function useHealth(modelIndex = 0, pollMs = 5000) {
   return health;
 }
 
-export function useSlots(modelIndex = 0, pollMs = 5000, activePollMs = 500, serverState?: string) {
+export function useSlots(
+  modelIndex = 0,
+  pollMs = 5000,
+  activePollMs = 500,
+  serverState?: string,
+) {
   const [slots, setSlots] = useState<SlotInfo[]>([]);
   const hasActive = slots.some((s) => s.is_processing);
   const effectiveMs = hasActive ? activePollMs : pollMs;

@@ -4,7 +4,7 @@ import json
 import shutil
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel
 
 CONFIG_PATH = Path(__file__).resolve().parent.parent / "server_config.json"
 
@@ -16,25 +16,19 @@ def _find_llama_server() -> str:
 
 
 class ModelAdvanced(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
     llama_server_path: str = ""
     stream: bool = True
-    supports_developer_role: bool = Field(
-        default=False, alias="supports-developer-role"
-    )
+    supports_developer_role: bool = False
     slot_prompt_similarity: float | None = None
     repeat_penalty: float | None = None
     repeat_last_n: int | None = None
-    kv_cache: bool = Field(default=False, alias="kv-cache")
+    kv_cache: bool = False
     slot_save_path: str = ""
     swa_full: bool = False
     extra_args: list[str] = []
 
 
 class ModelConfig(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
     type: str = "local"
     name: str | None = None
     id: str | None = None
@@ -42,11 +36,11 @@ class ModelConfig(BaseModel):
     ctx_size: int = 65536
     n_gpu_layers: int = -1
     parallel: int = 2
-    auto_start: bool = Field(default=False, alias="auto-start")
-    model_ttl: int | None = Field(default=None, alias="model-ttl")
+    auto_start: bool = False
+    model_ttl: int | None = None
     advanced: ModelAdvanced = ModelAdvanced()
-    remote_address: str = Field(default="", alias="remote-address")
-    remote_model_id: str | None = Field(default=None, alias="remote-model-id")
+    remote_address: str = ""
+    remote_model_id: str | None = None
 
     @property
     def effective_id(self) -> str:
@@ -70,38 +64,28 @@ class ModelConfig(BaseModel):
 
 
 class WebUIConfig(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
     log_buffer_size: int = 10_000
-    slot_save_path: str = Field(default="", alias="slot-save-path")
-    poll_server_status: int | None = Field(default=None, alias="poll-server-status")
-    poll_proxy_status: int | None = Field(default=None, alias="poll-proxy-status")
-    poll_health: int | None = Field(default=None, alias="poll-health")
-    poll_slots: int | None = Field(default=None, alias="poll-slots")
-    poll_slots_active: int | None = Field(default=None, alias="poll-slots-active")
+    slot_save_path: str = ""
+    poll_server_status: int | None = None
+    poll_proxy_status: int | None = None
+    poll_health: int | None = None
+    poll_slots: int | None = None
+    poll_slots_active: int | None = None
 
 
 class ApiServerConfig(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
     host: str = "0.0.0.0"
     port: int = 1234
-    llama_server_starting_port: int = Field(
-        default=3210, alias="llama-server-starting-port"
-    )
-    llama_server_path: str = Field(default="", alias="llama-server-path")
-    jit_model_server: bool = Field(default=True, alias="jit-model-server")
-    jit_timeout: int | None = Field(default=None, alias="jit-timeout")
+    llama_server_starting_port: int = 3210
+    llama_server_path: str = ""
+    jit_model_server: bool = True
+    jit_timeout: int | None = None
 
 
 class AppConfig(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
     models: list[ModelConfig] = [ModelConfig()]
-    web_ui: WebUIConfig = Field(default_factory=WebUIConfig, alias="web-ui")
-    api_server: ApiServerConfig = Field(
-        default_factory=ApiServerConfig, alias="api-server"
-    )
+    web_ui: WebUIConfig = WebUIConfig()
+    api_server: ApiServerConfig = ApiServerConfig()
 
 
 def load_config() -> AppConfig:
@@ -122,4 +106,4 @@ def load_config() -> AppConfig:
 
 
 def save_config(cfg: AppConfig) -> None:
-    CONFIG_PATH.write_text(json.dumps(cfg.model_dump(by_alias=True), indent=2) + "\n")
+    CONFIG_PATH.write_text(json.dumps(cfg.model_dump(), indent=2) + "\n")
