@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import type { HealthStatus, ProxyStatus, ServerStatus } from "../api/types";
 
 interface ServerInfo {
@@ -44,16 +45,17 @@ export default function HealthCard({ proxyStatus, servers }: Props) {
       <h3 className="mb-3 text-sm font-semibold text-gray-400 uppercase tracking-wider">
         Health
       </h3>
-      <div className="space-y-2">
-        <div className="flex items-center gap-3">
-          {proxyOk ? <Check /> : <Cross />}
-          <span className="text-sm text-gray-300">Proxy Server</span>
-          <span
-            className={`text-sm ${proxyOk ? "text-green-400" : "text-red-400"}`}
-          >
-            {proxyOk ? "running" : proxyStatus.state}
-          </span>
-        </div>
+      <div
+        className="inline-grid items-center gap-x-3 gap-y-2"
+        style={{ gridTemplateColumns: "auto auto auto" }}
+      >
+        {proxyOk ? <Check /> : <Cross />}
+        <span className="text-sm text-gray-300">Proxy Server</span>
+        <span
+          className={`text-sm ${proxyOk ? "text-green-400" : "text-red-400"}`}
+        >
+          {proxyOk ? "running" : proxyStatus.state}
+        </span>
         {servers.map((s) => {
           const ok = serverOk(s);
           const offline = isOffline(s);
@@ -73,22 +75,26 @@ export default function HealthCard({ proxyStatus, servers }: Props) {
                 ? "text-yellow-400"
                 : "text-red-400";
           return (
-            <div key={s.name} className="flex items-center gap-3">
+            <Fragment key={s.name}>
               {offline ? <Dot /> : ok ? <Check /> : <Cross />}
-              <span className="text-sm text-gray-300">{s.name}</span>
-              <span className={`text-sm ${stateColor}`}>{displayState}</span>
-              {isRemote && (
-                <span className="text-xs text-gray-600">remote</span>
-              )}
-              {s.health &&
-                (s.health.slots_idle != null ||
-                  s.health.slots_processing != null) && (
-                  <span className="text-sm text-gray-500">
-                    &middot; Idle: {s.health.slots_idle ?? "?"} &middot;
-                    Processing: {s.health.slots_processing ?? "?"}
-                  </span>
+              <span className="text-sm text-gray-300">
+                {s.name}
+                {isRemote && (
+                  <span className="ml-2 text-xs text-gray-600">remote</span>
                 )}
-            </div>
+              </span>
+              <span className={`text-sm ${stateColor}`}>
+                {displayState}
+                {s.health &&
+                  (s.health.slots_idle != null ||
+                    s.health.slots_processing != null) && (
+                    <span className="ml-2 text-gray-500">
+                      Idle: {s.health.slots_idle ?? "?"} &middot; Processing:{" "}
+                      {s.health.slots_processing ?? "?"}
+                    </span>
+                  )}
+              </span>
+            </Fragment>
           );
         })}
       </div>
