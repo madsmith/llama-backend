@@ -49,7 +49,11 @@ class LlamaClient:
             return None
 
     async def get_slots(self) -> list | None:
-        return await self._get("/slots")
+        result = await self._get("/slots")
+        assert result is None or isinstance(result, list)
+        return result
 
     async def get_props(self) -> dict | None:
-        return await self._get("/props")
+        result = await self._get("/props")
+        assert result is None or isinstance(result, dict)
+        return result

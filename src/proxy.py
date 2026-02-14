@@ -15,6 +15,7 @@ from starlette.responses import JSONResponse, StreamingResponse
 
 from .config import load_config
 from .log_buffer import LogBuffer
+from .process_manager import ProcessManager
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,6 @@ _proxy_started_at: float | None = None
 # ---------------------------------------------------------------------------
 # JIT model server start
 # ---------------------------------------------------------------------------
-from .process_manager import ProcessManager
 
 _process_managers: list[ProcessManager | None] = []
 
@@ -508,7 +508,10 @@ async def _handle_anthropic_stream(
                 {
                     "type": "message_delta",
                     "delta": {"stop_reason": finish_reason, "stop_sequence": None},
-                    "usage": {"output_tokens": output_tokens},
+                    "usage": {
+                        "input_tokens": input_tokens,
+                        "output_tokens": output_tokens,
+                    },
                 },
             )
         )
