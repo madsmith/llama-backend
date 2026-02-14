@@ -101,10 +101,7 @@ export function useSlots(
   const active = serverState === "running" || serverState === "remote";
 
   useEffect(() => {
-    if (!active) {
-      setSlots([]);
-      return;
-    }
+    if (!active) return;
     const fetch = () => {
       api
         .getSlots(modelIndex)
@@ -113,7 +110,10 @@ export function useSlots(
     };
     fetch();
     const id = setInterval(fetch, effectiveMs);
-    return () => clearInterval(id);
+    return () => {
+      clearInterval(id);
+      setSlots([]);
+    };
   }, [modelIndex, effectiveMs, active]);
 
   return slots;
@@ -140,7 +140,6 @@ export function useLogs(source = "model-0") {
 
   useEffect(() => {
     let cancelled = false;
-    setLines([]);
 
     function connect() {
       if (cancelled) return;
@@ -169,6 +168,7 @@ export function useLogs(source = "model-0") {
     return () => {
       cancelled = true;
       wsRef.current?.close();
+      setLines([]);
     };
   }, [source]);
 

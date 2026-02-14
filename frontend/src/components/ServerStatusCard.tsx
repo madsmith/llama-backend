@@ -44,7 +44,8 @@ function slotDetail(s: SlotInfo): string {
 
   const parts: string[] = [];
   if (nt?.n_decoded != null) parts.push(`${nt.n_decoded} tokens`);
-  if (nt?.n_remain != null && nt.n_remain !== -1) parts.push(`${nt.n_remain} left`);
+  if (nt?.n_remain != null && nt.n_remain !== -1)
+    parts.push(`${nt.n_remain} left`);
   return parts.length > 0 ? parts.join(" · ") : "generating";
 }
 
@@ -52,11 +53,17 @@ function slotTooltipParams(s: SlotInfo): [string, string][] {
   if (!s.is_processing) return [];
   const entries: [string, string][] = [];
   if (s.prompt_n_processed != null && s.prompt_n_total != null)
-    entries.push(["prompt", `${s.prompt_n_processed} / ${s.prompt_n_total} tokens`]);
+    entries.push([
+      "prompt",
+      `${s.prompt_n_processed} / ${s.prompt_n_total} tokens`,
+    ]);
   if (s.params) {
-    if (s.params.temperature != null) entries.push(["temperature", fmtFloat(s.params.temperature)]);
-    if (s.params.top_p != null) entries.push(["top_p", fmtFloat(s.params.top_p)]);
-    if (s.params.min_p != null) entries.push(["min_p", fmtFloat(s.params.min_p)]);
+    if (s.params.temperature != null)
+      entries.push(["temperature", fmtFloat(s.params.temperature)]);
+    if (s.params.top_p != null)
+      entries.push(["top_p", fmtFloat(s.params.top_p)]);
+    if (s.params.min_p != null)
+      entries.push(["min_p", fmtFloat(s.params.min_p)]);
     if (s.params.chat_format) entries.push(["format", s.params.chat_format]);
   }
   return entries;
@@ -95,14 +102,18 @@ function SlotRow({ slot, modelIndex }: { slot: SlotInfo; modelIndex: number }) {
       onMouseMove={onMove}
     >
       <span
-        className={`shrink-0 inline-block h-2 w-2 rounded-full translate-y-[-1px] ${slot.is_processing ? "bg-yellow-500" : "bg-green-500"}`}
+        className={`shrink-0 inline-block h-2 w-2 rounded-full -translate-y-px ${slot.is_processing ? "bg-yellow-500" : "bg-green-500"}`}
       />
       <Link
         to={`/${modelIndex}/slots`}
         onClick={(e) => e.stopPropagation()}
         className="text-gray-300 hover:text-white w-14 shrink-0 transition"
-      >Slot {slot.id}</Link>
-      <span className={`w-10 shrink-0 ${slot.is_processing ? "text-yellow-400" : "text-green-400"}`}>
+      >
+        Slot {slot.id}
+      </Link>
+      <span
+        className={`w-10 shrink-0 ${slot.is_processing ? "text-yellow-400" : "text-green-400"}`}
+      >
         {slot.is_processing ? "Busy" : "Idle"}
       </span>
       <span className="text-xs font-mono truncate text-gray-300">
@@ -112,7 +123,10 @@ function SlotRow({ slot, modelIndex }: { slot: SlotInfo; modelIndex: number }) {
       {visible && params.length > 0 && (
         <div
           className="fixed z-50 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 shadow-lg whitespace-nowrap pointer-events-none"
-          style={{ left: pos.x + TOOLTIP_OFFSET.x, top: pos.y + TOOLTIP_OFFSET.y }}
+          style={{
+            left: pos.x + TOOLTIP_OFFSET.x,
+            top: pos.y + TOOLTIP_OFFSET.y,
+          }}
         >
           <table className="text-xs">
             <tbody>
@@ -130,10 +144,15 @@ function SlotRow({ slot, modelIndex }: { slot: SlotInfo; modelIndex: number }) {
   );
 }
 
-function remoteDisplay(health: HealthStatus | null): { label: string; color: string } {
+function remoteDisplay(health: HealthStatus | null): {
+  label: string;
+  color: string;
+} {
   if (health == null) return { label: "Offline", color: "bg-red-500" };
-  if (health.status === "ok") return { label: "Running", color: "bg-green-500" };
-  if (health.status === "unknown") return { label: "Unknown", color: "bg-yellow-500" };
+  if (health.status === "ok")
+    return { label: "Running", color: "bg-green-500" };
+  if (health.status === "unknown")
+    return { label: "Unknown", color: "bg-yellow-500" };
   return { label: health.status, color: "bg-red-500" };
 }
 
@@ -148,13 +167,22 @@ interface Props {
   health?: HealthStatus | null;
 }
 
-export default function ServerStatusCard({ name, status, slots, modelIndex, onClick, selected, remoteAddress, health }: Props) {
+export default function ServerStatusCard({
+  name,
+  status,
+  slots,
+  modelIndex,
+  onClick,
+  selected,
+  remoteAddress,
+  health,
+}: Props) {
   const navigate = useNavigate();
   const isRemote = status.state === "remote";
   const remote = isRemote ? remoteDisplay(health ?? null) : null;
   return (
     <div
-      className={`w-96 min-h-[220px] rounded-xl border border-gray-800 bg-gray-900 pt-5 px-5 pb-3 flex flex-col ${selected ? "ring-2 ring-blue-500" : ""} ${onClick ? "cursor-pointer" : ""}`}
+      className={`w-96 min-h-55 rounded-xl border border-gray-800 bg-gray-900 pt-5 px-5 pb-3 flex flex-col ${selected ? "ring-2 ring-blue-500" : ""} ${onClick ? "cursor-pointer" : ""}`}
       onClick={onClick}
     >
       <div className="flex items-center justify-between mb-2">
@@ -163,7 +191,10 @@ export default function ServerStatusCard({ name, status, slots, modelIndex, onCl
         </span>
         <button
           title="Properties"
-          onClick={(e) => { e.stopPropagation(); navigate(`/${modelIndex}/properties`); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            navigate(`/${modelIndex}/properties`);
+          }}
           className="text-gray-600 hover:text-gray-300 transition text-sm leading-none"
         >
           ⓘ
@@ -172,20 +203,40 @@ export default function ServerStatusCard({ name, status, slots, modelIndex, onCl
       <div className="flex items-baseline justify-between">
         <div className="flex items-baseline gap-2.5">
           <span
-            className={`inline-block h-3 w-3 rounded-full translate-y-[-1px] ${isRemote ? remote!.color : (stateColors[status.state] ?? "bg-gray-600")}`}
+            className={`inline-block h-3 w-3 rounded-full -translate-y-px ${isRemote ? remote!.color : (stateColors[status.state] ?? "bg-gray-600")}`}
           />
           <span className="text-lg font-semibold">
-            {isRemote ? remote!.label : (stateLabels[status.state] ?? status.state)}
+            {isRemote
+              ? remote!.label
+              : (stateLabels[status.state] ?? status.state)}
           </span>
         </div>
         <span className="text-sm text-gray-400 font-mono">
-          {isRemote
-            ? (remoteAddress
-              ? <a href={remoteAddress} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="hover:text-gray-200 transition">{remoteAddress}</a>
-              : "—")
-            : status.host != null && status.port != null
-              ? <a href={`http://${status.host}:${status.port}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="hover:text-gray-200 transition">{`http://${status.host}:${status.port}`}</a>
-              : "—"}
+          {isRemote ? (
+            remoteAddress ? (
+              <a
+                href={remoteAddress}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="hover:text-gray-200 transition"
+              >
+                {remoteAddress}
+              </a>
+            ) : (
+              "—"
+            )
+          ) : status.host != null && status.port != null ? (
+            <a
+              href={`http://${status.host}:${status.port}`}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="hover:text-gray-200 transition"
+            >{`http://${status.host}:${status.port}`}</a>
+          ) : (
+            "—"
+          )}
         </span>
       </div>
 
@@ -205,7 +256,10 @@ export default function ServerStatusCard({ name, status, slots, modelIndex, onCl
           </>
         ) : (
           <>
-            <span>Uptime: {status.uptime != null ? formatUptime(status.uptime) : "—"}</span>
+            <span>
+              Uptime:{" "}
+              {status.uptime != null ? formatUptime(status.uptime) : "—"}
+            </span>
             <span>PID {status.pid ?? "—"}</span>
           </>
         )}

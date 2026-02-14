@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { ServerConfig } from "../api/types";
-import ConfigEditor, { defaultConfig } from "../components/ConfigEditor";
-import type { SettingsTab } from "../components/ConfigEditor";
+import ConfigEditor from "../components/ConfigEditor";
+import { defaultConfig } from "../components/config-defaults";
+import type { SettingsTab } from "../components/config-defaults";
 import { TabButton, PANEL_BG } from "../components/TabBar";
 
 export default function Settings() {
