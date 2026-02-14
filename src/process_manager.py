@@ -33,7 +33,7 @@ class ServerState(str, Enum):
 
 
 class ProcessManager:
-    def __init__(self, model_index: int = 0) -> None:
+    def __init__(self, model_index: int = 0, config: AppConfig | None = None) -> None:
         self.model_index = model_index
         self.state: ServerState = ServerState.stopped
         self.process: asyncio.subprocess.Process | None = None
@@ -41,7 +41,7 @@ class ProcessManager:
         self.host: str | None = None
         self.port: int | None = None
         self.started_at: float | None = None
-        cfg = load_config()
+        cfg = config or load_config()
         self.log_buffer = LogBuffer(maxlen=cfg.web_ui.log_buffer_size)
         self._subscribers: list[asyncio.Queue[dict]] = []
         self._reader_task: asyncio.Task | None = None

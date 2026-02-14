@@ -17,7 +17,7 @@ async def put_config(cfg: AppConfig, request: Request):
     while len(pms) < len(cfg.models):
         idx = len(pms)
         m = cfg.models[idx]
-        pms.append(None if m.type == "remote" else ProcessManager(idx))
+        pms.append(None if m.type == "remote" else ProcessManager(idx, cfg))
     # Update type for existing indices (local<->remote switch)
     for i, m in enumerate(cfg.models):
         if i >= len(pms):
@@ -27,7 +27,7 @@ async def put_config(cfg: AppConfig, request: Request):
             if pm is not None and pm.state.value == "stopped":
                 pms[i] = None
         elif m.type != "remote" and pms[i] is None:
-            pms[i] = ProcessManager(i)
+            pms[i] = ProcessManager(i, cfg)
     # Shrink if models were removed (only trim stopped managers from the end)
     while len(pms) > len(cfg.models):
         pm = pms[-1]

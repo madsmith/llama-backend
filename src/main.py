@@ -17,9 +17,15 @@ elif not logging.root.handlers:
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
 from .config import AppConfig, load_config
 from .process_manager import ProcessManager
-from .proxy import start_proxy, stop_proxy, shutdown_proxy_subscribers, set_process_managers
+from .proxy import (
+    set_process_managers,
+    shutdown_proxy_subscribers,
+    start_proxy,
+    stop_proxy,
+)
 from .routers import server, status, ws
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -31,7 +37,8 @@ DEV_MODE = os.environ.get("LLAMA_DEV", "").lower() in ("1", "true", "yes")
 
 async def _start_vite() -> asyncio.subprocess.Process:
     proc = await asyncio.create_subprocess_exec(
-        "pnpm", "dev",
+        "pnpm",
+        "dev",
         cwd=str(FRONTEND_DIR),
         stdout=None,
         stderr=None,
@@ -52,7 +59,7 @@ async def _stop_vite(proc: asyncio.subprocess.Process) -> None:
 
 def _make_process_managers(cfg: AppConfig) -> list[ProcessManager | None]:
     return [
-        None if m.type == "remote" else ProcessManager(i)
+        None if m.type == "remote" else ProcessManager(i, cfg)
         for i, m in enumerate(cfg.models)
     ]
 
