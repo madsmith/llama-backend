@@ -3,13 +3,14 @@ from __future__ import annotations
 from fastapi import Query, Request
 from fastapi.responses import JSONResponse
 
-from ... import llama_client
+from ...llama_client import LlamaClient
 
 
 async def get_slots(request: Request, model: int = Query(default=0)):
     pms = getattr(request.app.state, "process_managers", [])
     pm = pms[model] if model < len(pms) else None
-    data = await llama_client.get_slots(model)
+    client = LlamaClient(model)
+    data = await client.get_slots()
     if data is None:
         return JSONResponse({"error": "unavailable"}, status_code=503)
     if pm is not None:
