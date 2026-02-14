@@ -112,9 +112,13 @@ export function useSlots(
     const id = setInterval(fetch, effectiveMs);
     return () => {
       clearInterval(id);
-      setSlots([]);
     };
   }, [modelIndex, effectiveMs, active]);
+
+  // Clear slots only when the server is no longer active
+  useEffect(() => {
+    if (!active) setSlots([]);
+  }, [active]);
 
   return slots;
 }
