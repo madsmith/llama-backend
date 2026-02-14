@@ -23,6 +23,7 @@ export const defaultConfig: ServerConfig = {
         slot_prompt_similarity: null,
         repeat_penalty: null,
         repeat_last_n: null,
+        kv_cache: false,
         slot_save_path: "",
         swa_full: false,
         extra_args: [],
@@ -33,6 +34,7 @@ export const defaultConfig: ServerConfig = {
   ],
   "web-ui": {
     log_buffer_size: 10_000,
+    "slot-save-path": "",
     "poll-server-status": null,
     "poll-proxy-status": null,
     "poll-health": null,
@@ -59,7 +61,13 @@ interface Props {
   onDeleteModel: (index: number) => void;
 }
 
-export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDeleteModel }: Props) {
+export default function ConfigEditor({
+  tab,
+  config,
+  setConfig,
+  modelIndex,
+  onDeleteModel,
+}: Props) {
   const [advanced, setAdvanced] = useState(false);
   const [managerAdvanced, setManagerAdvanced] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -85,7 +93,9 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
   const updateModel = (patch: Partial<ModelConfig>) => {
     setConfig({
       ...config,
-      models: config.models.map((m, i) => i === modelIndex ? { ...m, ...patch } : m),
+      models: config.models.map((m, i) =>
+        i === modelIndex ? { ...m, ...patch } : m,
+      ),
     });
   };
 
@@ -136,7 +146,10 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
             onChange={(e) =>
               setConfig({
                 ...config,
-                "web-ui": { ...config["web-ui"], log_buffer_size: Number(e.target.value) },
+                "web-ui": {
+                  ...config["web-ui"],
+                  log_buffer_size: Number(e.target.value),
+                },
               })
             }
             className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
@@ -145,26 +158,73 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
         <p className="text-xs text-gray-600">
           Changes to log buffer size take effect on next restart.
         </p>
+        <div>
+          <label className="block text-sm font-medium text-gray-400 mb-1">
+            Slot Save Path
+          </label>
+          <input
+            type="text"
+            value={config["web-ui"]["slot-save-path"] ?? ""}
+            placeholder="./slot_saves"
+            onChange={(e) =>
+              setConfig({
+                ...config,
+                "web-ui": {
+                  ...config["web-ui"],
+                  "slot-save-path": e.target.value,
+                },
+              })
+            }
+            className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
+          />
+          <p className="mt-1 text-xs text-gray-600">
+            Base directory for KV cache saves. Each model gets a subdirectory by
+            model ID.
+          </p>
+        </div>
         <button
           type="button"
           onClick={() => setManagerAdvanced(!managerAdvanced)}
           className="flex items-center gap-1.5 text-sm font-medium text-gray-400 hover:text-gray-200 transition"
         >
-          <span className={`inline-block transition-transform ${managerAdvanced ? "rotate-90" : ""}`}>&#9654;</span>
+          <span
+            className={`inline-block transition-transform ${managerAdvanced ? "rotate-90" : ""}`}
+          >
+            &#9654;
+          </span>
           Advanced
         </button>
         {managerAdvanced && (
           <div className="space-y-3 border-l-2 border-gray-700 pl-6">
             <div>
-              <span className="text-sm font-medium text-gray-400">Polling Rates</span>
+              <span className="text-sm font-medium text-gray-400">
+                Polling Rates
+              </span>
               <div className="mt-2 ml-4 space-y-3">
-                {([
-                  ["Server Status", "3000", "poll-server-status", "Process state and uptime"],
-                  ["Proxy Status", "5000", "poll-proxy-status", "Proxy server availability"],
-                  ["Health", "5000", "poll-health", "Endpoint health checks"],
-                  ["Slots", "5000", "poll-slots", "Slot utilization data"],
-                  ["Slots (active)", "500", "poll-slots-active", "Rate when a slot is processing"],
-                ] as const).map(([label, placeholder, key, hint]) => (
+                {(
+                  [
+                    [
+                      "Server Status",
+                      "3000",
+                      "poll-server-status",
+                      "Process state and uptime",
+                    ],
+                    [
+                      "Proxy Status",
+                      "5000",
+                      "poll-proxy-status",
+                      "Proxy server availability",
+                    ],
+                    ["Health", "5000", "poll-health", "Endpoint health checks"],
+                    ["Slots", "5000", "poll-slots", "Slot utilization data"],
+                    [
+                      "Slots (active)",
+                      "500",
+                      "poll-slots-active",
+                      "Rate when a slot is processing",
+                    ],
+                  ] as const
+                ).map(([label, placeholder, key, hint]) => (
                   <div key={key} className="flex items-center justify-between">
                     <div>
                       <span className="text-sm text-gray-400">{label}</span>
@@ -180,7 +240,10 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
                           ...config,
                           "web-ui": {
                             ...config["web-ui"],
-                            [key]: e.target.value === "" ? null : Number(e.target.value),
+                            [key]:
+                              e.target.value === ""
+                                ? null
+                                : Number(e.target.value),
                           },
                         })
                       }
@@ -224,7 +287,10 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
             onChange={(e) =>
               setConfig({
                 ...config,
-                "api-server": { ...config["api-server"], "llama-server-path": e.target.value },
+                "api-server": {
+                  ...config["api-server"],
+                  "llama-server-path": e.target.value,
+                },
               })
             }
             className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
@@ -241,7 +307,10 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
               onChange={(e) =>
                 setConfig({
                   ...config,
-                  "api-server": { ...config["api-server"], host: e.target.value },
+                  "api-server": {
+                    ...config["api-server"],
+                    host: e.target.value,
+                  },
                 })
               }
               className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
@@ -257,7 +326,10 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
               onChange={(e) =>
                 setConfig({
                   ...config,
-                  "api-server": { ...config["api-server"], port: Number(e.target.value) },
+                  "api-server": {
+                    ...config["api-server"],
+                    port: Number(e.target.value),
+                  },
                 })
               }
               className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
@@ -274,13 +346,17 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
             onChange={(e) =>
               setConfig({
                 ...config,
-                "api-server": { ...config["api-server"], "llama-server-starting-port": Number(e.target.value) },
+                "api-server": {
+                  ...config["api-server"],
+                  "llama-server-starting-port": Number(e.target.value),
+                },
               })
             }
             className="w-28 rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
           />
           <p className="mt-1 text-xs text-gray-600">
-            Each model gets assigned 127.0.0.1 on this port + its index in the models list.
+            Each model gets assigned 127.0.0.1 on this port + its index in the
+            models list.
           </p>
         </div>
         <label className="flex items-center justify-between cursor-pointer">
@@ -289,7 +365,8 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
               JIT Model Server Start
             </span>
             <p className="text-xs text-gray-600">
-              Automatically start the model server when the proxy receives a request.
+              Automatically start the model server when the proxy receives a
+              request.
             </p>
           </div>
           <input
@@ -298,7 +375,10 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
             onChange={(e) =>
               setConfig({
                 ...config,
-                "api-server": { ...config["api-server"], "jit-model-server": e.target.checked },
+                "api-server": {
+                  ...config["api-server"],
+                  "jit-model-server": e.target.checked,
+                },
               })
             }
             className="h-4 w-4 rounded border-gray-700 bg-gray-800 accent-blue-500"
@@ -320,14 +400,16 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
                   ...config,
                   "api-server": {
                     ...config["api-server"],
-                    "jit-timeout": e.target.value === "" ? null : Number(e.target.value),
+                    "jit-timeout":
+                      e.target.value === "" ? null : Number(e.target.value),
                   },
                 })
               }
               className="w-28 rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
             />
             <p className="mt-1 text-xs text-gray-600">
-              Maximum seconds to wait for the model server to become ready. Default: 80.
+              Maximum seconds to wait for the model server to become ready.
+              Default: 80.
             </p>
           </div>
         )}
@@ -364,9 +446,7 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
           type="text"
           value={model.name ?? ""}
           placeholder={`Llama Server ${modelIndex + 1}`}
-          onChange={(e) =>
-            updateModel({ name: e.target.value || null })
-          }
+          onChange={(e) => updateModel({ name: e.target.value || null })}
           className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
         />
       </div>
@@ -377,10 +457,16 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
         <input
           type="text"
           value={model.id ?? ""}
-          placeholder={model.model_path ? model.model_path.split("/").pop()!.replace(/\.[^.]+$/, "").toLowerCase() : ""}
-          onChange={(e) =>
-            updateModel({ id: e.target.value || null })
+          placeholder={
+            model.model_path
+              ? model.model_path
+                  .split("/")
+                  .pop()!
+                  .replace(/\.[^.]+$/, "")
+                  .toLowerCase()
+              : ""
           }
+          onChange={(e) => updateModel({ id: e.target.value || null })}
           className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
         />
       </div>
@@ -392,7 +478,9 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
             type="button"
             onClick={() => updateModel({ type: "local" })}
             className={`px-4 py-2 text-sm font-medium rounded-t-lg transition ${
-              !isRemote ? `${NESTED_BG} text-gray-100` : "bg-gray-800/40 text-gray-500 hover:text-gray-300"
+              !isRemote
+                ? `${NESTED_BG} text-gray-100`
+                : "bg-gray-800/40 text-gray-500 hover:text-gray-300"
             }`}
           >
             Local
@@ -401,13 +489,17 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
             type="button"
             onClick={() => updateModel({ type: "remote" })}
             className={`px-4 py-2 text-sm font-medium rounded-t-lg transition ${
-              isRemote ? `${NESTED_BG} text-gray-100` : "bg-gray-800/40 text-gray-500 hover:text-gray-300"
+              isRemote
+                ? `${NESTED_BG} text-gray-100`
+                : "bg-gray-800/40 text-gray-500 hover:text-gray-300"
             }`}
           >
             Remote
           </button>
         </div>
-        <div className={`${NESTED_BG} rounded-b-lg rounded-tr-lg p-5 space-y-4`}>
+        <div
+          className={`${NESTED_BG} rounded-b-lg rounded-tr-lg p-5 space-y-4`}
+        >
           {isRemote ? (
             <>
               <div>
@@ -427,7 +519,9 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
               <div>
                 <label className="block text-sm font-medium text-gray-400 mb-1">
                   Remote Model ID
-                  <span className="ml-1 text-xs text-gray-600">(optional, rewrites model field in forwarded requests)</span>
+                  <span className="ml-1 text-xs text-gray-600">
+                    (optional, rewrites model field in forwarded requests)
+                  </span>
                 </label>
                 <input
                   type="text"
@@ -467,7 +561,9 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
                   />
                 </div>
                 <div className="mt-1 text-xs text-gray-500">
-                  Total context: {totalCtx.toLocaleString()} ({model.ctx_size.toLocaleString()} &times; {model.parallel} slots)
+                  Total context: {totalCtx.toLocaleString()} (
+                  {model.ctx_size.toLocaleString()} &times; {model.parallel}{" "}
+                  slots)
                 </div>
               </div>
 
@@ -492,7 +588,12 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
                     max={8}
                     value={model.parallel}
                     onChange={(e) =>
-                      updateModel({ parallel: Math.max(1, Math.min(8, Number(e.target.value))) })
+                      updateModel({
+                        parallel: Math.max(
+                          1,
+                          Math.min(8, Number(e.target.value)),
+                        ),
+                      })
                     }
                     className="w-24 rounded-md border border-gray-700 bg-gray-900 pl-3 pr-1 py-2 text-sm text-gray-100 font-mono text-right focus:border-blue-500 focus:outline-none"
                   />
@@ -509,7 +610,9 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
                 <input
                   type="checkbox"
                   checked={model["auto-start"]}
-                  onChange={(e) => updateModel({ "auto-start": e.target.checked })}
+                  onChange={(e) =>
+                    updateModel({ "auto-start": e.target.checked })
+                  }
                   className="h-4 w-4 rounded border-gray-700 bg-gray-900 accent-blue-500"
                 />
               </label>
@@ -524,7 +627,10 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
                   value={model["model-ttl"] ?? ""}
                   placeholder="indefinite"
                   onChange={(e) =>
-                    updateModel({ "model-ttl": e.target.value === "" ? null : Number(e.target.value) })
+                    updateModel({
+                      "model-ttl":
+                        e.target.value === "" ? null : Number(e.target.value),
+                    })
                   }
                   className="w-28 rounded-md border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 text-right focus:border-blue-500 focus:outline-none"
                 />
@@ -535,7 +641,11 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
                 onClick={() => setAdvanced(!advanced)}
                 className="flex items-center gap-1.5 text-sm font-medium text-gray-400 hover:text-gray-200 transition"
               >
-                <span className={`inline-block transition-transform ${advanced ? "rotate-90" : ""}`}>&#9654;</span>
+                <span
+                  className={`inline-block transition-transform ${advanced ? "rotate-90" : ""}`}
+                >
+                  &#9654;
+                </span>
                 Advanced
               </button>
 
@@ -560,7 +670,11 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
                     <input
                       type="checkbox"
                       checked={adv["supports-developer-role"]}
-                      onChange={(e) => updateAdv({ "supports-developer-role": e.target.checked })}
+                      onChange={(e) =>
+                        updateAdv({
+                          "supports-developer-role": e.target.checked,
+                        })
+                      }
                       className="h-4 w-4 rounded border-gray-700 bg-gray-900 accent-blue-500"
                     />
                   </label>
@@ -568,17 +682,27 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
                   <div>
                     <label className="block text-sm font-medium text-gray-400 mb-1">
                       Slot Prompt Similarity
-                      <span className="ml-1 text-xs text-gray-600">(-sps{adv.slot_prompt_similarity == null ? ", disabled" : ""})</span>
+                      <span className="ml-1 text-xs text-gray-600">
+                        (-sps
+                        {adv.slot_prompt_similarity == null ? ", disabled" : ""}
+                        )
+                      </span>
                     </label>
                     <div className="flex items-center gap-3">
                       <input
                         type="range"
                         min={0}
                         max={100}
-                        value={adv.slot_prompt_similarity == null ? 0 : adv.slot_prompt_similarity * 100}
+                        value={
+                          adv.slot_prompt_similarity == null
+                            ? 0
+                            : adv.slot_prompt_similarity * 100
+                        }
                         onChange={(e) => {
                           const v = Number(e.target.value);
-                          updateAdv({ slot_prompt_similarity: v === 0 ? null : v / 100 });
+                          updateAdv({
+                            slot_prompt_similarity: v === 0 ? null : v / 100,
+                          });
                         }}
                         className={`flex-1 ${adv.slot_prompt_similarity == null ? "opacity-30" : "accent-blue-500"}`}
                       />
@@ -590,7 +714,12 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
                         value={adv.slot_prompt_similarity ?? ""}
                         placeholder="off"
                         onChange={(e) =>
-                          updateAdv({ slot_prompt_similarity: e.target.value === "" ? null : Number(e.target.value) })
+                          updateAdv({
+                            slot_prompt_similarity:
+                              e.target.value === ""
+                                ? null
+                                : Number(e.target.value),
+                          })
                         }
                         className="w-24 rounded-md border border-gray-700 bg-gray-900 pl-3 pr-1 py-2 text-sm text-gray-100 font-mono text-right focus:border-blue-500 focus:outline-none"
                       />
@@ -600,17 +729,26 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
                   <div>
                     <label className="block text-sm font-medium text-gray-400 mb-1">
                       Repeat Penalty
-                      <span className="ml-1 text-xs text-gray-600">(1.0 = disabled{adv.repeat_penalty == null ? ", off" : ""})</span>
+                      <span className="ml-1 text-xs text-gray-600">
+                        (1.0 = disabled
+                        {adv.repeat_penalty == null ? ", off" : ""})
+                      </span>
                     </label>
                     <div className="flex items-center gap-3">
                       <input
                         type="range"
                         min={0}
                         max={100}
-                        value={adv.repeat_penalty == null ? 0 : Math.round((adv.repeat_penalty - 1.0) * 100)}
+                        value={
+                          adv.repeat_penalty == null
+                            ? 0
+                            : Math.round((adv.repeat_penalty - 1.0) * 100)
+                        }
                         onChange={(e) => {
                           const v = Number(e.target.value);
-                          updateAdv({ repeat_penalty: v === 0 ? null : 1.0 + v / 100 });
+                          updateAdv({
+                            repeat_penalty: v === 0 ? null : 1.0 + v / 100,
+                          });
                         }}
                         className={`flex-1 ${adv.repeat_penalty == null ? "opacity-30" : "accent-blue-500"}`}
                       />
@@ -622,7 +760,12 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
                         value={adv.repeat_penalty ?? ""}
                         placeholder="off"
                         onChange={(e) =>
-                          updateAdv({ repeat_penalty: e.target.value === "" ? null : Number(e.target.value) })
+                          updateAdv({
+                            repeat_penalty:
+                              e.target.value === ""
+                                ? null
+                                : Number(e.target.value),
+                          })
                         }
                         className="w-24 rounded-md border border-gray-700 bg-gray-900 pl-3 pr-1 py-2 text-sm text-gray-100 font-mono text-right focus:border-blue-500 focus:outline-none"
                       />
@@ -632,7 +775,10 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
                   <div>
                     <label className="block text-sm font-medium text-gray-400 mb-1">
                       Repeat Last N
-                      <span className="ml-1 text-xs text-gray-600">(-1 = ctx_size{adv.repeat_last_n == null ? ", off" : ""})</span>
+                      <span className="ml-1 text-xs text-gray-600">
+                        (-1 = ctx_size{adv.repeat_last_n == null ? ", off" : ""}
+                        )
+                      </span>
                     </label>
                     <div className="flex items-center gap-3">
                       <input
@@ -654,23 +800,51 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
                         value={adv.repeat_last_n ?? ""}
                         placeholder="off"
                         onChange={(e) =>
-                          updateAdv({ repeat_last_n: e.target.value === "" ? null : Number(e.target.value) })
+                          updateAdv({
+                            repeat_last_n:
+                              e.target.value === ""
+                                ? null
+                                : Number(e.target.value),
+                          })
                         }
                         className="w-24 rounded-md border border-gray-700 bg-gray-900 pl-3 pr-1 py-2 text-sm text-gray-100 font-mono text-right focus:border-blue-500 focus:outline-none"
                       />
                     </div>
                   </div>
 
+                  <label className="flex items-center justify-between cursor-pointer">
+                    <div>
+                      <span className="text-sm font-medium text-gray-400">
+                        KV Cache (experimental)
+                      </span>
+                      <p className="text-xs text-gray-600">
+                        Enable slot save/restore with --slots
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={adv.kv_cache}
+                      onChange={(e) =>
+                        updateAdv({ kv_cache: e.target.checked })
+                      }
+                      className="h-4 w-4 rounded border-gray-700 bg-gray-900 accent-blue-500"
+                    />
+                  </label>
+
                   <div>
                     <label className="block text-sm font-medium text-gray-400 mb-1">
                       Slot Save Path
-                      <span className="ml-1 text-xs text-gray-600">(prompt cache persistence, blank = disabled)</span>
+                      <span className="ml-1 text-xs text-gray-600">
+                        (override, blank = use global path)
+                      </span>
                     </label>
                     <input
                       type="text"
                       value={adv.slot_save_path}
                       placeholder="/tmp/llama-slots"
-                      onChange={(e) => updateAdv({ slot_save_path: e.target.value })}
+                      onChange={(e) =>
+                        updateAdv({ slot_save_path: e.target.value })
+                      }
                       className="w-full rounded-md border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
                     />
                   </div>
@@ -679,25 +853,35 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
                     <input
                       type="checkbox"
                       checked={adv.swa_full}
-                      onChange={(e) => updateAdv({ swa_full: e.target.checked })}
+                      onChange={(e) =>
+                        updateAdv({ swa_full: e.target.checked })
+                      }
                       className="h-4 w-4 rounded border-gray-700 bg-gray-900 accent-blue-500"
                     />
                     <span className="text-sm font-medium text-gray-400">
                       SWA Full Cache
-                      <span className="ml-1 text-xs text-gray-600">(for Gemma 2/3 when context exceeds window size)</span>
+                      <span className="ml-1 text-xs text-gray-600">
+                        (for Gemma 2/3 when context exceeds window size)
+                      </span>
                     </span>
                   </label>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-400 mb-1">
                       llama-server Path Override
-                      <span className="ml-1 text-xs text-gray-600">(blank = use default from Proxy Server tab)</span>
+                      <span className="ml-1 text-xs text-gray-600">
+                        (blank = use default from Proxy Server tab)
+                      </span>
                     </label>
                     <input
                       type="text"
                       value={adv.llama_server_path}
-                      placeholder={config["api-server"]["llama-server-path"] || "not set"}
-                      onChange={(e) => updateAdv({ llama_server_path: e.target.value })}
+                      placeholder={
+                        config["api-server"]["llama-server-path"] || "not set"
+                      }
+                      onChange={(e) =>
+                        updateAdv({ llama_server_path: e.target.value })
+                      }
                       className="w-full rounded-md border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
                     />
                   </div>
@@ -705,7 +889,9 @@ export default function ConfigEditor({ tab, config, setConfig, modelIndex, onDel
                   <div>
                     <label className="block text-sm font-medium text-gray-400 mb-1">
                       Extra Arguments
-                      <span className="ml-1 text-xs text-gray-600">(comma-separated)</span>
+                      <span className="ml-1 text-xs text-gray-600">
+                        (comma-separated)
+                      </span>
                     </label>
                     <input
                       type="text"

@@ -13,6 +13,7 @@ export interface ModelAdvanced {
   slot_prompt_similarity: number | null;
   repeat_penalty: number | null;
   repeat_last_n: number | null;
+  kv_cache: boolean;
   slot_save_path: string;
   swa_full: boolean;
   extra_args: string[];
@@ -35,6 +36,7 @@ export interface ModelConfig {
 
 export interface WebUIConfig {
   log_buffer_size: number;
+  "slot-save-path"?: string;
   "poll-server-status"?: number | null;
   "poll-proxy-status"?: number | null;
   "poll-health"?: number | null;

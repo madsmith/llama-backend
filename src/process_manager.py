@@ -109,7 +109,13 @@ class ProcessManager:
 
             log.debug("resolved server_path=%s, model_path=%s", server_path, model_path)
             cmd = self._build_command(
-                server_path, model_path, llama_host, llama_port, model
+                server_path,
+                model_path,
+                llama_host,
+                llama_port,
+                model,
+                cfg,
+                self.model_index,
             )
             await self._spawn(cmd, llama_host, llama_port)
 
@@ -143,7 +149,13 @@ class ProcessManager:
 
     @staticmethod
     def _build_command(
-        server_path: Path, model_path: Path, host: str, port: int, model
+        server_path: Path,
+        model_path: Path,
+        host: str,
+        port: int,
+        model,
+        cfg: AppConfig,
+        model_index: int,
     ) -> list[str]:
         adv = model.advanced
         cmd = [
@@ -167,7 +179,18 @@ class ProcessManager:
             cmd += ["--repeat-penalty", str(adv.repeat_penalty)]
         if adv.repeat_last_n is not None:
             cmd += ["--repeat-last-n", str(adv.repeat_last_n)]
-        if adv.slot_save_path:
+        if adv.kv_cache:
+            if adv.slot_save_path:
+                slot_dir = Path(adv.slot_save_path).expanduser().resolve()
+            else:
+                base = cfg.web_ui.slot_save_path or "./slot_saves"
+                model_id = (
+                    cfg.models[model_index].effective_id or f"model-{model_index}"
+                )
+                slot_dir = Path(base).expanduser().resolve() / model_id
+            slot_dir.mkdir(parents=True, exist_ok=True)
+            cmd += ["--slots", "--slot-save-path", str(slot_dir)]
+        elif adv.slot_save_path:
             slot_dir = Path(adv.slot_save_path).expanduser()
             slot_dir.mkdir(parents=True, exist_ok=True)
             cmd += ["--slot-save-path", str(slot_dir)]

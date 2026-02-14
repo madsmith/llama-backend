@@ -26,6 +26,7 @@ class ModelAdvanced(BaseModel):
     slot_prompt_similarity: float | None = None
     repeat_penalty: float | None = None
     repeat_last_n: int | None = None
+    kv_cache: bool = Field(default=False, alias="kv-cache")
     slot_save_path: str = ""
     swa_full: bool = False
     extra_args: list[str] = []
@@ -72,6 +73,7 @@ class WebUIConfig(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     log_buffer_size: int = 10_000
+    slot_save_path: str = Field(default="", alias="slot-save-path")
     poll_server_status: int | None = Field(default=None, alias="poll-server-status")
     poll_proxy_status: int | None = Field(default=None, alias="poll-proxy-status")
     poll_health: int | None = Field(default=None, alias="poll-health")
