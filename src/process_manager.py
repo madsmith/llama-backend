@@ -94,8 +94,7 @@ class ProcessManager:
 
             model = cfg.models[self.model_index]
 
-            llama_host = "127.0.0.1"
-            llama_port = cfg.api_server.llama_server_starting_port + self.model_index
+            llama_host, llama_port = self._get_server_address(cfg)
             log.debug("loaded config: %s", cfg.model_dump(by_alias=True))
 
             self.log_buffer.clear()
@@ -113,6 +112,11 @@ class ProcessManager:
                 server_path, model_path, llama_host, llama_port, model
             )
             await self._spawn(cmd, llama_host, llama_port)
+
+    def _get_server_address(self, cfg: AppConfig) -> tuple[str, int]:
+        host = "127.0.0.1"
+        port = cfg.api_server.llama_server_starting_port + self.model_index
+        return host, port
 
     @staticmethod
     def _resolve_llama_server_path(cfg: AppConfig, model) -> Path:
