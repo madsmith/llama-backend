@@ -119,34 +119,9 @@ class ProcessManager:
                 self._fail(f"model not found: {model_path}")
                 return
 
-            cmd = [
-                str(server_path),
-                "--model",
-                str(model_path),
-                "--host",
-                llama_host,
-                "--port",
-                str(llama_port),
-                "--ctx-size",
-                str(model.ctx_size * model.parallel),
-                "--n-gpu-layers",
-                str(model.n_gpu_layers),
-                "--parallel",
-                str(model.parallel),
-            ]
-            if adv.slot_prompt_similarity is not None:
-                cmd += ["--slot-prompt-similarity", str(adv.slot_prompt_similarity)]
-            if adv.repeat_penalty is not None:
-                cmd += ["--repeat-penalty", str(adv.repeat_penalty)]
-            if adv.repeat_last_n is not None:
-                cmd += ["--repeat-last-n", str(adv.repeat_last_n)]
-            if adv.slot_save_path:
-                slot_dir = Path(adv.slot_save_path).expanduser()
-                slot_dir.mkdir(parents=True, exist_ok=True)
-                cmd += ["--slot-save-path", str(slot_dir)]
-            if adv.swa_full:
-                cmd += ["--swa-full"]
-            cmd += adv.extra_args
+            cmd = self._build_command(
+                server_path, model_path, llama_host, llama_port, model
+            )
 
             self._log(f"$ {shlex.join(cmd)}")
 
@@ -169,6 +144,41 @@ class ProcessManager:
             self._log(f"spawned pid {self.pid}")
             log.debug("starting _read_output task")
             self._reader_task = asyncio.create_task(self._read_output())
+
+    @staticmethod
+    def _build_command(
+        server_path: Path, model_path: Path, host: str, port: int, model
+    ) -> list[str]:
+        adv = model.advanced
+        cmd = [
+            str(server_path),
+            "--model",
+            str(model_path),
+            "--host",
+            host,
+            "--port",
+            str(port),
+            "--ctx-size",
+            str(model.ctx_size * model.parallel),
+            "--n-gpu-layers",
+            str(model.n_gpu_layers),
+            "--parallel",
+            str(model.parallel),
+        ]
+        if adv.slot_prompt_similarity is not None:
+            cmd += ["--slot-prompt-similarity", str(adv.slot_prompt_similarity)]
+        if adv.repeat_penalty is not None:
+            cmd += ["--repeat-penalty", str(adv.repeat_penalty)]
+        if adv.repeat_last_n is not None:
+            cmd += ["--repeat-last-n", str(adv.repeat_last_n)]
+        if adv.slot_save_path:
+            slot_dir = Path(adv.slot_save_path).expanduser()
+            slot_dir.mkdir(parents=True, exist_ok=True)
+            cmd += ["--slot-save-path", str(slot_dir)]
+        if adv.swa_full:
+            cmd += ["--swa-full"]
+        cmd += adv.extra_args
+        return cmd
 
     def _fail(self, msg: str) -> None:
         log.debug("_fail: %s", msg)
