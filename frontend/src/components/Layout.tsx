@@ -1,9 +1,13 @@
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 
 const links = [
   { to: "/", label: "Dashboard", match: (p: string) => p === "/" },
   { to: "/logs", label: "Logs", match: (p: string) => p.startsWith("/logs") },
-  { to: "/settings", label: "Settings", match: (p: string) => p === "/settings" },
+  {
+    to: "/settings",
+    label: "Settings",
+    match: (p: string) => p === "/settings",
+  },
 ];
 
 export default function Layout() {
@@ -12,10 +16,12 @@ export default function Layout() {
   return (
     <div className="flex h-screen bg-gray-950 text-gray-100">
       <nav className="w-52 shrink-0 border-r border-gray-800 bg-gray-900 flex flex-col">
-        <div className="px-4 py-5 flex items-center gap-2.5">
+        <Link to="/" className="px-4 py-5 flex items-center gap-2.5">
           <img src="/llama-icon.png" alt="llama.cpp" className="h-8 w-8" />
-          <span className="text-lg font-bold tracking-tight">Llama Manager</span>
-        </div>
+          <span className="text-lg font-bold tracking-tight">
+            Llama Manager
+          </span>
+        </Link>
         <ul className="flex-1 space-y-1 px-2">
           {links.map((l) => {
             const active = l.match(pathname);
