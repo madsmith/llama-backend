@@ -8,4 +8,5 @@ router = APIRouter(prefix="/api/status", tags=["status"])
 
 router.get("/health")(health.get_health)
 router.get("/slots")(slots.get_slots)
+router.post("/slots/cancel")(slots.cancel_slot)
 router.get("/props")(props.get_props)

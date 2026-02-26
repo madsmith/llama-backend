@@ -16,6 +16,8 @@ from ..kv_cache import (
     SlotAvailabilityProvider,
     resolve_slot_save_path,
 )
+from .active_requests import register as register_active
+from .active_requests import unregister as unregister_active
 from .anthropic import handle_anthropic
 from .lifecycle import ensure_model_server, touch_model
 from .logging import log_req, log_resp, log_stream_end
@@ -42,14 +44,34 @@ async def _stream_passthrough(
     t0: float,
     server_name: str,
     request: Request,
+    model_index: int | None = None,
     cache_save: tuple | None = None,
 ) -> StreamingResponse:
     """Stream SSE passthrough.
 
+    model_index: enables cancellation via the active-request registry.
     cache_save: optional (kv, cache_id, slot_id, slots) tuple for post-stream save.
     """
+    active_slot_id = body.get("id_slot")
+    cancel_event = None
+    if model_index is not None and active_slot_id is not None:
+        cancel_event = register_active(model_index, active_slot_id)
+
+    async def _resolve_slot() -> int | None:
+        """Poll /slots to find which slot picked up our request."""
+        try:
+            async with httpx.AsyncClient(timeout=2) as c:
+                r = await c.get(f"{backend}/slots")
+                if r.status_code == 200:
+                    for s in r.json():
+                        if s.get("is_processing"):
+                            return s.get("id")
+        except Exception:
+            pass
+        return None
 
     async def generate():
+        nonlocal active_slot_id, cancel_event
         total_bytes = 0
         stream_ok = False
         try:
@@ -66,7 +88,32 @@ async def _stream_passthrough(
                         streaming=True,
                         elapsed=time.monotonic() - t0,
                     )
+                    # If we don't already know the slot, try to discover it
+                    if (
+                        model_index is not None
+                        and active_slot_id is None
+                        and resp.status_code == 200
+                    ):
+                        resolved = await _resolve_slot()
+                        if resolved is not None:
+                            active_slot_id = resolved
+                            cancel_event = register_active(model_index, active_slot_id)
                     async for line in resp.aiter_lines():
+                        if cancel_event is not None and cancel_event.is_set():
+                            proxy_log(
+                                f"\u2190 [{server_name}] slot {active_slot_id} cancelled by operator"
+                            )
+                            error = json.dumps(
+                                {
+                                    "error": {
+                                        "message": "Request cancelled: inference terminated by server operator",
+                                        "type": "capacity_exceeded",
+                                        "code": "capacity_exceeded",
+                                    }
+                                }
+                            )
+                            yield f"data: {error}\n\n"
+                            return
                         if await request.is_disconnected():
                             proxy_log(
                                 f"\u2190 [{server_name}] client disconnected, aborting stream"
@@ -83,6 +130,9 @@ async def _stream_passthrough(
             proxy_log(f"[{server_name}] {msg}")
             error = json.dumps({"error": {"message": msg, "type": "server_error"}})
             yield f"data: {error}\n\n"
+        finally:
+            if model_index is not None and active_slot_id is not None:
+                unregister_active(model_index, active_slot_id)
 
         if cache_save:
             kv, cache_id, slot_id, slots = cache_save
@@ -190,7 +240,14 @@ async def openai_proxy(path: str, request: Request):
                 elif slot_id is not None and slots is not None:
                     await slots.free(slot_id)
                 return await _stream_passthrough(
-                    backend, path, body, t0, server_name, request, cache_save=cs
+                    backend,
+                    path,
+                    body,
+                    t0,
+                    server_name,
+                    request,
+                    model_index=model_index,
+                    cache_save=cs,
                 )
 
             try:

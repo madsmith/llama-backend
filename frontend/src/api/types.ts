@@ -97,6 +97,7 @@ export interface SlotInfo {
   prompt_progress?: number;
   prompt_n_processed?: number;
   prompt_n_total?: number;
+  cancellable?: boolean;
 }
 
 export interface ModelProps {

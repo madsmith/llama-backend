@@ -17,6 +17,8 @@ from ..kv_cache import (
     SlotAvailabilityProvider,
     resolve_slot_save_path,
 )
+from .active_requests import register as register_active
+from .active_requests import unregister as unregister_active
 from .lifecycle import ensure_model_server, touch_model
 from .logging import log_req, log_resp, log_stream_end
 from .models import (
@@ -42,16 +44,37 @@ async def _stream_passthrough(
     server_name: str,
     request: Request,
     oai_body: dict | None = None,
+    model_index: int | None = None,
     cache_save: tuple | None = None,
 ) -> StreamingResponse:
     """Translate an OpenAI SSE stream into Anthropic SSE events.
 
+    model_index: enables cancellation via the active-request registry.
     cache_save: optional (kv_cache, cache_id, slot_id, slots) tuple for post-stream save.
     """
     if oai_body is None:
         oai_body = anthropic_to_openai(body)
 
+    active_slot_id = oai_body.get("id_slot")
+    cancel_event = None
+    if model_index is not None and active_slot_id is not None:
+        cancel_event = register_active(model_index, active_slot_id)
+
+    async def _resolve_slot() -> int | None:
+        """Poll /slots to find which slot picked up our request."""
+        try:
+            async with httpx.AsyncClient(timeout=2) as c:
+                r = await c.get(f"{backend}/slots")
+                if r.status_code == 200:
+                    for s in r.json():
+                        if s.get("is_processing"):
+                            return s.get("id")
+        except Exception:
+            pass
+        return None
+
     async def generate():
+        nonlocal active_slot_id, cancel_event
         msg_id = f"msg_{uuid.uuid4().hex[:24]}"
         input_tokens = 0
         output_tokens = 0
@@ -98,11 +121,42 @@ async def _stream_passthrough(
                         streaming=True,
                         elapsed=time.monotonic() - t0,
                     )
+                    # If we don't already know the slot, try to discover it
+                    if (
+                        model_index is not None
+                        and active_slot_id is None
+                        and resp.status_code == 200
+                    ):
+                        resolved = await _resolve_slot()
+                        if resolved is not None:
+                            active_slot_id = resolved
+                            cancel_event = register_active(model_index, active_slot_id)
                     async for line in resp.aiter_lines():
+                        if cancel_event is not None and cancel_event.is_set():
+                            proxy_log(
+                                f"\u2190 [{server_name}] slot {active_slot_id} cancelled by operator"
+                            )
+                            yield _emit(
+                                sse(
+                                    "error",
+                                    {
+                                        "type": "error",
+                                        "error": {
+                                            "type": "overloaded",
+                                            "message": "Request cancelled: inference terminated by server operator",
+                                        },
+                                    },
+                                )
+                            )
+                            if model_index is not None and active_slot_id is not None:
+                                unregister_active(model_index, active_slot_id)
+                            return
                         if await request.is_disconnected():
                             proxy_log(
                                 f"\u2190 [{server_name}] client disconnected, aborting stream"
                             )
+                            if model_index is not None and active_slot_id is not None:
+                                unregister_active(model_index, active_slot_id)
                             return
                         if not line.startswith("data: "):
                             continue
@@ -164,6 +218,8 @@ async def _stream_passthrough(
                     },
                 )
             )
+            if model_index is not None and active_slot_id is not None:
+                unregister_active(model_index, active_slot_id)
             return
 
         if block_started:
@@ -190,6 +246,9 @@ async def _stream_passthrough(
         yield _emit(sse("message_stop", {"type": "message_stop"}))
 
         log_stream_end(server_name, time.monotonic() - t0, total_bytes)
+
+        if model_index is not None and active_slot_id is not None:
+            unregister_active(model_index, active_slot_id)
 
         if cache_save:
             kv, cache_id, sid, sa = cache_save
@@ -292,6 +351,7 @@ async def handle_anthropic(request: Request) -> JSONResponse | StreamingResponse
             server_name,
             request,
             oai_body=oai_body,
+            model_index=model_index,
             cache_save=cs,
         )
 

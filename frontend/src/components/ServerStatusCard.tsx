@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import type { ServerStatus, SlotInfo, HealthStatus } from "../api/types";
+import { api } from "../api/client";
 
 const stateColors: Record<string, string> = {
   stopped: "bg-gray-600",
@@ -21,9 +22,11 @@ const stateLabels: Record<string, string> = {
 };
 
 function formatUptime(seconds: number): string {
-  const h = Math.floor(seconds / 3600);
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const s = Math.floor(seconds % 60);
+  if (d > 0) return `${d}d ${h}h ${m}m ${s}s`;
   if (h > 0) return `${h}h ${m}m ${s}s`;
   if (m > 0) return `${m}m ${s}s`;
   return `${s}s`;
@@ -101,9 +104,20 @@ function SlotRow({ slot, modelIndex }: { slot: SlotInfo; modelIndex: number }) {
       onMouseLeave={onLeave}
       onMouseMove={onMove}
     >
-      <span
-        className={`shrink-0 inline-block h-2 w-2 rounded-full -translate-y-px ${slot.is_processing ? "bg-yellow-500" : "bg-green-500"}`}
-      />
+      {slot.is_processing && slot.cancellable ? (
+        <button
+          title="Cancel inference"
+          onClick={(e) => {
+            e.stopPropagation();
+            api.cancelSlot(modelIndex, slot.id).catch(() => {});
+          }}
+          className="shrink-0 h-2 w-2 rounded-full -translate-y-px bg-yellow-500 hover:bg-red-500 cursor-pointer transition-colors"
+        />
+      ) : (
+        <span
+          className={`shrink-0 inline-block h-2 w-2 rounded-full -translate-y-px ${slot.is_processing ? "bg-yellow-500" : "bg-green-500"}`}
+        />
+      )}
       <Link
         to={`/${modelIndex}/slots`}
         onClick={(e) => e.stopPropagation()}
