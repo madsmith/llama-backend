@@ -35,10 +35,12 @@ def shutdown_proxy_subscribers() -> None:
             pass
 
 
-def proxy_log(text: str) -> None:
+def proxy_log(text: str, *, request_id: str | None = None) -> None:
     stamped = f"[{time.strftime('%H:%M:%S')}] {text}"
-    line = proxy_log_buffer.append(stamped)
-    msg = {"type": "log", "id": line.id, "text": line.text}
+    line = proxy_log_buffer.append(stamped, request_id=request_id)
+    msg: dict = {"type": "log", "id": line.id, "text": line.text}
+    if line.request_id is not None:
+        msg["request_id"] = line.request_id
     for q in list(_proxy_subscribers):
         try:
             q.put_nowait(msg)

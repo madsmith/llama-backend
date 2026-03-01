@@ -111,4 +111,18 @@ export interface LogMessage {
   id?: number;
   text?: string;
   state?: string;
+  request_id?: string;
+}
+
+export interface RequestLogEntry {
+  request_id: string;
+  timestamp: number;
+  model_id: string | null;
+  request_headers: Record<string, string>;
+  request_body: Record<string, unknown> | null;
+  response_status: number | null;
+  response_headers: Record<string, string> | null;
+  response_body: Record<string, unknown> | string | null;
+  streaming: boolean;
+  elapsed: number | null;
 }

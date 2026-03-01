@@ -29,6 +29,7 @@ from .models import (
     resolve_server_name,
     rewrite_model_field,
 )
+from .request_log import request_log
 from .slots import slot_restore, slot_save
 from .subscription import proxy_log
 from .translate import FINISH_MAP, anthropic_to_openai, openai_to_anthropic, sse
@@ -46,6 +47,7 @@ async def _stream_passthrough(
     oai_body: dict | None = None,
     model_index: int | None = None,
     cache_save: tuple | None = None,
+    request_id: str | None = None,
 ) -> StreamingResponse:
     """Translate an OpenAI SSE stream into Anthropic SSE events.
 
@@ -81,6 +83,7 @@ async def _stream_passthrough(
         block_started = False
         finish_reason = "end_turn"
         total_bytes = 0
+        accumulated_text = ""
 
         def _emit(s: str):
             nonlocal total_bytes
@@ -120,6 +123,7 @@ async def _stream_passthrough(
                         resp.status_code,
                         streaming=True,
                         elapsed=time.monotonic() - t0,
+                        request_id=request_id,
                     )
                     # If we don't already know the slot, try to discover it
                     if (
@@ -180,6 +184,7 @@ async def _stream_passthrough(
 
                         text = delta.get("content")
                         if text is not None:
+                            accumulated_text += text
                             if not block_started:
                                 yield _emit(
                                     sse(
@@ -207,8 +212,8 @@ async def _stream_passthrough(
                             )
         except BACKEND_ERRORS as exc:
             msg = backend_error_msg(exc)
-            log_resp(server_name, 502, elapsed=time.monotonic() - t0)
-            proxy_log(f"[{server_name}] {msg}")
+            log_resp(server_name, 502, elapsed=time.monotonic() - t0, request_id=request_id)
+            proxy_log(f"[{server_name}] {msg}", request_id=request_id)
             yield _emit(
                 sse(
                     "error",
@@ -218,6 +223,8 @@ async def _stream_passthrough(
                     },
                 )
             )
+            if request_id:
+                request_log.update(request_id, response_status=502, elapsed=time.monotonic() - t0)
             if model_index is not None and active_slot_id is not None:
                 unregister_active(model_index, active_slot_id)
             return
@@ -245,7 +252,15 @@ async def _stream_passthrough(
         )
         yield _emit(sse("message_stop", {"type": "message_stop"}))
 
-        log_stream_end(server_name, time.monotonic() - t0, total_bytes)
+        log_stream_end(server_name, time.monotonic() - t0, total_bytes, request_id=request_id)
+        if request_id:
+            request_log.update(
+                request_id,
+                response_body=accumulated_text,
+                response_status=200,
+                streaming=True,
+                elapsed=time.monotonic() - t0,
+            )
 
         if model_index is not None and active_slot_id is not None:
             unregister_active(model_index, active_slot_id)
@@ -265,31 +280,32 @@ async def handle_anthropic(request: Request) -> JSONResponse | StreamingResponse
     model_id = body.get("model")
     http_ver = request.scope.get("http_version", "1.1")
     req_size = int(request.headers.get("content-length", 0)) or None
+    request_id: str | None = getattr(request.state, "request_id", None)
     model_index = resolve_model_index(model_id)
     backend = resolve_backend(model_id)
     if backend is None or model_index is None:
-        log_req(None, "POST", "/v1/messages", http_ver, req_size)
-        log_resp(None, 404)
-        return JSONResponse(
-            {
-                "type": "error",
-                "error": {"type": "not_found", "message": f"Model not found: {model}"},
-            },
-            status_code=404,
-        )
+        log_req(None, "POST", "/v1/messages", http_ver, req_size, request_id=request_id)
+        log_resp(None, 404, request_id=request_id)
+        resp_body = {
+            "type": "error",
+            "error": {"type": "not_found", "message": f"Model not found: {model}"},
+        }
+        if request_id:
+            request_log.update(request_id, response_status=404, response_body=resp_body, elapsed=0.0)
+        return JSONResponse(resp_body, status_code=404)
 
     server_name = resolve_server_name(model_id)
-    log_req(server_name, "POST", "/v1/messages", http_ver, req_size)
+    log_req(server_name, "POST", "/v1/messages", http_ver, req_size, request_id=request_id)
     t0 = time.monotonic()
 
     try:
         await ensure_model_server(model_index)
     except RuntimeError as exc:
-        log_resp(server_name, 503, elapsed=time.monotonic() - t0)
-        return JSONResponse(
-            {"type": "error", "error": {"type": "server_error", "message": str(exc)}},
-            status_code=503,
-        )
+        log_resp(server_name, 503, elapsed=time.monotonic() - t0, request_id=request_id)
+        resp_body = {"type": "error", "error": {"type": "server_error", "message": str(exc)}}
+        if request_id:
+            request_log.update(request_id, response_status=503, response_body=resp_body, elapsed=time.monotonic() - t0)
+        return JSONResponse(resp_body, status_code=503)
 
     touch_model(model_index)
     body = rewrite_model_field(body, model_id)
@@ -353,6 +369,7 @@ async def handle_anthropic(request: Request) -> JSONResponse | StreamingResponse
             oai_body=oai_body,
             model_index=model_index,
             cache_save=cs,
+            request_id=request_id,
         )
 
     try:
@@ -364,7 +381,7 @@ async def handle_anthropic(request: Request) -> JSONResponse | StreamingResponse
             )
         elapsed = time.monotonic() - t0
         oai_resp = resp.json()
-        log_resp(server_name, 200, elapsed=elapsed, size=len(resp.content))
+        log_resp(server_name, 200, elapsed=elapsed, size=len(resp.content), request_id=request_id)
 
         # Save KV cache on non-streaming cache miss
         if (
@@ -377,19 +394,22 @@ async def handle_anthropic(request: Request) -> JSONResponse | StreamingResponse
             if await slot_save(backend, slot_id, f"{cache_id}.bin"):
                 kv.record_save(cache_id, slot_id)
 
-        return JSONResponse(openai_to_anthropic(oai_resp, model))
+        anthropic_resp = openai_to_anthropic(oai_resp, model)
+        if request_id:
+            request_log.update(request_id, response_status=200, response_body=anthropic_resp, elapsed=elapsed)
+        return JSONResponse(anthropic_resp)
     except BACKEND_ERRORS as exc:
         elapsed = time.monotonic() - t0
         msg = backend_error_msg(exc)
-        log_resp(server_name, 502, elapsed=elapsed)
-        proxy_log(f"[{server_name}] {msg}")
-        return JSONResponse(
-            {
-                "type": "error",
-                "error": {"type": "server_error", "message": msg},
-            },
-            status_code=502,
-        )
+        log_resp(server_name, 502, elapsed=elapsed, request_id=request_id)
+        proxy_log(f"[{server_name}] {msg}", request_id=request_id)
+        resp_body = {
+            "type": "error",
+            "error": {"type": "server_error", "message": msg},
+        }
+        if request_id:
+            request_log.update(request_id, response_status=502, response_body=resp_body, elapsed=elapsed)
+        return JSONResponse(resp_body, status_code=502)
     finally:
         if slot_id is not None and slots is not None:
             cache_id = (

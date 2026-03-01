@@ -136,8 +136,10 @@ export function useProps() {
   return props;
 }
 
+export type LogLine = { id: number; text: string; request_id?: string };
+
 export function useLogs(source = "model-0") {
-  const [lines, setLines] = useState<{ id: number; text: string }[]>([]);
+  const [lines, setLines] = useState<LogLine[]>([]);
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const [serverState, setServerState] = useState<string | null>(null);
@@ -158,7 +160,9 @@ export function useLogs(source = "model-0") {
       ws.onmessage = (ev) => {
         const msg: LogMessage = JSON.parse(ev.data);
         if (msg.type === "log" && msg.id != null && msg.text != null) {
-          setLines((prev) => [...prev, { id: msg.id!, text: msg.text! }]);
+          const line: LogLine = { id: msg.id!, text: msg.text! };
+          if (msg.request_id) line.request_id = msg.request_id;
+          setLines((prev) => [...prev, line]);
         } else if (msg.type === "state" && msg.state) {
           setServerState(msg.state);
           if (msg.state === "starting") {

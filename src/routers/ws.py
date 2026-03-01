@@ -39,7 +39,10 @@ async def logs_ws(ws: WebSocket, source: str = Query(default="model-0")):
 
     # Send buffered lines
     for line in log_buffer.snapshot():
-        await ws.send_json({"type": "log", "id": line.id, "text": line.text})
+        msg: dict = {"type": "log", "id": line.id, "text": line.text}
+        if line.request_id is not None:
+            msg["request_id"] = line.request_id
+        await ws.send_json(msg)
 
     # Subscribe for live lines
     q = subscribe()

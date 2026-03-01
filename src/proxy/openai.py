@@ -30,6 +30,7 @@ from .models import (
     resolve_server_name,
     rewrite_model_field,
 )
+from .request_log import request_log
 from .slots import slot_restore, slot_save
 from .subscription import proxy_log
 from .translate import normalize_messages
@@ -46,6 +47,7 @@ async def _stream_passthrough(
     request: Request,
     model_index: int | None = None,
     cache_save: tuple | None = None,
+    request_id: str | None = None,
 ) -> StreamingResponse:
     """Stream SSE passthrough.
 
@@ -74,6 +76,7 @@ async def _stream_passthrough(
         nonlocal active_slot_id, cancel_event
         total_bytes = 0
         stream_ok = False
+        accumulated_text = ""
         try:
             async with httpx.AsyncClient() as client:
                 async with client.stream(
@@ -87,6 +90,7 @@ async def _stream_passthrough(
                         resp.status_code,
                         streaming=True,
                         elapsed=time.monotonic() - t0,
+                        request_id=request_id,
                     )
                     # If we don't already know the slot, try to discover it
                     if (
@@ -119,17 +123,40 @@ async def _stream_passthrough(
                                 f"\u2190 [{server_name}] client disconnected, aborting stream"
                             )
                             return
+                        # Accumulate text content for request log
+                        if request_id and line.startswith("data: "):
+                            try:
+                                d = json.loads(line[6:])
+                                c = (d.get("choices") or [{}])[0].get("delta", {}).get("content")
+                                if c:
+                                    accumulated_text += c
+                            except (json.JSONDecodeError, IndexError):
+                                pass
                         chunk = line + "\n"
                         total_bytes += len(chunk.encode())
                         yield chunk
-            log_stream_end(server_name, time.monotonic() - t0, total_bytes)
+            log_stream_end(server_name, time.monotonic() - t0, total_bytes, request_id=request_id)
             stream_ok = True
+            if request_id:
+                request_log.update(
+                    request_id,
+                    response_body=accumulated_text,
+                    response_status=200,
+                    streaming=True,
+                    elapsed=time.monotonic() - t0,
+                )
         except BACKEND_ERRORS as exc:
             msg = backend_error_msg(exc)
-            log_resp(server_name, 502, elapsed=time.monotonic() - t0)
-            proxy_log(f"[{server_name}] {msg}")
+            log_resp(server_name, 502, elapsed=time.monotonic() - t0, request_id=request_id)
+            proxy_log(f"[{server_name}] {msg}", request_id=request_id)
             error = json.dumps({"error": {"message": msg, "type": "server_error"}})
             yield f"data: {error}\n\n"
+            if request_id:
+                request_log.update(
+                    request_id,
+                    response_status=502,
+                    elapsed=time.monotonic() - t0,
+                )
         finally:
             if model_index is not None and active_slot_id is not None:
                 unregister_active(model_index, active_slot_id)
@@ -154,6 +181,7 @@ async def openai_proxy(path: str, request: Request):
     req_size = int(request.headers.get("content-length", 0)) or None
     t0 = time.monotonic()
     server_name: str | None = None
+    request_id: str | None = getattr(request.state, "request_id", None)
 
     try:
         if method == "POST":
@@ -163,30 +191,30 @@ async def openai_proxy(path: str, request: Request):
             model_index = resolve_model_index(model_id)
             backend = resolve_backend(model_id)
             if backend is None or model_index is None:
-                log_req(None, method, f"/v1/{path}", http_ver, req_size)
-                log_resp(None, 404)
-                return JSONResponse(
-                    {
-                        "error": {
-                            "message": f"Model not found: {model_id}",
-                            "type": "not_found",
-                        }
-                    },
-                    status_code=404,
-                )
+                log_req(None, method, f"/v1/{path}", http_ver, req_size, request_id=request_id)
+                log_resp(None, 404, request_id=request_id)
+                resp_body = {
+                    "error": {
+                        "message": f"Model not found: {model_id}",
+                        "type": "not_found",
+                    }
+                }
+                if request_id:
+                    request_log.update(request_id, response_status=404, response_body=resp_body, elapsed=time.monotonic() - t0)
+                return JSONResponse(resp_body, status_code=404)
 
             body = normalize_messages(body, model_index)
             server_name = resolve_server_name(model_id)
-            log_req(server_name, method, f"/v1/{path}", http_ver, req_size)
+            log_req(server_name, method, f"/v1/{path}", http_ver, req_size, request_id=request_id)
 
             try:
                 await ensure_model_server(model_index)
             except RuntimeError as exc:
-                log_resp(server_name, 503, elapsed=time.monotonic() - t0)
-                return JSONResponse(
-                    {"error": {"message": str(exc), "type": "server_error"}},
-                    status_code=503,
-                )
+                log_resp(server_name, 503, elapsed=time.monotonic() - t0, request_id=request_id)
+                resp_body = {"error": {"message": str(exc), "type": "server_error"}}
+                if request_id:
+                    request_log.update(request_id, response_status=503, response_body=resp_body, elapsed=time.monotonic() - t0)
+                return JSONResponse(resp_body, status_code=503)
 
             touch_model(model_index)
             body = rewrite_model_field(body, model_id)
@@ -248,6 +276,7 @@ async def openai_proxy(path: str, request: Request):
                     request,
                     model_index=model_index,
                     cache_save=cs,
+                    request_id=request_id,
                 )
 
             try:
@@ -264,6 +293,7 @@ async def openai_proxy(path: str, request: Request):
                     resp.status_code,
                     elapsed=elapsed,
                     size=len(resp.content),
+                    request_id=request_id,
                 )
 
                 # Save KV cache on non-streaming cache miss
@@ -277,7 +307,10 @@ async def openai_proxy(path: str, request: Request):
                     if await slot_save(backend, slot_id, f"{cache_id}.bin"):
                         kv.record_save(cache_id, slot_id)
 
-                return JSONResponse(resp.json(), status_code=resp.status_code)
+                resp_json = resp.json()
+                if request_id:
+                    request_log.update(request_id, response_status=resp.status_code, response_body=resp_json, elapsed=elapsed)
+                return JSONResponse(resp_json, status_code=resp.status_code)
             finally:
                 if slot_id is not None and slots is not None:
                     cache_id = (
@@ -289,16 +322,16 @@ async def openai_proxy(path: str, request: Request):
         else:
             backend = default_backend()
             server_name = resolve_server_name(None)
-            log_req(server_name, method, f"/v1/{path}", http_ver)
+            log_req(server_name, method, f"/v1/{path}", http_ver, request_id=request_id)
 
             try:
                 await ensure_model_server(0)
             except RuntimeError as exc:
-                log_resp(server_name, 503, elapsed=time.monotonic() - t0)
-                return JSONResponse(
-                    {"error": {"message": str(exc), "type": "server_error"}},
-                    status_code=503,
-                )
+                log_resp(server_name, 503, elapsed=time.monotonic() - t0, request_id=request_id)
+                resp_body = {"error": {"message": str(exc), "type": "server_error"}}
+                if request_id:
+                    request_log.update(request_id, response_status=503, response_body=resp_body, elapsed=time.monotonic() - t0)
+                return JSONResponse(resp_body, status_code=503)
 
             touch_model(0)
             async with httpx.AsyncClient() as client:
@@ -309,16 +342,20 @@ async def openai_proxy(path: str, request: Request):
                 )
             elapsed = time.monotonic() - t0
             log_resp(
-                server_name, resp.status_code, elapsed=elapsed, size=len(resp.content)
+                server_name, resp.status_code, elapsed=elapsed, size=len(resp.content),
+                request_id=request_id,
             )
-            return JSONResponse(resp.json(), status_code=resp.status_code)
+            resp_json = resp.json()
+            if request_id:
+                request_log.update(request_id, response_status=resp.status_code, response_body=resp_json, elapsed=elapsed)
+            return JSONResponse(resp_json, status_code=resp.status_code)
 
     except BACKEND_ERRORS as exc:
         elapsed = time.monotonic() - t0
         msg = backend_error_msg(exc)
-        log_resp(server_name, 502, elapsed=elapsed)
-        proxy_log(f"[{server_name}] {msg}")
-        return JSONResponse(
-            {"error": {"message": msg, "type": "server_error"}},
-            status_code=502,
-        )
+        log_resp(server_name, 502, elapsed=elapsed, request_id=request_id)
+        proxy_log(f"[{server_name}] {msg}", request_id=request_id)
+        resp_body = {"error": {"message": msg, "type": "server_error"}}
+        if request_id:
+            request_log.update(request_id, response_status=502, response_body=resp_body, elapsed=elapsed)
+        return JSONResponse(resp_body, status_code=502)

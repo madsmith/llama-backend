@@ -9,6 +9,7 @@ from dataclasses import dataclass
 class LogLine:
     id: int
     text: str
+    request_id: str | None = None
 
 
 class LogBuffer:
@@ -19,9 +20,9 @@ class LogBuffer:
         self._next_id = 1
         self._lock = threading.Lock()
 
-    def append(self, text: str) -> LogLine:
+    def append(self, text: str, request_id: str | None = None) -> LogLine:
         with self._lock:
-            line = LogLine(id=self._next_id, text=text)
+            line = LogLine(id=self._next_id, text=text, request_id=request_id)
             self._next_id += 1
             self._buf.append(line)
             return line

@@ -31,12 +31,16 @@ def log_req(
     path: str,
     http_ver: str = "1.1",
     size: int | None = None,
+    request_id: str | None = None,
 ) -> None:
     route = f"[{server_name}]" if server_name else ""
     msg = f"{method} {path} HTTP/{http_ver}"
     if size is not None:
         msg += f" [{_fmt_size(size)}]"
-    proxy_log(f"\u2192 {route} {msg}" if route else f"\u2192 {msg}")
+    proxy_log(
+        f"\u2192 {route} {msg}" if route else f"\u2192 {msg}",
+        request_id=request_id,
+    )
 
 
 def log_resp(
@@ -47,6 +51,7 @@ def log_resp(
     streaming: bool = False,
     elapsed: float | None = None,
     size: int | None = None,
+    request_id: str | None = None,
 ) -> None:
     route = f"[{server_name}]" if server_name else ""
     text = _STATUS_TEXT.get(status, "")
@@ -59,14 +64,21 @@ def log_resp(
         msg += f" ({elapsed:.2f}s)"
     if size is not None:
         msg += f" [{_fmt_size(size)}]"
-    proxy_log(f"\u2190 {route} {msg}" if route else f"\u2190 {msg}")
+    proxy_log(
+        f"\u2190 {route} {msg}" if route else f"\u2190 {msg}",
+        request_id=request_id,
+    )
 
 
 def log_stream_end(
     server_name: str | None,
     elapsed: float,
     size: int,
+    request_id: str | None = None,
 ) -> None:
     route = f"[{server_name}]" if server_name else ""
     msg = f"stream complete ({elapsed:.2f}s) [{_fmt_size(size)}]"
-    proxy_log(f"\u2190 {route} {msg}" if route else f"\u2190 {msg}")
+    proxy_log(
+        f"\u2190 {route} {msg}" if route else f"\u2190 {msg}",
+        request_id=request_id,
+    )

@@ -5,6 +5,7 @@ import type {
   HealthStatus,
   SlotInfo,
   ModelProps,
+  RequestLogEntry,
 } from "./types";
 
 const BASE = "";
@@ -59,6 +60,8 @@ export const api = {
     ),
   getProps: (model = 0) =>
     request<ModelProps>(`/api/status/props?model=${model}`),
+  getRequestLog: (requestId: string) =>
+    request<RequestLogEntry>(`/api/status/requests/${requestId}`),
 };
 
 export function wsUrl(source = "model-0"): string {

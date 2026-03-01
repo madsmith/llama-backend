@@ -1,17 +1,21 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import time
+import uuid
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.responses import Response
 
 from ..config import load_config
 from .lifecycle import _ttl_checker, get_ttl_task, set_ttl_task
 from .openai import openai_proxy
+from .request_log import request_log
 from .subscription import proxy_log
 
 logger = logging.getLogger(__name__)
@@ -28,6 +32,32 @@ proxy_app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@proxy_app.middleware("http")
+async def request_id_middleware(request: Request, call_next) -> Response:
+    request_id = f"req_{uuid.uuid4().hex[:12]}"
+    request.state.request_id = request_id
+
+    raw_body = await request.body()
+    request.state.raw_body = raw_body
+
+    parsed_body = None
+    model_id = None
+    if raw_body:
+        try:
+            parsed_body = json.loads(raw_body)
+            model_id = parsed_body.get("model") if isinstance(parsed_body, dict) else None
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            pass
+
+    headers = dict(request.headers)
+    request_log.create(request_id, headers, body=parsed_body, model_id=model_id)
+
+    response = await call_next(request)
+    response.headers["X-Request-Id"] = request_id
+    return response
+
 
 proxy_app.api_route(
     "/v1/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"]
