@@ -467,7 +467,8 @@ export default function ConfigEditor({
   if (tab.startsWith("remote-")) {
     const rm: RemoteManagerConfig = (config.remote_managers ?? [])[remoteIndex] ?? {
       name: null,
-      url: "",
+      host: "",
+      port: 8000,
       token: "",
       reconnect_interval: 5,
       enabled: true,
@@ -494,18 +495,29 @@ export default function ConfigEditor({
             className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
           />
         </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-400 mb-1">URL</label>
-          <input
-            type="text"
-            value={rm.url}
-            placeholder="ws://192.168.1.10:8000"
-            onChange={(e) => updateRemote({ url: e.target.value })}
-            className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
-          />
-          <p className="mt-1 text-xs text-gray-600">
-            Address of the remote Llama Manager. Accepts ws://, wss://, http://, or https://.
-          </p>
+        <div className="flex gap-3">
+          <div className="flex-1">
+            <label className="block text-sm font-medium text-gray-400 mb-1">Host</label>
+            <input
+              type="text"
+              value={rm.host}
+              placeholder="192.168.1.10"
+              onChange={(e) => updateRemote({ host: e.target.value })}
+              className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
+            />
+          </div>
+          <div className="w-24">
+            <label className="block text-sm font-medium text-gray-400 mb-1">Port</label>
+            <input
+              type="number"
+              min={1}
+              max={65535}
+              value={rm.port}
+              placeholder="8000"
+              onChange={(e) => updateRemote({ port: Number(e.target.value) || 8000 })}
+              className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
+            />
+          </div>
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-400 mb-1">

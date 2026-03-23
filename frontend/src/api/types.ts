@@ -61,7 +61,8 @@ export interface ManagerUplinkConfig {
 
 export interface RemoteManagerConfig {
   name: string | null;
-  url: string;
+  host: string;
+  port: number;
   token: string;
   reconnect_interval: number;
   enabled: boolean;

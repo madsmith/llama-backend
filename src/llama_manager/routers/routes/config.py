@@ -72,7 +72,7 @@ async def _sync_remote_managers(cfg: AppConfig, request: Request) -> None:
         if i < len(clients):
             existing = clients[i]
             # Restart if URL or token changed
-            if existing.cfg.url != rm_cfg.url or existing.cfg.token != rm_cfg.token:
+            if existing.cfg.host != rm_cfg.host or existing.cfg.port != rm_cfg.port or existing.cfg.token != rm_cfg.token:
                 await existing.stop()
                 if rm_cfg.enabled and rm_cfg.url:
                     client = RemoteManagerClient(i, rm_cfg, request.app)

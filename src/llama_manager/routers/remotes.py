@@ -16,7 +16,7 @@ async def get_remotes(request: Request):
             {
                 "index": client.remote_index,
                 "name": client.cfg.name,
-                "url": client.cfg.url,
+                "url": f"{client.cfg.host}:{client.cfg.port}",
                 "connection_state": client.connection_state,
                 "models": [
                     {

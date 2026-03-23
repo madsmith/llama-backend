@@ -157,14 +157,7 @@ class RemoteManagerClient:
         self.models.clear()
 
     def _ws_url(self) -> str:
-        url = self.cfg.url.rstrip("/")
-        if url.startswith("http://"):
-            url = "ws://" + url[7:]
-        elif url.startswith("https://"):
-            url = "wss://" + url[8:]
-        elif not url.startswith(("ws://", "wss://")):
-            url = "ws://" + url
-        return f"{url}/ws/manager?token={self.cfg.token}"
+        return f"{self.cfg.ws_url}?token={self.cfg.token}"
 
     async def _run_loop(self) -> None:
         while not self._stop_event.is_set():

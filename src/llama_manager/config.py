@@ -90,10 +90,15 @@ class ManagerUplinkConfig(BaseModel):
 
 class RemoteManagerConfig(BaseModel):
     name: str | None = None
-    url: str = ""
+    host: str = ""
+    port: int = 8000
     token: str = ""
     reconnect_interval: int = 5
     enabled: bool = True
+
+    @property
+    def ws_url(self) -> str:
+        return f"ws://{self.host}:{self.port}/ws/manager"
 
 
 class AppConfig(BaseModel):
