@@ -30,7 +30,7 @@ from .remote_manager_client import RemoteManagerClient
 from .routers import server, status, ws
 from .routers.remotes import router as remotes_router
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent.parent
 FRONTEND_DIR = ROOT / "frontend"
 DIST_DIR = FRONTEND_DIR / "dist"
 

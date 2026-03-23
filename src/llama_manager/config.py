@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-CONFIG_PATH = Path(__file__).resolve().parent.parent / "server_config.json"
+CONFIG_PATH = Path(__file__).resolve().parent.parent.parent / "server_config.json"
 
 
 def _find_llama_server() -> str:

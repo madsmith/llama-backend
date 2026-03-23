@@ -54,11 +54,11 @@ def main() -> None:
     import uvicorn
 
     uvicorn.run(
-        "src.main:app",
+        "llama_manager.main:app",
         host=args.host,
         port=args.port,
         reload=args.dev,
-        reload_dirs=["src"] if args.dev else None,
+        reload_dirs=["src/llama_manager"] if args.dev else None,
         log_level=log_level,
     )
 
