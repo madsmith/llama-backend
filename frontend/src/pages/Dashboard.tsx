@@ -10,10 +10,10 @@ import HealthCard from "../components/HealthCard";
 import {
   useServerStatus,
   useProxyStatus,
-  useHealth,
   useRemotes,
   useUplinkStatus,
   useSlotStream,
+  useHealthStream,
   pollRatesFromConfig,
 } from "../api/hooks";
 
@@ -28,7 +28,6 @@ interface ServerSnapshot {
 interface PollRates {
   serverStatus?: number;
   proxyStatus?: number;
-  health?: number;
   slots?: number;
   slotsActive?: number;
 }
@@ -57,7 +56,7 @@ function ModelPanel({
   const navigate = useNavigate();
   const { status, refresh } = useServerStatus(modelIndex, poll?.serverStatus);
   const slots = useSlotStream(serverId);
-  const health = useHealth(modelIndex, poll?.health);
+  const health = useHealthStream(serverId);
 
   useEffect(() => {
     onSnapshot(modelIndex, { name, status, health, autoStart, hasTTL });
@@ -101,7 +100,7 @@ function RemoteModelPanel({
   const navigate = useNavigate();
   const { status, refresh } = useServerStatus(modelIndex, poll?.serverStatus);
   const slots = useSlotStream(serverId);
-  const health = useHealth(modelIndex, poll?.health);
+  const health = useHealthStream(serverId);
 
   useEffect(() => {
     onSnapshot(modelIndex, { name, status, health, autoStart: false, hasTTL: false });

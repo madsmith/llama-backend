@@ -207,10 +207,16 @@ export function useRemotes(pollMs = 3000) {
 // ---------------------------------------------------------------------------
 
 type SlotEventHandler = (serverId: string, slots: SlotInfo[]) => void;
+type HealthEventHandler = (serverId: string, health: HealthStatus) => void;
 
 let _eventWs: WebSocket | null = null;
 let _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 const _slotHandlers = new Set<SlotEventHandler>();
+const _healthHandlers = new Set<HealthEventHandler>();
+
+function _hasListeners() {
+  return _slotHandlers.size > 0 || _healthHandlers.size > 0;
+}
 
 function _connectEventStream() {
   if (_eventWs?.readyState === WebSocket.OPEN || _eventWs?.readyState === WebSocket.CONNECTING) return;
@@ -222,12 +228,14 @@ function _connectEventStream() {
       const msg = JSON.parse(e.data);
       if (msg.type === "slots" && msg.server_id) {
         _slotHandlers.forEach((h) => h(msg.server_id, msg.slots ?? []));
+      } else if (msg.type === "health" && msg.server_id) {
+        _healthHandlers.forEach((h) => h(msg.server_id, msg.health));
       }
     } catch {}
   };
   _eventWs.onclose = () => {
     _eventWs = null;
-    if (_slotHandlers.size > 0) {
+    if (_hasListeners()) {
       _reconnectTimer = setTimeout(() => {
         _reconnectTimer = null;
         _connectEventStream();
@@ -252,6 +260,31 @@ export function useSlotStream(serverId: string | undefined): SlotInfo[] {
   }, [serverId]);
 
   return slots;
+}
+
+const HEALTH_STALE_MS = 10_000;
+
+export function useHealthStream(serverId: string | undefined): HealthStatus | null {
+  const [health, setHealth] = useState<HealthStatus | null>(null);
+  const staleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!serverId) return;
+    const handler: HealthEventHandler = (id, data) => {
+      if (id !== serverId) return;
+      setHealth(data);
+      if (staleTimer.current) clearTimeout(staleTimer.current);
+      staleTimer.current = setTimeout(() => setHealth(null), HEALTH_STALE_MS);
+    };
+    _healthHandlers.add(handler);
+    _connectEventStream();
+    return () => {
+      _healthHandlers.delete(handler);
+      if (staleTimer.current) clearTimeout(staleTimer.current);
+    };
+  }, [serverId]);
+
+  return health;
 }
 
 export function useUplinkStatus(pollMs = 3000) {

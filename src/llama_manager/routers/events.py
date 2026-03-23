@@ -26,7 +26,9 @@ async def events_ws(ws: WebSocket):
     send_task = asyncio.create_task(_pump(ws, q))
     try:
         while True:
-            await ws.receive()  # drain any incoming frames; exits on disconnect
+            msg = await ws.receive()
+            if msg.get("type") == "websocket.disconnect":
+                break
     except (WebSocketDisconnect, asyncio.CancelledError):
         pass
     finally:

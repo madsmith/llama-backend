@@ -61,8 +61,8 @@ async def _stop_vite(proc: asyncio.subprocess.Process) -> None:
         await proc.wait()
 
 
-async def _slot_publisher(app: FastAPI) -> None:
-    """Publish slot events for running local models to the event bus."""
+async def _data_publisher(app: FastAPI) -> None:
+    """Publish slot and health events for running local models to the event bus."""
     import httpx
 
     last_slots: dict[str, list[dict]] = {}
@@ -77,13 +77,21 @@ async def _slot_publisher(app: FastAPI) -> None:
                 if pm.state.value != "running":
                     continue
                 port = cfg.api_server.llama_server_starting_port + pm.model_index
+                base = f"http://127.0.0.1:{port}"
                 try:
                     async with httpx.AsyncClient(timeout=2) as client:
-                        resp = await client.get(f"http://127.0.0.1:{port}/slots")
+                        resp = await client.get(f"{base}/slots")
                         if resp.status_code == 200:
                             slots = resp.json()
                             last_slots[pm.server_id] = slots
                             event_bus.publish({"type": "slots", "server_id": pm.server_id, "slots": slots})
+                except Exception:
+                    pass
+                try:
+                    async with httpx.AsyncClient(timeout=2) as client:
+                        resp = await client.get(f"{base}/health")
+                        if resp.status_code in (200, 503):
+                            event_bus.publish({"type": "health", "server_id": pm.server_id, "health": resp.json()})
                 except Exception:
                     pass
         except Exception:
@@ -128,9 +136,9 @@ async def lifespan(app: FastAPI):
             client = RemoteManagerClient(i, rm_cfg, app)
             app.state.remote_manager_clients.append(client)
             await client.start()
-    slot_publisher_task = asyncio.create_task(_slot_publisher(app))
+    data_publisher_task = asyncio.create_task(_data_publisher(app))
     yield
-    slot_publisher_task.cancel()
+    data_publisher_task.cancel()
     # Stop remote manager clients
     for client in app.state.remote_manager_clients:
         await client.stop()
