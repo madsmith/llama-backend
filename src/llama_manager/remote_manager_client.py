@@ -27,6 +27,8 @@ class RemoteModelProxy:
         remote_index: int,
         remote_model_index: int,
         name: str | None,
+        model_id: str | None,
+        proxy_url: str,
         client: RemoteManagerClient,
         log_buffer_size: int = 10_000,
     ) -> None:
@@ -34,6 +36,8 @@ class RemoteModelProxy:
         self.remote_index = remote_index
         self.remote_model_index = remote_model_index
         self.name = name
+        self.model_id = model_id
+        self.proxy_url = proxy_url
         self._client = client
         self.state: ServerState = ServerState.stopped
         self.log_buffer = LogBuffer(maxlen=log_buffer_size)
@@ -208,7 +212,8 @@ class RemoteManagerClient:
         t = msg.get("type")
 
         if t == "snapshot":
-            await self._reconcile_models(msg.get("models", []))
+            proxy_port = msg.get("proxy_port", 1234)
+            await self._reconcile_models(msg.get("models", []), proxy_port)
 
         elif t == "state":
             proxy = self._get_proxy(msg.get("model", 0))
@@ -244,10 +249,11 @@ class RemoteManagerClient:
                 return p
         return None
 
-    async def _reconcile_models(self, model_descriptors: list[dict]) -> None:
+    async def _reconcile_models(self, model_descriptors: list[dict], proxy_port: int = 1234) -> None:
         pms: list = self.app.state.process_managers
         cfg = load_config()
         log_buffer_size = cfg.web_ui.log_buffer_size
+        proxy_url = f"http://{self.cfg.host}:{proxy_port}"
 
         # Build a stable key->proxy map from existing models
         existing: dict[str, RemoteModelProxy] = {}
@@ -259,6 +265,7 @@ class RemoteManagerClient:
         for desc in model_descriptors:
             rmi = desc.get("index", len(new_models))
             name = desc.get("name")
+            model_id = desc.get("model_id")
             state_str = desc.get("state", "stopped")
             key = name or f"__idx_{rmi}"
 
@@ -266,6 +273,8 @@ class RemoteManagerClient:
                 proxy = existing.pop(key)
                 proxy.remote_model_index = rmi
                 proxy.name = name
+                proxy.model_id = model_id
+                proxy.proxy_url = proxy_url
             else:
                 # Find a free slot at or beyond the local models zone
                 local_count = len(cfg.models)
@@ -279,6 +288,8 @@ class RemoteManagerClient:
                     remote_index=self.remote_index,
                     remote_model_index=rmi,
                     name=name,
+                    model_id=model_id,
+                    proxy_url=proxy_url,
                     client=self,
                     log_buffer_size=log_buffer_size,
                 )

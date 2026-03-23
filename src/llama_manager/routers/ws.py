@@ -100,10 +100,12 @@ async def manager_ws(ws: WebSocket, token: str = Query(default="")):
     await ws.send_json(
         {
             "type": "snapshot",
+            "proxy_port": cfg.api_server.port,
             "models": [
                 {
                     "index": i,
                     "name": cfg.models[i].name,
+                    "model_id": cfg.models[i].effective_id,
                     "state": pm.get_status()["state"],
                 }
                 for i, pm in local_pms

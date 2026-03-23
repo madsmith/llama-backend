@@ -52,6 +52,10 @@ def set_process_managers(pms: list[ProcessManager | None]) -> None:
     _process_managers = pms
 
 
+def get_process_managers() -> list:
+    return _process_managers
+
+
 def get_ttl_task() -> asyncio.Task | None:
     return _ttl_task
 

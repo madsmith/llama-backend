@@ -3,6 +3,8 @@ from __future__ import annotations
 import httpx
 
 from ..config import load_config
+from ..remote_manager_client import RemoteModelProxy
+from .lifecycle import get_process_managers
 
 # ---------------------------------------------------------------------------
 # Backend error helpers
@@ -31,6 +33,10 @@ def resolve_model_index(model_id: str | None) -> int | None:
     for i, m in enumerate(cfg.models):
         if m.effective_id == model_id:
             return i
+    # Fall through to federated remote models
+    for pm in get_process_managers():
+        if isinstance(pm, RemoteModelProxy) and pm.model_id == model_id:
+            return pm.local_index
     return None
 
 
@@ -39,6 +45,10 @@ def resolve_backend(model_id: str | None) -> str | None:
     idx = resolve_model_index(model_id)
     if idx is None:
         return None
+    # Check for a federated remote model first
+    pms = get_process_managers()
+    if idx < len(pms) and isinstance(pms[idx], RemoteModelProxy):
+        return pms[idx].proxy_url or None
     cfg = load_config()
     m = cfg.models[idx]
     if m.type == "remote":
@@ -52,10 +62,18 @@ def default_backend() -> str:
 
 
 def rewrite_model_field(body: dict, model_id: str | None) -> dict:
-    """If the target model is remote with a remote_model_id, rewrite the model field."""
+    """Rewrite the model field when forwarding to a remote backend."""
     idx = resolve_model_index(model_id)
     if idx is None:
         return body
+    # Federated remote model: forward using its known model_id
+    pms = get_process_managers()
+    if idx < len(pms) and isinstance(pms[idx], RemoteModelProxy):
+        remote_id = pms[idx].model_id
+        if remote_id:
+            return {**body, "model": remote_id}
+        return body
+    # Config-defined remote model with an explicit remote_model_id
     cfg = load_config()
     m = cfg.models[idx]
     if m.type == "remote" and m.remote_model_id:
