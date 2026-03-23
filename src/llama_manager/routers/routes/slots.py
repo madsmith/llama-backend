@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import httpx
 from fastapi import Query, Request
 from fastapi.responses import JSONResponse
 
@@ -12,8 +13,19 @@ async def get_slots(request: Request, model: int = Query(default=0)):
     pms = getattr(request.app.state, "process_managers", [])
     pm = pms[model] if model < len(pms) else None
 
-    # For remote-manager-proxied models, return cached slots
+    # For remote-manager-proxied models, fetch live from the remote manager's API
     if isinstance(pm, RemoteModelProxy):
+        cfg = pm._client.cfg
+        url = f"http://{cfg.host}:{cfg.port}/api/status/slots?model={pm.remote_model_index}"
+        try:
+            async with httpx.AsyncClient(timeout=3) as client:
+                resp = await client.get(url)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    pm.set_slots(data)  # keep cache in sync
+                    return data
+        except Exception:
+            pass
         return pm.get_cached_slots()
 
     client = LlamaClient(model)
