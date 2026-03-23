@@ -86,7 +86,7 @@ async def lifespan(app: FastAPI):
             await pm.start()
     # Start remote manager clients
     for i, rm_cfg in enumerate(cfg.remote_managers):
-        if rm_cfg.enabled and rm_cfg.url:
+        if rm_cfg.enabled and rm_cfg.host:
             client = RemoteManagerClient(i, rm_cfg, app)
             app.state.remote_manager_clients.append(client)
             await client.start()

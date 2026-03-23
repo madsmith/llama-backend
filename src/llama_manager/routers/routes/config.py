@@ -74,7 +74,7 @@ async def _sync_remote_managers(cfg: AppConfig, request: Request) -> None:
             # Restart if URL or token changed
             if existing.cfg.host != rm_cfg.host or existing.cfg.port != rm_cfg.port or existing.cfg.token != rm_cfg.token:
                 await existing.stop()
-                if rm_cfg.enabled and rm_cfg.url:
+                if rm_cfg.enabled and rm_cfg.host:
                     client = RemoteManagerClient(i, rm_cfg, request.app)
                     await client.start()
                     new_clients.append(client)
@@ -86,7 +86,7 @@ async def _sync_remote_managers(cfg: AppConfig, request: Request) -> None:
                 new_clients.append(existing)
         else:
             # New entry
-            if rm_cfg.enabled and rm_cfg.url:
+            if rm_cfg.enabled and rm_cfg.host:
                 client = RemoteManagerClient(i, rm_cfg, request.app)
                 await client.start()
                 new_clients.append(client)
