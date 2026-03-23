@@ -196,9 +196,9 @@ async def manager_ws(ws: WebSocket, token: str = Query(default="")):
                     t.cancel()
 
                 if recv_task in done:
-                    # Handle incoming command
+                    # Propagate disconnect/errors; only swallow command parse failures
+                    data = recv_task.result()  # raises WebSocketDisconnect on close
                     try:
-                        data = recv_task.result()
                         cmd = json.loads(data)
                         await _handle_command(cmd, ws.app.state.process_managers)
                     except Exception:
