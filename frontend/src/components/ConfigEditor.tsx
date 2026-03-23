@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { api } from "../api/client";
-import type { ServerConfig, ModelConfig, ModelAdvanced, RemoteManagerConfig, ManagerUplinkConfig } from "../api/types";
+import type { ServerConfig, ModelConfig, ModelAdvanced, RemoteManagerConfig } from "../api/types";
 import type { SettingsTab } from "./config-defaults";
 
 const CTX_MIN = 1;
