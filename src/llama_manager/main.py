@@ -71,6 +71,7 @@ async def lifespan(app: FastAPI):
     cfg = load_config()
     app.state.process_managers = _make_process_managers(cfg)
     app.state.remote_manager_clients = []
+    app.state.uplink_client_count = 0
     set_process_managers(app.state.process_managers)
     vite_proc = None
     if DEV_MODE:

@@ -7,6 +7,7 @@ import type {
   ModelProps,
   RequestLogEntry,
   RemoteManagerStatus,
+  UplinkStatus,
 } from "./types";
 
 const BASE = "";
@@ -64,6 +65,7 @@ export const api = {
   getRequestLog: (requestId: string) =>
     request<RequestLogEntry>(`/api/status/requests/${requestId}`),
   getRemotes: () => request<RemoteManagerStatus[]>("/api/remotes"),
+  getUplinkStatus: () => request<UplinkStatus>("/api/remotes/uplink"),
   generateUplinkToken: () =>
     request<{ token: string }>("/api/server/config/generate-token", { method: "POST" }),
 };

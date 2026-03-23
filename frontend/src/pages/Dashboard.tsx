@@ -13,6 +13,7 @@ import {
   useHealth,
   useSlots,
   useRemotes,
+  useUplinkStatus,
   pollRatesFromConfig,
 } from "../api/hooks";
 
@@ -177,6 +178,7 @@ export default function Dashboard() {
     new Map(),
   );
   const remotes = useRemotes();
+  const uplink = useUplinkStatus();
 
   useEffect(() => {
     document.title = "Llama Manager - Dashboard";
@@ -235,7 +237,7 @@ export default function Dashboard() {
           ))}
         </div>
       )}
-      <HealthCard proxyStatus={proxyStatus} servers={servers} />
+      <HealthCard proxyStatus={proxyStatus} servers={servers} uplink={uplink ?? undefined} />
     </div>
   );
 }

@@ -82,6 +82,11 @@ export interface RemoteModelInfo {
   state: string;
 }
 
+export interface UplinkStatus {
+  enabled: boolean;
+  connected_clients: number;
+}
+
 export interface RemoteManagerStatus {
   index: number;
   name: string | null;

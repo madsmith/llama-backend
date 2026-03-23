@@ -86,6 +86,7 @@ async def manager_ws(ws: WebSocket, token: str = Query(default="")):
         return
 
     await ws.accept()
+    ws.app.state.uplink_client_count += 1
 
     pms = ws.app.state.process_managers
     # Only serve local models (indices within cfg.models range, not None/remote)
@@ -220,6 +221,7 @@ async def manager_ws(ws: WebSocket, token: str = Query(default="")):
     except (WebSocketDisconnect, asyncio.CancelledError):
         pass
     finally:
+        ws.app.state.uplink_client_count -= 1
         slots_task.cancel()
         for i, pm in local_pms:
             if i in queues:

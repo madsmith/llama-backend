@@ -9,6 +9,7 @@ import type {
   ModelProps,
   LogMessage,
   RemoteManagerStatus,
+  UplinkStatus,
 } from "./types";
 
 export function pollRatesFromConfig(cfg: ServerConfig | null) {
@@ -199,4 +200,19 @@ export function useRemotes(pollMs = 3000) {
   }, [pollMs]);
 
   return remotes;
+}
+
+export function useUplinkStatus(pollMs = 3000) {
+  const [uplink, setUplink] = useState<UplinkStatus | null>(null);
+
+  useEffect(() => {
+    const fetch = () => {
+      api.getUplinkStatus().then(setUplink).catch(() => {});
+    };
+    fetch();
+    const id = setInterval(fetch, pollMs);
+    return () => clearInterval(id);
+  }, [pollMs]);
+
+  return uplink;
 }

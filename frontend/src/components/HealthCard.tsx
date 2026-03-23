@@ -1,5 +1,5 @@
 import { Fragment } from "react";
-import type { HealthStatus, ProxyStatus, ServerStatus } from "../api/types";
+import type { HealthStatus, ProxyStatus, ServerStatus, UplinkStatus } from "../api/types";
 
 interface ServerInfo {
   name: string;
@@ -12,11 +12,13 @@ interface ServerInfo {
 interface Props {
   proxyStatus: ProxyStatus;
   servers: ServerInfo[];
+  uplink?: UplinkStatus;
 }
 
 const Check = () => <span className="text-green-500">&#10003;</span>;
 const Cross = () => <span className="text-red-500">&#10005;</span>;
 const Dot = () => <span className="text-gray-500">&#9679;</span>;
+const Dash = () => <span className="text-yellow-500">&#9679;</span>;
 
 /**
  * A stopped server that isn't expected to be running right now.
@@ -27,7 +29,7 @@ const Dot = () => <span className="text-gray-500">&#9679;</span>;
 const isOffline = (s: ServerInfo) =>
   s.status.state === "stopped" && (s.hasTTL || !s.autoStart);
 
-export default function HealthCard({ proxyStatus, servers }: Props) {
+export default function HealthCard({ proxyStatus, servers, uplink }: Props) {
   const proxyOk = proxyStatus.state === "running";
   const serverOk = (s: ServerInfo) => {
     if (isOffline(s)) return true;
@@ -56,6 +58,15 @@ export default function HealthCard({ proxyStatus, servers }: Props) {
         >
           {proxyOk ? "running" : proxyStatus.state}
         </span>
+        {uplink?.enabled && (
+          <Fragment>
+            {uplink.connected_clients > 0 ? <Check /> : <Dash />}
+            <span className="text-sm text-gray-300">Uplink</span>
+            <span className={`text-sm ${uplink.connected_clients > 0 ? "text-green-400" : "text-yellow-400"}`}>
+              {uplink.connected_clients > 0 ? `connected (${uplink.connected_clients})` : "enabled"}
+            </span>
+          </Fragment>
+        )}
         {servers.map((s) => {
           const ok = serverOk(s);
           const offline = isOffline(s);

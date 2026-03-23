@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
+from ..config import load_config
+
 router = APIRouter(prefix="/api/remotes", tags=["remotes"])
 
 
@@ -28,3 +30,12 @@ async def get_remotes(request: Request):
             }
         )
     return result
+
+
+@router.get("/uplink")
+async def get_uplink_status(request: Request):
+    cfg = load_config()
+    return {
+        "enabled": cfg.manager_uplink.enabled,
+        "connected_clients": getattr(request.app.state, "uplink_client_count", 0),
+    }
