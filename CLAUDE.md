@@ -40,6 +40,10 @@ npx tsc --noEmit  # Type-check
 python3 -m py_compile src/main.py
 ```
 
+## Source Map
+
+See [`SOURCE_MAP.md`](./SOURCE_MAP.md) for a complete module-by-module reference of every file in `src/llama_manager/` and `frontend/src/`, including key exports and cross-cutting flows. Read it first when orienting to the codebase.
+
 ## Architecture
 
 ### Dual-Server Design
