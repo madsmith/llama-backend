@@ -25,16 +25,15 @@ export default function ConfigEditor({
   const [managerAdvanced, setManagerAdvanced] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
-  const [extraArgsRaw, setExtraArgsRaw] = useState(() =>
-    config.models[modelIndex].advanced.extra_args.join(", "),
-  );
-
-  useEffect(() => {
-    setExtraArgsRaw(config.models[modelIndex].advanced.extra_args.join(", "));
-  }, [modelIndex]);
-
   const model = config.models[modelIndex];
   const adv = model.advanced;
+
+  const extraArgsJoined = adv.extra_args.join(", ");
+  const [extraArgsRaw, setExtraArgsRaw] = useState(extraArgsJoined);
+
+  useEffect(() => {
+    setExtraArgsRaw(extraArgsJoined);
+  }, [modelIndex, extraArgsJoined]);
 
   const save = async () => {
     setSaving(true);
