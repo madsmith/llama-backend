@@ -1,7 +1,7 @@
 [project]
-name = "llama-backend"
+name = "llama-manager"
 dynamic = ["version"]
-description = "Management backend for llama-server"
+description = "Management control and proxy server for llama-server"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115",
