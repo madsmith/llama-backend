@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { api } from "../api/client";
 import type { ServerConfig, ModelConfig, ModelAdvanced } from "../api/types";
 import type { SettingsTab } from "./config-defaults";
@@ -25,6 +25,13 @@ export default function ConfigEditor({
   const [managerAdvanced, setManagerAdvanced] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
+  const [extraArgsRaw, setExtraArgsRaw] = useState(() =>
+    config.models[modelIndex].advanced.extra_args.join(", "),
+  );
+
+  useEffect(() => {
+    setExtraArgsRaw(config.models[modelIndex].advanced.extra_args.join(", "));
+  }, [modelIndex]);
 
   const model = config.models[modelIndex];
   const adv = model.advanced;
@@ -848,8 +855,9 @@ export default function ConfigEditor({
                     </label>
                     <input
                       type="text"
-                      value={adv.extra_args.join(", ")}
-                      onChange={(e) =>
+                      value={extraArgsRaw}
+                      onChange={(e) => setExtraArgsRaw(e.target.value)}
+                      onBlur={(e) =>
                         updateAdv({
                           extra_args: e.target.value
                             .split(",")
