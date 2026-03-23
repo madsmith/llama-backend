@@ -845,6 +845,32 @@ export default function ConfigEditor({
                     />
                   </div>
 
+                  <label className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-gray-400">
+                      Max Prediction Tokens
+                      <span className="ml-1 text-xs text-gray-600">
+                        (--n-predict
+                        {adv.max_prediction_tokens == null ? ", off" : ""})
+                      </span>
+                    </span>
+                    <input
+                      type="number"
+                      step="1"
+                      min={1}
+                      value={adv.max_prediction_tokens ?? ""}
+                      placeholder="4096"
+                      onChange={(e) =>
+                        updateAdv({
+                          max_prediction_tokens:
+                            e.target.value === ""
+                              ? null
+                              : Number(e.target.value),
+                        })
+                      }
+                      className="w-28 rounded-md border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 text-right focus:border-blue-500 focus:outline-none"
+                    />
+                  </label>
+
                   <div>
                     <label className="block text-sm font-medium text-gray-400 mb-1">
                       Extra Arguments

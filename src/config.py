@@ -25,6 +25,7 @@ class ModelAdvanced(BaseModel):
     kv_cache: bool = False
     slot_save_path: str = ""
     swa_full: bool = False
+    max_prediction_tokens: int | None = None
     extra_args: list[str] = []
 
 

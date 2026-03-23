@@ -16,6 +16,7 @@ export interface ModelAdvanced {
   kv_cache: boolean;
   slot_save_path: string;
   swa_full: boolean;
+  max_prediction_tokens: number | null;
   extra_args: string[];
 }
 

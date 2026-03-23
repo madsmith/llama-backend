@@ -195,6 +195,9 @@ class ProcessManager:
         if adv.swa_full:
             cmd += ["--swa-full"]
 
+        if adv.max_prediction_tokens is not None:
+            cmd += ["--n-predict", str(adv.max_prediction_tokens)]
+
         cmd += adv.extra_args
         return cmd
 

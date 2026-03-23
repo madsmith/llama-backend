@@ -24,6 +24,7 @@ export const defaultConfig: ServerConfig = {
         kv_cache: false,
         slot_save_path: "",
         swa_full: false,
+        max_prediction_tokens: null,
         extra_args: [],
       },
       remote_address: "",
