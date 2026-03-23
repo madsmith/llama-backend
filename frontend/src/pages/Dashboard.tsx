@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
-import type { ServerConfig, ServerStatus, HealthStatus } from "../api/types";
+import type { ServerConfig, ServerStatus, HealthStatus, RemoteManagerStatus } from "../api/types";
 import ServerStatusCard from "../components/ServerStatusCard";
 import ServerControls from "../components/ServerControls";
 import ProxyStatusCard from "../components/ProxyStatusCard";
@@ -12,6 +12,7 @@ import {
   useProxyStatus,
   useHealth,
   useSlots,
+  useRemotes,
   pollRatesFromConfig,
 } from "../api/hooks";
 
@@ -86,6 +87,86 @@ function ModelPanel({
   );
 }
 
+function RemoteModelPanel({
+  modelIndex,
+  name,
+  onSnapshot,
+  poll,
+}: {
+  modelIndex: number;
+  name: string;
+  onSnapshot: (index: number, snap: ServerSnapshot) => void;
+  poll?: PollRates;
+}) {
+  const navigate = useNavigate();
+  const { status, refresh } = useServerStatus(modelIndex, poll?.serverStatus);
+  const slots = useSlots(modelIndex, poll?.slots, poll?.slotsActive, status.state);
+  const health = useHealth(modelIndex, poll?.health);
+
+  useEffect(() => {
+    onSnapshot(modelIndex, { name, status, health, autoStart: false, hasTTL: false });
+  }, [modelIndex, name, status, health, onSnapshot]);
+
+  return (
+    <div className="space-y-4">
+      <ServerStatusCard
+        name={name}
+        status={status}
+        slots={slots}
+        modelIndex={modelIndex}
+        onClick={() => navigate(`/logs/${modelIndex}`)}
+      />
+      <ServerControls status={status} modelIndex={modelIndex} onAction={refresh} />
+    </div>
+  );
+}
+
+function connectionDot(state: RemoteManagerStatus["connection_state"]) {
+  if (state === "connected") return "bg-green-500";
+  if (state === "connecting") return "bg-yellow-500 animate-pulse";
+  return "bg-gray-600";
+}
+
+function RemoteManagerSection({
+  rm,
+  onSnapshot,
+  poll,
+}: {
+  rm: RemoteManagerStatus;
+  onSnapshot: (index: number, snap: ServerSnapshot) => void;
+  poll?: PollRates;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 mt-2">
+        <span className={`h-2 w-2 rounded-full flex-shrink-0 ${connectionDot(rm.connection_state)}`} />
+        <span className="text-sm font-medium text-gray-300">
+          {rm.name ?? rm.url}
+        </span>
+        {rm.name && (
+          <span className="text-xs text-gray-600">{rm.url}</span>
+        )}
+        {rm.connection_state !== "connected" && (
+          <span className="text-xs text-gray-600 capitalize">{rm.connection_state}</span>
+        )}
+      </div>
+      {rm.models.length === 0 && rm.connection_state !== "connected" ? null : (
+        <div className="flex gap-6 flex-wrap ml-3">
+          {rm.models.map((m) => (
+            <RemoteModelPanel
+              key={m.local_index}
+              modelIndex={m.local_index}
+              name={m.name ?? `Remote Model ${m.remote_model_index + 1}`}
+              onSnapshot={onSnapshot}
+              poll={poll}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [config, setConfig] = useState<ServerConfig | null>(null);
   const poll = pollRatesFromConfig(config);
@@ -95,6 +176,7 @@ export default function Dashboard() {
   const [snapshots, setSnapshots] = useState<Map<number, ServerSnapshot>>(
     new Map(),
   );
+  const remotes = useRemotes();
 
   useEffect(() => {
     document.title = "Llama Manager - Dashboard";
@@ -116,9 +198,7 @@ export default function Dashboard() {
   }, []);
 
   const models = config?.models ?? [];
-  const servers = models
-    .map((_, i) => snapshots.get(i))
-    .filter((s): s is ServerSnapshot => s != null);
+  const servers = Array.from(snapshots.values());
 
   return (
     <div className="space-y-6">
@@ -142,6 +222,19 @@ export default function Dashboard() {
           />
         ))}
       </div>
+      {remotes.length > 0 && (
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold text-gray-400">Remotes</h2>
+          {remotes.map((rm) => (
+            <RemoteManagerSection
+              key={rm.index}
+              rm={rm}
+              onSnapshot={handleSnapshot}
+              poll={poll}
+            />
+          ))}
+        </div>
+      )}
       <HealthCard proxyStatus={proxyStatus} servers={servers} />
     </div>
   );

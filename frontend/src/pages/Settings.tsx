@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { ServerConfig } from "../api/types";
 import ConfigEditor from "../components/ConfigEditor";
-import { defaultConfig } from "../components/config-defaults";
+import { defaultConfig, defaultRemoteManager } from "../components/config-defaults";
 import type { SettingsTab } from "../components/config-defaults";
 import { TabButton, PANEL_BG } from "../components/TabBar";
 
@@ -22,6 +22,7 @@ export default function Settings() {
   }, []);
 
   const modelIndex = tab.startsWith("model-") ? Number(tab.split("-")[1]) : 0;
+  const remoteIndex = tab.startsWith("remote-") ? Number(tab.split("-")[1]) : 0;
 
   const addModel = () => {
     const blank = {
@@ -40,10 +41,24 @@ export default function Settings() {
     setTab("model-0");
   };
 
+  const addRemote = () => {
+    const remotes = config.remote_managers ?? [];
+    setConfig({ ...config, remote_managers: [...remotes, { ...defaultRemoteManager }] });
+    setTab(`remote-${remotes.length}`);
+  };
+
+  const deleteRemote = (index: number) => {
+    setConfig({
+      ...config,
+      remote_managers: (config.remote_managers ?? []).filter((_, i) => i !== index),
+    });
+    setTab("manager");
+  };
+
   return (
     <div>
       <h1 className="text-2xl font-bold mb-6">Server Configuration</h1>
-      <div className="flex items-end gap-1.5">
+      <div className="flex items-end gap-1.5 flex-wrap">
         <TabButton
           label="General"
           active={tab === "manager"}
@@ -69,6 +84,24 @@ export default function Settings() {
         >
           ⊕
         </button>
+        {(config.remote_managers ?? []).length > 0 && (
+          <span className="px-2 text-gray-700 self-center text-xs">|</span>
+        )}
+        {(config.remote_managers ?? []).map((rm, i) => (
+          <TabButton
+            key={`remote-${i}`}
+            label={rm.name ?? `Remote ${i + 1}`}
+            active={tab === `remote-${i}`}
+            onClick={() => setTab(`remote-${i}`)}
+          />
+        ))}
+        <button
+          className="min-w-[4em] px-3 py-2.5 text-sm font-medium rounded-t-lg bg-[#111419] text-gray-600 hover:text-gray-400 transition"
+          title="Add remote manager"
+          onClick={addRemote}
+        >
+          ⊕ Remote
+        </button>
       </div>
       <div className={`${PANEL_BG} rounded-b-lg rounded-tr-lg p-6`}>
         <ConfigEditor
@@ -76,7 +109,9 @@ export default function Settings() {
           config={config}
           setConfig={setConfig}
           modelIndex={modelIndex}
+          remoteIndex={remoteIndex}
           onDeleteModel={deleteModel}
+          onDeleteRemote={deleteRemote}
         />
       </div>
     </div>

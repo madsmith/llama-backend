@@ -5,11 +5,17 @@ from fastapi.responses import JSONResponse
 
 from ...llama_client import LlamaClient
 from ...proxy.active_requests import cancel, list_cancellable
+from ...remote_manager_client import RemoteModelProxy
 
 
 async def get_slots(request: Request, model: int = Query(default=0)):
     pms = getattr(request.app.state, "process_managers", [])
     pm = pms[model] if model < len(pms) else None
+
+    # For remote-manager-proxied models, return cached slots
+    if isinstance(pm, RemoteModelProxy):
+        return pm.get_cached_slots()
+
     client = LlamaClient(model)
     data = await client.get_slots()
     if data is None:

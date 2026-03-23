@@ -8,6 +8,7 @@ import type {
   SlotInfo,
   ModelProps,
   LogMessage,
+  RemoteManagerStatus,
 } from "./types";
 
 export function pollRatesFromConfig(cfg: ServerConfig | null) {
@@ -183,4 +184,19 @@ export function useLogs(source = "model-0") {
   const clear = useCallback(() => setLines([]), []);
 
   return { lines, connected, serverState, clear };
+}
+
+export function useRemotes(pollMs = 3000) {
+  const [remotes, setRemotes] = useState<RemoteManagerStatus[]>([]);
+
+  useEffect(() => {
+    const fetch = () => {
+      api.getRemotes().then(setRemotes).catch(() => {});
+    };
+    fetch();
+    const id = setInterval(fetch, pollMs);
+    return () => clearInterval(id);
+  }, [pollMs]);
+
+  return remotes;
 }

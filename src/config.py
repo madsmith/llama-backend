@@ -83,10 +83,25 @@ class ApiServerConfig(BaseModel):
     jit_timeout: int | None = None
 
 
+class ManagerUplinkConfig(BaseModel):
+    enabled: bool = False
+    token: str = ""
+
+
+class RemoteManagerConfig(BaseModel):
+    name: str | None = None
+    url: str = ""
+    token: str = ""
+    reconnect_interval: int = 5
+    enabled: bool = True
+
+
 class AppConfig(BaseModel):
     models: list[ModelConfig] = [ModelConfig()]
     web_ui: WebUIConfig = WebUIConfig()
     api_server: ApiServerConfig = ApiServerConfig()
+    manager_uplink: ManagerUplinkConfig = ManagerUplinkConfig()
+    remote_managers: list[RemoteManagerConfig] = []
 
 
 def load_config() -> AppConfig:

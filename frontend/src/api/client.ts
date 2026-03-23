@@ -6,6 +6,7 @@ import type {
   SlotInfo,
   ModelProps,
   RequestLogEntry,
+  RemoteManagerStatus,
 } from "./types";
 
 const BASE = "";
@@ -62,6 +63,9 @@ export const api = {
     request<ModelProps>(`/api/status/props?model=${model}`),
   getRequestLog: (requestId: string) =>
     request<RequestLogEntry>(`/api/status/requests/${requestId}`),
+  getRemotes: () => request<RemoteManagerStatus[]>("/api/remotes"),
+  generateUplinkToken: () =>
+    request<{ token: string }>("/api/server/config/generate-token", { method: "POST" }),
 };
 
 export function wsUrl(source = "model-0"): string {

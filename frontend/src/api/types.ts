@@ -54,10 +54,40 @@ export interface ApiServerConfig {
   jit_timeout?: number | null;
 }
 
+export interface ManagerUplinkConfig {
+  enabled: boolean;
+  token: string;
+}
+
+export interface RemoteManagerConfig {
+  name: string | null;
+  url: string;
+  token: string;
+  reconnect_interval: number;
+  enabled: boolean;
+}
+
 export interface ServerConfig {
   models: ModelConfig[];
   web_ui: WebUIConfig;
   api_server: ApiServerConfig;
+  manager_uplink?: ManagerUplinkConfig;
+  remote_managers?: RemoteManagerConfig[];
+}
+
+export interface RemoteModelInfo {
+  remote_model_index: number;
+  local_index: number;
+  name: string | null;
+  state: string;
+}
+
+export interface RemoteManagerStatus {
+  index: number;
+  name: string | null;
+  url: string;
+  connection_state: "connected" | "connecting" | "disconnected";
+  models: RemoteModelInfo[];
 }
 
 export interface ProxyStatus {

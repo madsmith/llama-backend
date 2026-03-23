@@ -26,7 +26,9 @@ from .proxy import (
     start_proxy,
     stop_proxy,
 )
+from .remote_manager_client import RemoteManagerClient
 from .routers import server, status, ws
+from .routers.remotes import router as remotes_router
 
 ROOT = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = ROOT / "frontend"
@@ -68,6 +70,7 @@ def _make_process_managers(cfg: AppConfig) -> list[ProcessManager | None]:
 async def lifespan(app: FastAPI):
     cfg = load_config()
     app.state.process_managers = _make_process_managers(cfg)
+    app.state.remote_manager_clients = []
     set_process_managers(app.state.process_managers)
     vite_proc = None
     if DEV_MODE:
@@ -80,7 +83,16 @@ async def lifespan(app: FastAPI):
         if m.auto_start and pm is not None:
             print(f"[auto-start] Starting model {m.name or i} ...")
             await pm.start()
+    # Start remote manager clients
+    for i, rm_cfg in enumerate(cfg.remote_managers):
+        if rm_cfg.enabled and rm_cfg.url:
+            client = RemoteManagerClient(i, rm_cfg, app)
+            app.state.remote_manager_clients.append(client)
+            await client.start()
     yield
+    # Stop remote manager clients
+    for client in app.state.remote_manager_clients:
+        await client.stop()
     await stop_proxy()
     shutdown_proxy_subscribers()
     for pm in app.state.process_managers:
@@ -104,6 +116,7 @@ app.add_middleware(
 app.include_router(server.router)
 app.include_router(status.router)
 app.include_router(ws.router)
+app.include_router(remotes_router)
 
 # In prod mode, serve the built frontend as static files
 if not DEV_MODE and DIST_DIR.is_dir():

@@ -4,9 +4,10 @@ from fastapi import Query, Request
 from fastapi.responses import JSONResponse
 
 from ...process_manager import ProcessManager
+from ...remote_manager_client import RemoteModelProxy
 
 
-def _process_manager(request: Request, model: int = 0) -> ProcessManager | None:
+def _process_manager(request: Request, model: int = 0) -> ProcessManager | RemoteModelProxy | None:
     pms = request.app.state.process_managers
     if model < 0 or model >= len(pms):
         raise IndexError(f"model index {model} out of range")
@@ -37,6 +38,9 @@ async def start(request: Request, model: int = Query(default=0)):
     pm = _process_manager(request, model)
     if pm is None:
         return JSONResponse({"error": "Cannot start a remote model"}, status_code=400)
+    if isinstance(pm, RemoteModelProxy):
+        await pm.send_command("start")
+        return pm.get_status()
     await pm.start()
     return _status_response(pm)
 
@@ -45,6 +49,9 @@ async def stop(request: Request, model: int = Query(default=0)):
     pm = _process_manager(request, model)
     if pm is None:
         return JSONResponse({"error": "Cannot stop a remote model"}, status_code=400)
+    if isinstance(pm, RemoteModelProxy):
+        await pm.send_command("stop")
+        return pm.get_status()
     await pm.stop()
     return _status_response(pm)
 
@@ -53,5 +60,8 @@ async def restart(request: Request, model: int = Query(default=0)):
     pm = _process_manager(request, model)
     if pm is None:
         return JSONResponse({"error": "Cannot restart a remote model"}, status_code=400)
+    if isinstance(pm, RemoteModelProxy):
+        await pm.send_command("restart")
+        return pm.get_status()
     await pm.restart()
     return _status_response(pm)

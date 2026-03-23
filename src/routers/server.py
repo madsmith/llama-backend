@@ -18,3 +18,4 @@ router.post("/proxy-restart")(proxy.proxy_restart)
 
 router.get("/config")(config.get_config)
 router.put("/config")(config.put_config)
+router.post("/config/generate-token")(config.generate_token)

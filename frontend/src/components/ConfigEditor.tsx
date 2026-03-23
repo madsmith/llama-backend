@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { api } from "../api/client";
-import type { ServerConfig, ModelConfig, ModelAdvanced } from "../api/types";
+import type { ServerConfig, ModelConfig, ModelAdvanced, RemoteManagerConfig, ManagerUplinkConfig } from "../api/types";
 import type { SettingsTab } from "./config-defaults";
 
 const CTX_MIN = 1;
@@ -11,7 +11,9 @@ interface Props {
   config: ServerConfig;
   setConfig: (c: ServerConfig) => void;
   modelIndex: number;
+  remoteIndex: number;
   onDeleteModel: (index: number) => void;
+  onDeleteRemote: (index: number) => void;
 }
 
 export default function ConfigEditor({
@@ -19,7 +21,9 @@ export default function ConfigEditor({
   config,
   setConfig,
   modelIndex,
+  remoteIndex,
   onDeleteModel,
+  onDeleteRemote,
 }: Props) {
   const [advanced, setAdvanced] = useState(false);
   const [managerAdvanced, setManagerAdvanced] = useState(false);
@@ -141,6 +145,75 @@ export default function ConfigEditor({
             model ID.
           </p>
         </div>
+        <div className="border-t border-gray-700 pt-4 space-y-3">
+          <span className="text-sm font-medium text-gray-300">Manager Uplink</span>
+          <p className="text-xs text-gray-600">
+            Allow other Llama Manager instances to connect to this one and proxy its models.
+          </p>
+          <label className="flex items-center justify-between cursor-pointer">
+            <span className="text-sm font-medium text-gray-400">Enable Uplink</span>
+            <input
+              type="checkbox"
+              checked={config.manager_uplink?.enabled ?? false}
+              onChange={(e) =>
+                setConfig({
+                  ...config,
+                  manager_uplink: {
+                    enabled: e.target.checked,
+                    token: config.manager_uplink?.token ?? "",
+                  },
+                })
+              }
+              className="h-4 w-4 rounded border-gray-700 bg-gray-800 accent-blue-500"
+            />
+          </label>
+          {config.manager_uplink?.enabled && (
+            <div>
+              <label className="block text-sm font-medium text-gray-400 mb-1">
+                Authorization Token
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={config.manager_uplink?.token ?? ""}
+                  placeholder="Auto-generated on save"
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      manager_uplink: {
+                        enabled: config.manager_uplink?.enabled ?? true,
+                        token: e.target.value,
+                      },
+                    })
+                  }
+                  className="flex-1 rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 font-mono focus:border-blue-500 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  title="Regenerate token"
+                  onClick={() =>
+                    api.generateUplinkToken().then(({ token }) =>
+                      setConfig({
+                        ...config,
+                        manager_uplink: {
+                          enabled: config.manager_uplink?.enabled ?? true,
+                          token,
+                        },
+                      }),
+                    )
+                  }
+                  className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-400 hover:text-gray-200 transition"
+                >
+                  Regenerate
+                </button>
+              </div>
+              <p className="mt-1 text-xs text-gray-600">
+                Connecting managers must provide this token. Clearing and saving generates a new one.
+              </p>
+            </div>
+          )}
+        </div>
+
         <button
           type="button"
           onClick={() => setManagerAdvanced(!managerAdvanced)}
@@ -386,6 +459,109 @@ export default function ConfigEditor({
             {saving ? "Saving..." : "Save Configuration"}
           </button>
           {msg && <span className="text-sm text-gray-400">{msg}</span>}
+        </div>
+      </div>
+    );
+  }
+
+  if (tab.startsWith("remote-")) {
+    const rm: RemoteManagerConfig = (config.remote_managers ?? [])[remoteIndex] ?? {
+      name: null,
+      url: "",
+      token: "",
+      reconnect_interval: 5,
+      enabled: true,
+    };
+
+    const updateRemote = (patch: Partial<RemoteManagerConfig>) => {
+      const remotes = [...(config.remote_managers ?? [])];
+      remotes[remoteIndex] = { ...rm, ...patch };
+      setConfig({ ...config, remote_managers: remotes });
+    };
+
+    return (
+      <div className="space-y-4 max-w-xl">
+        <p className="text-sm text-gray-400">
+          Connect to another Llama Manager instance and proxy its models into this UI.
+        </p>
+        <div>
+          <label className="block text-sm font-medium text-gray-400 mb-1">Name</label>
+          <input
+            type="text"
+            value={rm.name ?? ""}
+            placeholder={`Remote ${remoteIndex + 1}`}
+            onChange={(e) => updateRemote({ name: e.target.value || null })}
+            className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-400 mb-1">URL</label>
+          <input
+            type="text"
+            value={rm.url}
+            placeholder="ws://192.168.1.10:8000"
+            onChange={(e) => updateRemote({ url: e.target.value })}
+            className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
+          />
+          <p className="mt-1 text-xs text-gray-600">
+            Address of the remote Llama Manager. Accepts ws://, wss://, http://, or https://.
+          </p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-400 mb-1">
+            Authorization Token
+          </label>
+          <input
+            type="text"
+            value={rm.token}
+            placeholder="Token from remote manager's General settings"
+            onChange={(e) => updateRemote({ token: e.target.value })}
+            className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 font-mono focus:border-blue-500 focus:outline-none"
+          />
+          <p className="mt-1 text-xs text-gray-600">
+            Must match the uplink token configured on the remote manager.
+          </p>
+        </div>
+        <label className="flex items-center justify-between cursor-pointer">
+          <div>
+            <span className="text-sm font-medium text-gray-400">Reconnect Interval</span>
+            <p className="text-xs text-gray-600">Seconds between reconnect attempts on disconnect</p>
+          </div>
+          <input
+            type="number"
+            min={1}
+            max={300}
+            value={rm.reconnect_interval}
+            onChange={(e) => updateRemote({ reconnect_interval: Number(e.target.value) })}
+            className="w-20 rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 text-right focus:border-blue-500 focus:outline-none"
+          />
+        </label>
+        <label className="flex items-center justify-between cursor-pointer">
+          <div>
+            <span className="text-sm font-medium text-gray-400">Enabled</span>
+          </div>
+          <input
+            type="checkbox"
+            checked={rm.enabled}
+            onChange={(e) => updateRemote({ enabled: e.target.checked })}
+            className="h-4 w-4 rounded border-gray-700 bg-gray-800 accent-blue-500"
+          />
+        </label>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={save}
+            disabled={saving}
+            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 disabled:opacity-40 transition"
+          >
+            {saving ? "Saving..." : "Save Configuration"}
+          </button>
+          {msg && <span className="text-sm text-gray-400">{msg}</span>}
+          <button
+            onClick={() => onDeleteRemote(remoteIndex)}
+            className="ml-auto rounded-md bg-red-900/50 px-4 py-2 text-sm font-medium text-red-400 hover:bg-red-900 transition"
+          >
+            Delete Remote
+          </button>
         </div>
       </div>
     );

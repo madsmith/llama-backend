@@ -7,7 +7,7 @@ import ServerControls from "../components/ServerControls";
 import ProxyStatusCard from "../components/ProxyStatusCard";
 import ProxyControls from "../components/ProxyControls";
 import LogViewer from "../components/LogViewer";
-import { useServerStatus, useProxyStatus, useLogs, useSlots, pollRatesFromConfig } from "../api/hooks";
+import { useServerStatus, useProxyStatus, useLogs, useSlots, useRemotes, pollRatesFromConfig } from "../api/hooks";
 
 function ModelLogCard({ modelIndex, name, source, navigate, poll }: { modelIndex: number; name: string; source: string; navigate: (path: string) => void; poll?: { serverStatus?: number; slots?: number; slotsActive?: number } }) {
   const { status, refresh } = useServerStatus(modelIndex, poll?.serverStatus);
@@ -106,13 +106,29 @@ export default function Logs() {
     api.getConfig().then(setConfig).catch(() => {});
   }, []);
 
+  const remotes = useRemotes();
+
+  // Build a map from local_index -> display name for remote-manager-proxied models
+  const remoteModelNames = new Map<number, string>();
+  for (const rm of remotes) {
+    for (const m of rm.models) {
+      remoteModelNames.set(
+        m.local_index,
+        m.name ?? `Remote Model ${m.remote_model_index + 1}`,
+      );
+    }
+  }
+
   const models = config?.models ?? [];
   const modelIndex = source === "proxy" ? null : Number(source);
+
   const logHeader = source === "proxy"
     ? "Proxy Server"
-    : models[modelIndex!]?.name ?? `Llama Server ${(modelIndex ?? 0) + 1}`;
+    : remoteModelNames.get(modelIndex!) ??
+      models[modelIndex!]?.name ??
+      `Llama Server ${(modelIndex ?? 0) + 1}`;
 
-  // Redirect to proxy logs if current source is a remote model
+  // Redirect to proxy logs if current source is a config-level remote model (type="remote")
   useEffect(() => {
     if (modelIndex != null && models.length > 0 && modelIndex < models.length) {
       if ((models[modelIndex].type ?? "local") === "remote") {
@@ -121,7 +137,7 @@ export default function Logs() {
     }
   }, [modelIndex, models, navigate]);
 
-  // Only show local models in the card list
+  // Only show local models and remote-manager-proxied models in the card list
   const localModels = models
     .map((m, i) => ({ model: m, index: i }))
     .filter(({ model }) => (model.type ?? "local") !== "remote");
@@ -149,6 +165,19 @@ export default function Logs() {
             />
           </div>
         ))}
+        {remotes.flatMap((rm) =>
+          rm.models.map((m) => (
+            <div key={m.local_index} data-source={String(m.local_index)}>
+              <ModelLogCard
+                modelIndex={m.local_index}
+                name={m.name ?? `Remote Model ${m.remote_model_index + 1}`}
+                source={source}
+                navigate={navigate}
+                poll={poll}
+              />
+            </div>
+          )),
+        )}
       </ScrollStrip>
       <h2 className="text-lg font-semibold mb-2">{logHeader} Logs</h2>
       <div className="flex-1 min-h-0">

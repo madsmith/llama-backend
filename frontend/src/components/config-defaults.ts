@@ -1,6 +1,14 @@
-import type { ServerConfig } from "../api/types";
+import type { ServerConfig, RemoteManagerConfig } from "../api/types";
 
 export type SettingsTab = string;
+
+export const defaultRemoteManager: RemoteManagerConfig = {
+  name: null,
+  url: "",
+  token: "",
+  reconnect_interval: 5,
+  enabled: true,
+};
 
 export const defaultConfig: ServerConfig = {
   models: [
@@ -47,4 +55,9 @@ export const defaultConfig: ServerConfig = {
     llama_server_path: "",
     jit_model_server: true,
   },
+  manager_uplink: {
+    enabled: false,
+    token: "",
+  },
+  remote_managers: [],
 };
