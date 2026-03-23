@@ -577,9 +577,12 @@ export default function ConfigEditor({
               </label>
 
               <label className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-400">
-                  Model TTL
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-gray-400">
+                    Model TTL
+                  </span>
+                  <span className="text-xs text-gray-600">(minutes)</span>
+                </div>
                 <input
                   type="number"
                   min={1}
