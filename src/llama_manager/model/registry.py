@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .model_identifier import ModelIdentifier
+from .identifier import ModelIdentifier
 
 if TYPE_CHECKING:
-    from ..process_manager import ProcessManager
-    from ..remote_manager_client import RemoteModelProxy
+    from llama_manager.process_manager import ProcessManager
+    from llama_manager.remote_manager_client import RemoteModelProxy
 
 ProcessEntry = "ProcessManager | RemoteModelProxy | None"
 
