@@ -3,8 +3,8 @@ import { api } from "../api/client";
 import type { ServerConfig, ModelConfig, ModelAdvanced } from "../api/types";
 import type { SettingsTab } from "./config-defaults";
 
-const CTX_MIN = 1024;
-const CTX_MAX = 200_000;
+const CTX_MIN = 1;
+const CTX_MAX = 1_000_000;
 
 interface Props {
   tab: SettingsTab;
