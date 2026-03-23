@@ -96,135 +96,138 @@ async def manager_ws(ws: WebSocket, token: str = Query(default="")):
         if i < len(pms) and pms[i] is not None and not isinstance(pms[i], RemoteModelProxy)
     ]
 
-    # Send snapshot
-    await ws.send_json(
-        {
-            "type": "snapshot",
-            "proxy_port": cfg.api_server.port,
-            "models": [
-                {
-                    "index": i,
-                    "name": cfg.models[i].name,
-                    "model_id": cfg.models[i].effective_id,
-                    "state": pm.get_status()["state"],
-                }
-                for i, pm in local_pms
-            ],
-        }
-    )
-
-    # Send log history for each local model
-    for i, pm in local_pms:
-        lines = pm.log_buffer.snapshot()
-        if lines:
-            await ws.send_json(
-                {
-                    "type": "log_history",
-                    "model": i,
-                    "lines": [{"id": ln.id, "text": ln.text} for ln in lines],
-                }
-            )
-
-    # Subscribe to all local process managers
     queues: dict[int, asyncio.Queue] = {}
-    for i, pm in local_pms:
-        queues[i] = pm.subscribe()
-
-    # Periodic slots/health push task
-    async def push_slots_health():
-        import httpx
-
-        while True:
-            await asyncio.sleep(3)
-            current_cfg = load_config()
-            current_pms = ws.app.state.process_managers
-            for i, pm in [
-                (i, current_pms[i])
-                for i in range(len(current_cfg.models))
-                if i < len(current_pms)
-                and current_pms[i] is not None
-                and not isinstance(current_pms[i], RemoteModelProxy)
-            ]:
-                status = pm.get_status()
-                if status["state"] == "running":
-                    port = current_cfg.api_server.llama_server_starting_port + i
-                    base = f"http://127.0.0.1:{port}"
-                    try:
-                        async with httpx.AsyncClient(timeout=3) as client:
-                            slots_resp = await client.get(f"{base}/slots")
-                            if slots_resp.status_code == 200:
-                                await ws.send_json(
-                                    {
-                                        "type": "slots",
-                                        "model": i,
-                                        "slots": slots_resp.json(),
-                                    }
-                                )
-                    except Exception:
-                        pass
-                    try:
-                        async with httpx.AsyncClient(timeout=3) as client:
-                            health_resp = await client.get(f"{base}/health")
-                            if health_resp.status_code in (200, 503):
-                                await ws.send_json(
-                                    {
-                                        "type": "health",
-                                        "model": i,
-                                        "health": health_resp.json(),
-                                    }
-                                )
-                    except Exception:
-                        pass
-
-    slots_task = asyncio.create_task(push_slots_health())
-
-    # Fan-out messages from all subscribed queues + handle commands
-    async def drain_queues():
-        while True:
-            tasks = {
-                asyncio.ensure_future(q.get()): i for i, q in queues.items()
-            }
-            recv_task = asyncio.ensure_future(ws.receive_text())
-            all_tasks = list(tasks.keys()) + [recv_task]
-
-            done, pending = await asyncio.wait(
-                all_tasks, return_when=asyncio.FIRST_COMPLETED
-            )
-            for t in pending:
-                t.cancel()
-
-            if recv_task in done:
-                # Handle incoming command
-                try:
-                    data = recv_task.result()
-                    cmd = json.loads(data)
-                    await _handle_command(cmd, ws.app.state.process_managers)
-                except Exception:
-                    pass
-                # Re-cancel queue tasks explicitly
-                for t in tasks:
-                    if t not in done:
-                        t.cancel()
-                continue
-
-            for t in done:
-                if t in tasks:
-                    model_idx = tasks[t]
-                    msg = t.result()
-                    if not msg:
-                        # Subscriber shut down — remove it
-                        queues.pop(model_idx, None)
-                        continue
-                    msg_with_model = {**msg, "model": model_idx}
-                    await ws.send_json(msg_with_model)
-
+    slots_task: asyncio.Task | None = None
     try:
-        await drain_queues()
-    except (WebSocketDisconnect, asyncio.CancelledError):
-        pass
+        # Send snapshot
+        await ws.send_json(
+            {
+                "type": "snapshot",
+                "proxy_port": cfg.api_server.port,
+                "models": [
+                    {
+                        "index": i,
+                        "name": cfg.models[i].name,
+                        "model_id": cfg.models[i].effective_id,
+                        "state": pm.get_status()["state"],
+                    }
+                    for i, pm in local_pms
+                ],
+            }
+        )
+
+        # Send log history for each local model
+        for i, pm in local_pms:
+            lines = pm.log_buffer.snapshot()
+            if lines:
+                await ws.send_json(
+                    {
+                        "type": "log_history",
+                        "model": i,
+                        "lines": [{"id": ln.id, "text": ln.text} for ln in lines],
+                    }
+                )
+
+        # Subscribe to all local process managers
+        for i, pm in local_pms:
+            queues[i] = pm.subscribe()
+
+        # Periodic slots/health push task
+        async def push_slots_health():
+            import httpx
+
+            while True:
+                await asyncio.sleep(3)
+                current_cfg = load_config()
+                current_pms = ws.app.state.process_managers
+                for i, pm in [
+                    (i, current_pms[i])
+                    for i in range(len(current_cfg.models))
+                    if i < len(current_pms)
+                    and current_pms[i] is not None
+                    and not isinstance(current_pms[i], RemoteModelProxy)
+                ]:
+                    status = pm.get_status()
+                    if status["state"] == "running":
+                        port = current_cfg.api_server.llama_server_starting_port + i
+                        base = f"http://127.0.0.1:{port}"
+                        try:
+                            async with httpx.AsyncClient(timeout=3) as client:
+                                slots_resp = await client.get(f"{base}/slots")
+                                if slots_resp.status_code == 200:
+                                    await ws.send_json(
+                                        {
+                                            "type": "slots",
+                                            "model": i,
+                                            "slots": slots_resp.json(),
+                                        }
+                                    )
+                        except Exception:
+                            pass
+                        try:
+                            async with httpx.AsyncClient(timeout=3) as client:
+                                health_resp = await client.get(f"{base}/health")
+                                if health_resp.status_code in (200, 503):
+                                    await ws.send_json(
+                                        {
+                                            "type": "health",
+                                            "model": i,
+                                            "health": health_resp.json(),
+                                        }
+                                    )
+                        except Exception:
+                            pass
+
+        slots_task = asyncio.create_task(push_slots_health())
+
+        # Fan-out messages from all subscribed queues + handle commands
+        async def drain_queues():
+            while True:
+                tasks = {
+                    asyncio.ensure_future(q.get()): i for i, q in queues.items()
+                }
+                recv_task = asyncio.ensure_future(ws.receive_text())
+                all_tasks = list(tasks.keys()) + [recv_task]
+
+                done, pending = await asyncio.wait(
+                    all_tasks, return_when=asyncio.FIRST_COMPLETED
+                )
+                for t in pending:
+                    t.cancel()
+
+                if recv_task in done:
+                    # Handle incoming command
+                    try:
+                        data = recv_task.result()
+                        cmd = json.loads(data)
+                        await _handle_command(cmd, ws.app.state.process_managers)
+                    except Exception:
+                        pass
+                    # Re-cancel queue tasks explicitly
+                    for t in tasks:
+                        if t not in done:
+                            t.cancel()
+                    continue
+
+                for t in done:
+                    if t in tasks:
+                        model_idx = tasks[t]
+                        msg = t.result()
+                        if not msg:
+                            # Subscriber shut down — remove it
+                            queues.pop(model_idx, None)
+                            continue
+                        msg_with_model = {**msg, "model": model_idx}
+                        await ws.send_json(msg_with_model)
+
+        try:
+            await drain_queues()
+        except (WebSocketDisconnect, asyncio.CancelledError):
+            pass
     finally:
         ws.app.state.uplink_client_count -= 1
-        slots_task.cancel()
+        if slots_task is not None:
+            slots_task.cancel()
         for i, pm in local_pms:
             if i in queues:
                 pm.unsubscribe(queues[i])

@@ -7,6 +7,8 @@ from ..config import AppConfig
 
 def resolve_slot_save_path(cfg: AppConfig, model_index: int) -> Path | None:
     """Return the slot save directory for a model, or None if kv_cache is off."""
+    if model_index >= len(cfg.models):
+        return None  # federated remote model — no local config
     model = cfg.models[model_index]
     adv = model.advanced
 
