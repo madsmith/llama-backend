@@ -27,6 +27,7 @@ from .proxy import (
     stop_proxy,
 )
 from .event_bus import bus as event_bus
+from .proxy.model_registry import ModelRegistry
 from .remote_manager_client import RemoteManagerClient, RemoteModelProxy
 from .routers import server, status, ws
 from .routers.events import router as events_router
@@ -119,6 +120,7 @@ async def lifespan(app: FastAPI):
     app.state.remote_manager_clients = []
     app.state.uplink_client_count = 0
     set_process_managers(app.state.process_managers)
+    ModelRegistry.get_registry().set_entries(app.state.process_managers)
     vite_proc = None
     if DEV_MODE:
         vite_proc = await _start_vite()

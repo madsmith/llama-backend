@@ -11,6 +11,7 @@ from pathlib import Path
 from .config import AppConfig, load_config
 from .kv_cache import resolve_slot_save_path
 from .log_buffer import LogBuffer
+from .proxy.model_identifier import ModelIdentifier
 
 # Regexes for parsing prompt processing progress from llama-server logs
 _RE_NEW_PROMPT = re.compile(
@@ -43,7 +44,13 @@ class ProcessManager:
         self.port: int | None = None
         self.started_at: float | None = None
         cfg = config or load_config()
-        self.server_id = f"{cfg.manager_id}:model-{model_index}"
+        self.process_manager_id = f"model-{model_index}"
+        self.model_identifier = ModelIdentifier(
+            manager_id=cfg.manager_id,
+            process_identifier=self.process_manager_id,
+        )
+        self.server_id = str(self.model_identifier)
+        self.llama_port = cfg.api_server.llama_server_starting_port + model_index
         self.log_buffer = LogBuffer(maxlen=cfg.web_ui.log_buffer_size)
         self._subscribers: list[asyncio.Queue[dict]] = []
         self._reader_task: asyncio.Task | None = None
@@ -96,7 +103,7 @@ class ProcessManager:
 
             model = cfg.models[self.model_index]
 
-            llama_host, llama_port = self._get_server_address(cfg)
+            llama_host, llama_port = self._get_server_address()
             log.debug("loaded config: %s", cfg.model_dump(by_alias=True))
 
             self.log_buffer.clear()
@@ -121,10 +128,8 @@ class ProcessManager:
             )
             await self._spawn(cmd, llama_host, llama_port)
 
-    def _get_server_address(self, cfg: AppConfig) -> tuple[str, int]:
-        host = "127.0.0.1"
-        port = cfg.api_server.llama_server_starting_port + self.model_index
-        return host, port
+    def _get_server_address(self) -> tuple[str, int]:
+        return "127.0.0.1", self.llama_port
 
     @staticmethod
     def _resolve_llama_server_path(cfg: AppConfig, model) -> Path:
