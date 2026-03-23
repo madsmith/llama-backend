@@ -16,8 +16,7 @@ from ..kv_cache import (
     SlotAvailabilityProvider,
     resolve_slot_save_path,
 )
-from .active_requests import register as register_active
-from .active_requests import unregister as unregister_active
+from .active_requests import ActiveRequestManager
 from .anthropic import handle_anthropic
 from .lifecycle import ensure_model_server, touch_model
 from .logging import log_req, log_resp, log_stream_end
@@ -57,7 +56,7 @@ async def _stream_passthrough(
     active_slot_id = body.get("id_slot")
     cancel_event = None
     if model_index is not None and active_slot_id is not None:
-        cancel_event = register_active(model_index, active_slot_id)
+        cancel_event = ActiveRequestManager.register(model_index, active_slot_id)
 
     async def _resolve_slot() -> int | None:
         """Poll /slots to find which slot picked up our request."""
@@ -101,7 +100,7 @@ async def _stream_passthrough(
                         resolved = await _resolve_slot()
                         if resolved is not None:
                             active_slot_id = resolved
-                            cancel_event = register_active(model_index, active_slot_id)
+                            cancel_event = ActiveRequestManager.register(model_index, active_slot_id)
                     async for line in resp.aiter_lines():
                         if cancel_event is not None and cancel_event.is_set():
                             proxy_log(
@@ -159,7 +158,7 @@ async def _stream_passthrough(
                 )
         finally:
             if model_index is not None and active_slot_id is not None:
-                unregister_active(model_index, active_slot_id)
+                ActiveRequestManager.unregister(model_index, active_slot_id)
 
         if cache_save:
             kv, cache_id, slot_id, slots = cache_save

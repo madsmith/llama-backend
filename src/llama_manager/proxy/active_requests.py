@@ -9,35 +9,37 @@ from __future__ import annotations
 import asyncio
 import threading
 
-_lock = threading.Lock()
-_active: dict[tuple[int, int], asyncio.Event] = {}
 
+class ActiveRequestManager:
+    _lock = threading.Lock()
+    _active: dict[tuple[int, int], asyncio.Event] = {}
 
-def register(model_index: int, slot_id: int) -> asyncio.Event:
-    """Create and store a cancel event for this model+slot. Returns the event."""
-    event = asyncio.Event()
-    with _lock:
-        _active[(model_index, slot_id)] = event
-    return event
+    @classmethod
+    def register(cls, model_index: int, slot_id: int) -> asyncio.Event:
+        """Create and store a cancel event for this model+slot. Returns the event."""
+        event = asyncio.Event()
+        with cls._lock:
+            cls._active[(model_index, slot_id)] = event
+        return event
 
+    @classmethod
+    def unregister(cls, model_index: int, slot_id: int) -> None:
+        """Remove the cancel event for this model+slot."""
+        with cls._lock:
+            cls._active.pop((model_index, slot_id), None)
 
-def unregister(model_index: int, slot_id: int) -> None:
-    """Remove the cancel event for this model+slot."""
-    with _lock:
-        _active.pop((model_index, slot_id), None)
+    @classmethod
+    def cancel(cls, model_index: int, slot_id: int) -> bool:
+        """Set the cancel event. Returns True if a matching request was found."""
+        with cls._lock:
+            event = cls._active.get((model_index, slot_id))
+        if event is None:
+            return False
+        event.set()
+        return True
 
-
-def cancel(model_index: int, slot_id: int) -> bool:
-    """Set the cancel event. Returns True if a matching request was found."""
-    with _lock:
-        event = _active.get((model_index, slot_id))
-    if event is None:
-        return False
-    event.set()
-    return True
-
-
-def list_cancellable(model_index: int) -> list[int]:
-    """Return slot IDs with active cancellable requests for the given model."""
-    with _lock:
-        return [sid for (mi, sid) in _active if mi == model_index]
+    @classmethod
+    def list_cancellable(cls, model_index: int) -> list[int]:
+        """Return slot IDs with active cancellable requests for the given model."""
+        with cls._lock:
+            return [sid for (mi, sid) in cls._active if mi == model_index]

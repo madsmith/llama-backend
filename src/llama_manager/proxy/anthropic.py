@@ -17,8 +17,7 @@ from ..kv_cache import (
     SlotAvailabilityProvider,
     resolve_slot_save_path,
 )
-from .active_requests import register as register_active
-from .active_requests import unregister as unregister_active
+from .active_requests import ActiveRequestManager
 from .lifecycle import ensure_model_server, touch_model
 from .logging import log_req, log_resp, log_stream_end
 from .models import (
@@ -60,7 +59,7 @@ async def _stream_passthrough(
     active_slot_id = oai_body.get("id_slot")
     cancel_event = None
     if model_index is not None and active_slot_id is not None:
-        cancel_event = register_active(model_index, active_slot_id)
+        cancel_event = ActiveRequestManager.register(model_index, active_slot_id)
 
     async def _resolve_slot() -> int | None:
         """Poll /slots to find which slot picked up our request."""
@@ -134,7 +133,7 @@ async def _stream_passthrough(
                         resolved = await _resolve_slot()
                         if resolved is not None:
                             active_slot_id = resolved
-                            cancel_event = register_active(model_index, active_slot_id)
+                            cancel_event = ActiveRequestManager.register(model_index, active_slot_id)
                     async for line in resp.aiter_lines():
                         if cancel_event is not None and cancel_event.is_set():
                             proxy_log(
@@ -153,14 +152,14 @@ async def _stream_passthrough(
                                 )
                             )
                             if model_index is not None and active_slot_id is not None:
-                                unregister_active(model_index, active_slot_id)
+                                ActiveRequestManager.unregister(model_index, active_slot_id)
                             return
                         if await request.is_disconnected():
                             proxy_log(
                                 f"\u2190 [{server_name}] client disconnected, aborting stream"
                             )
                             if model_index is not None and active_slot_id is not None:
-                                unregister_active(model_index, active_slot_id)
+                                ActiveRequestManager.unregister(model_index, active_slot_id)
                             return
                         if not line.startswith("data: "):
                             continue
@@ -226,7 +225,7 @@ async def _stream_passthrough(
             if request_id:
                 request_log.update(request_id, response_status=502, elapsed=time.monotonic() - t0)
             if model_index is not None and active_slot_id is not None:
-                unregister_active(model_index, active_slot_id)
+                ActiveRequestManager.unregister(model_index, active_slot_id)
             return
 
         if block_started:
@@ -263,7 +262,7 @@ async def _stream_passthrough(
             )
 
         if model_index is not None and active_slot_id is not None:
-            unregister_active(model_index, active_slot_id)
+            ActiveRequestManager.unregister(model_index, active_slot_id)
 
         if cache_save:
             kv, cache_id, sid, sa = cache_save
