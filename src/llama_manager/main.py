@@ -26,8 +26,10 @@ from .proxy import (
     start_proxy,
     stop_proxy,
 )
-from .remote_manager_client import RemoteManagerClient
+from .event_bus import bus as event_bus
+from .remote_manager_client import RemoteManagerClient, RemoteModelProxy
 from .routers import server, status, ws
+from .routers.events import router as events_router
 from .routers.remotes import router as remotes_router
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -57,6 +59,42 @@ async def _stop_vite(proc: asyncio.subprocess.Process) -> None:
     except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
+
+
+async def _slot_publisher(app: FastAPI) -> None:
+    """Publish slot events for running local models to the event bus."""
+    import httpx
+
+    last_slots: dict[str, list[dict]] = {}
+
+    while True:
+        try:
+            cfg = load_config()
+            pms = app.state.process_managers
+            for pm in pms:
+                if pm is None or isinstance(pm, RemoteModelProxy):
+                    continue
+                if pm.state.value != "running":
+                    continue
+                port = cfg.api_server.llama_server_starting_port + pm.model_index
+                try:
+                    async with httpx.AsyncClient(timeout=2) as client:
+                        resp = await client.get(f"http://127.0.0.1:{port}/slots")
+                        if resp.status_code == 200:
+                            slots = resp.json()
+                            last_slots[pm.server_id] = slots
+                            event_bus.publish({"type": "slots", "server_id": pm.server_id, "slots": slots})
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        active = any(
+            s.get("is_processing")
+            for slots in last_slots.values()
+            for s in slots
+        )
+        await asyncio.sleep(0.5 if active else 3.0)
 
 
 def _make_process_managers(cfg: AppConfig) -> list[ProcessManager | None]:
@@ -90,7 +128,9 @@ async def lifespan(app: FastAPI):
             client = RemoteManagerClient(i, rm_cfg, app)
             app.state.remote_manager_clients.append(client)
             await client.start()
+    slot_publisher_task = asyncio.create_task(_slot_publisher(app))
     yield
+    slot_publisher_task.cancel()
     # Stop remote manager clients
     for client in app.state.remote_manager_clients:
         await client.stop()
@@ -117,6 +157,7 @@ app.add_middleware(
 app.include_router(server.router)
 app.include_router(status.router)
 app.include_router(ws.router)
+app.include_router(events_router)
 app.include_router(remotes_router)
 
 # In prod mode, serve the built frontend as static files

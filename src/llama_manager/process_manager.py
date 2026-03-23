@@ -43,6 +43,7 @@ class ProcessManager:
         self.port: int | None = None
         self.started_at: float | None = None
         cfg = config or load_config()
+        self.server_id = f"{cfg.manager_id}:model-{model_index}"
         self.log_buffer = LogBuffer(maxlen=cfg.web_ui.log_buffer_size)
         self._subscribers: list[asyncio.Queue[dict]] = []
         self._reader_task: asyncio.Task | None = None

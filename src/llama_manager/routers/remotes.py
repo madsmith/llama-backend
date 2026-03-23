@@ -24,6 +24,7 @@ async def get_remotes(request: Request):
                         "local_index": p.local_index,
                         "name": p.name,
                         "state": p.state.value,
+                        "server_id": p.server_id,
                     }
                     for p in client.models
                 ],

@@ -202,6 +202,58 @@ export function useRemotes(pollMs = 3000) {
   return remotes;
 }
 
+// ---------------------------------------------------------------------------
+// Event stream — singleton WebSocket to /ws/events
+// ---------------------------------------------------------------------------
+
+type SlotEventHandler = (serverId: string, slots: SlotInfo[]) => void;
+
+let _eventWs: WebSocket | null = null;
+let _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+const _slotHandlers = new Set<SlotEventHandler>();
+
+function _connectEventStream() {
+  if (_eventWs?.readyState === WebSocket.OPEN || _eventWs?.readyState === WebSocket.CONNECTING) return;
+  if (_reconnectTimer) return;
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  _eventWs = new WebSocket(`${proto}//${location.host}/ws/events`);
+  _eventWs.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.type === "slots" && msg.server_id) {
+        _slotHandlers.forEach((h) => h(msg.server_id, msg.slots ?? []));
+      }
+    } catch {}
+  };
+  _eventWs.onclose = () => {
+    _eventWs = null;
+    if (_slotHandlers.size > 0) {
+      _reconnectTimer = setTimeout(() => {
+        _reconnectTimer = null;
+        _connectEventStream();
+      }, 2000);
+    }
+  };
+}
+
+export function useSlotStream(serverId: string | undefined): SlotInfo[] {
+  const [slots, setSlots] = useState<SlotInfo[]>([]);
+
+  useEffect(() => {
+    if (!serverId) return;
+    const handler: SlotEventHandler = (id, data) => {
+      if (id === serverId) setSlots(data);
+    };
+    _slotHandlers.add(handler);
+    _connectEventStream();
+    return () => {
+      _slotHandlers.delete(handler);
+    };
+  }, [serverId]);
+
+  return slots;
+}
+
 export function useUplinkStatus(pollMs = 3000) {
   const [uplink, setUplink] = useState<UplinkStatus | null>(null);
 

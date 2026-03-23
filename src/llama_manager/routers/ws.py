@@ -109,6 +109,7 @@ async def manager_ws(ws: WebSocket, token: str = Query(default="")):
                         "index": i,
                         "name": cfg.models[i].name,
                         "model_id": cfg.models[i].effective_id,
+                        "server_id": pm.server_id,
                         "state": pm.get_status()["state"],
                     }
                     for i, pm in local_pms
@@ -159,6 +160,7 @@ async def manager_ws(ws: WebSocket, token: str = Query(default="")):
                                         {
                                             "type": "slots",
                                             "model": i,
+                                            "server_id": pm.server_id,
                                             "slots": slots_resp.json(),
                                         }
                                     )
@@ -172,6 +174,7 @@ async def manager_ws(ws: WebSocket, token: str = Query(default="")):
                                         {
                                             "type": "health",
                                             "model": i,
+                                            "server_id": pm.server_id,
                                             "health": health_resp.json(),
                                         }
                                     )

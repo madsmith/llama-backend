@@ -11,9 +11,9 @@ import {
   useServerStatus,
   useProxyStatus,
   useHealth,
-  useSlots,
   useRemotes,
   useUplinkStatus,
+  useSlotStream,
   pollRatesFromConfig,
 } from "../api/hooks";
 
@@ -35,6 +35,7 @@ interface PollRates {
 
 function ModelPanel({
   modelIndex,
+  serverId,
   name,
   isRemote,
   remoteAddress,
@@ -44,6 +45,7 @@ function ModelPanel({
   poll,
 }: {
   modelIndex: number;
+  serverId: string | undefined;
   name: string;
   isRemote: boolean;
   remoteAddress?: string;
@@ -54,12 +56,7 @@ function ModelPanel({
 }) {
   const navigate = useNavigate();
   const { status, refresh } = useServerStatus(modelIndex, poll?.serverStatus);
-  const slots = useSlots(
-    modelIndex,
-    poll?.slots,
-    poll?.slotsActive,
-    status.state,
-  );
+  const slots = useSlotStream(serverId);
   const health = useHealth(modelIndex, poll?.health);
 
   useEffect(() => {
@@ -90,18 +87,20 @@ function ModelPanel({
 
 function RemoteModelPanel({
   modelIndex,
+  serverId,
   name,
   onSnapshot,
   poll,
 }: {
   modelIndex: number;
+  serverId: string;
   name: string;
   onSnapshot: (index: number, snap: ServerSnapshot) => void;
   poll?: PollRates;
 }) {
   const navigate = useNavigate();
   const { status, refresh } = useServerStatus(modelIndex, poll?.serverStatus);
-  const slots = useSlots(modelIndex, poll?.slots, poll?.slotsActive, status.state);
+  const slots = useSlotStream(serverId);
   const health = useHealth(modelIndex, poll?.health);
 
   useEffect(() => {
@@ -157,6 +156,7 @@ function RemoteManagerSection({
             <RemoteModelPanel
               key={m.local_index}
               modelIndex={m.local_index}
+              serverId={m.server_id}
               name={m.name ?? `Remote Model ${m.remote_model_index + 1}`}
               onSnapshot={onSnapshot}
               poll={poll}
@@ -214,6 +214,7 @@ export default function Dashboard() {
           <ModelPanel
             key={i}
             modelIndex={i}
+            serverId={config?.manager_id ? `${config.manager_id}:model-${i}` : undefined}
             name={m.name ?? `Llama Server ${i + 1}`}
             isRemote={(m.type ?? "local") === "remote"}
             remoteAddress={m.remote_address}

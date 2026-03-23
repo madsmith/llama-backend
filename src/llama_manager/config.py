@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import shutil
+import socket
+import uuid
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -107,6 +109,7 @@ class AppConfig(BaseModel):
     api_server: ApiServerConfig = ApiServerConfig()
     manager_uplink: ManagerUplinkConfig = ManagerUplinkConfig()
     remote_managers: list[RemoteManagerConfig] = []
+    manager_id: str = ""
 
 
 def load_config() -> AppConfig:
@@ -120,7 +123,12 @@ def load_config() -> AppConfig:
     if not cfg.api_server.llama_server_path:
         cfg.api_server.llama_server_path = _find_llama_server()
 
-    if is_missing:
+    if not cfg.manager_id:
+        hostname = socket.gethostname()
+        port = cfg.api_server.port
+        cfg.manager_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{hostname}:{port}"))
+        save_config(cfg)
+    elif is_missing:
         save_config(cfg)
 
     return cfg

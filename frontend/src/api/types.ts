@@ -74,6 +74,7 @@ export interface ServerConfig {
   api_server: ApiServerConfig;
   manager_uplink?: ManagerUplinkConfig;
   remote_managers?: RemoteManagerConfig[];
+  manager_id?: string;
 }
 
 export interface RemoteModelInfo {
@@ -81,6 +82,7 @@ export interface RemoteModelInfo {
   local_index: number;
   name: string | null;
   state: string;
+  server_id: string;
 }
 
 export interface UplinkStatus {

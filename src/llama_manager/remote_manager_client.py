@@ -9,6 +9,7 @@ import websockets
 from websockets.exceptions import WebSocketException
 
 from .config import RemoteManagerConfig, load_config
+from .event_bus import bus as event_bus
 from .log_buffer import LogBuffer
 from .process_manager import ServerState
 
@@ -29,6 +30,7 @@ class RemoteModelProxy:
         name: str | None,
         model_id: str | None,
         proxy_url: str,
+        server_id: str,
         client: RemoteManagerClient,
         log_buffer_size: int = 10_000,
     ) -> None:
@@ -38,6 +40,7 @@ class RemoteModelProxy:
         self.name = name
         self.model_id = model_id
         self.proxy_url = proxy_url
+        self.server_id = server_id
         self._client = client
         self.state: ServerState = ServerState.stopped
         self.log_buffer = LogBuffer(maxlen=log_buffer_size)
@@ -234,7 +237,9 @@ class RemoteManagerClient:
         elif t == "slots":
             proxy = self._get_proxy(msg.get("model", 0))
             if proxy:
-                proxy.set_slots(msg.get("slots", []))
+                slots = msg.get("slots", [])
+                proxy.set_slots(slots)
+                event_bus.publish({"type": "slots", "server_id": proxy.server_id, "slots": slots})
 
         elif t == "health":
             proxy = self._get_proxy(msg.get("model", 0))
@@ -242,6 +247,7 @@ class RemoteManagerClient:
                 health = msg.get("health")
                 if health is not None:
                     proxy.set_health(health)
+                    event_bus.publish({"type": "health", "server_id": proxy.server_id, "health": health})
 
     def _get_proxy(self, remote_model_index: int) -> RemoteModelProxy | None:
         for p in self.models:
@@ -266,6 +272,7 @@ class RemoteManagerClient:
             rmi = desc.get("index", len(new_models))
             name = desc.get("name")
             model_id = desc.get("model_id")
+            server_id = desc.get("server_id") or f"{self.cfg.host}:model-{rmi}"
             state_str = desc.get("state", "stopped")
             key = name or f"__idx_{rmi}"
 
@@ -275,6 +282,7 @@ class RemoteManagerClient:
                 proxy.name = name
                 proxy.model_id = model_id
                 proxy.proxy_url = proxy_url
+                proxy.server_id = server_id
             else:
                 # Find a free slot at or beyond the local models zone
                 local_count = len(cfg.models)
@@ -290,6 +298,7 @@ class RemoteManagerClient:
                     name=name,
                     model_id=model_id,
                     proxy_url=proxy_url,
+                    server_id=server_id,
                     client=self,
                     log_buffer_size=log_buffer_size,
                 )
