@@ -36,11 +36,10 @@ Quick-reference map of every module in `src/llama_manager/` and `frontend/src/` 
 | `__init__.py` | Re-exports | `proxy_app`, `start_proxy`, `stop_proxy`, `restart_proxy`, `get_proxy_status` |
 | `proxy.py` | Proxy FastAPI app; request-ID middleware; lifecycle functions | `proxy_app`, `start_proxy()`, `stop_proxy()`, `restart_proxy()`, `get_proxy_status()` |
 | `openai.py` | OpenAI-compatible endpoint handler; stream passthrough; KV cache integration | `openai_proxy()`, `_stream_passthrough()` |
-| `anthropic.py` | Anthropic API endpoint; translates to/from OpenAI format | `handle_anthropic()`, `_stream_passthrough()` |
-| `translate.py` | Format translation between Anthropic and OpenAI wire formats | `anthropic_to_openai()`, `openai_to_anthropic()`, `normalize_messages()`, `sse()` |
+| `translate.py` | Message normalization for llama-server compatibility | `normalize_messages()` |
 | `models.py` | Model resolution: ID → index → backend URL | `resolve_model_index()`, `resolve_backend()`, `default_backend()`, `rewrite_model_field()`, `backend_error_msg()` |
 | `lifecycle.py` | JIT model start; TTL idle shutdown background task | `ensure_model_server()`, `touch_model()`, `_ttl_checker()` |
-| `active_requests.py` | Registry of in-flight requests; supports cancellation via asyncio.Event | `register()`, `unregister()`, `cancel()`, `list_cancellable()` |
+| `active_requests.py` | Registry of in-flight requests; supports cancellation via asyncio.Event | `ActiveRequestManager` (`register`, `unregister`, `cancel`, `list_cancellable`) |
 | `logging.py` | Structured proxy request/response logging (→ / ← arrows) | `log_req()`, `log_resp()`, `log_stream_end()` |
 | `request_log.py` | Rotating in-memory log of recent proxy requests | `RequestLog`, `RequestLogEntry`, `request_log` (global) |
 | `subscription.py` | Proxy log buffer + pub/sub for WebSocket streaming | `proxy_log_buffer`, `proxy_log()`, `proxy_subscribe()`, `proxy_unsubscribe()` |
@@ -84,7 +83,7 @@ Quick-reference map of every module in `src/llama_manager/` and `frontend/src/` 
 |------|---------|-------------|
 | `types.ts` | TypeScript interfaces mirroring all backend response shapes | `ServerStatus`, `ServerConfig`, `ModelConfig`, `HealthStatus`, `SlotInfo`, `ProxyStatus`, `RequestLogEntry`, `RemoteManagerStatus`, `UplinkStatus`, … |
 | `client.ts` | Generic fetch wrapper + all endpoint functions | `api` object (`getStatus`, `start`, `stop`, `restart`, `putConfig`, `getHealth`, `getSlots`, `cancelSlot`, …), `wsUrl()` |
-| `hooks.ts` | React polling and WebSocket hooks | `useServerStatus()`, `useProxyStatus()`, `useHealth()`, `useSlots()`, `useProps()`, `useLogs()`, `useRemotes()` |
+| `hooks.ts` | React polling and WebSocket hooks | `useServerStatus()`, `useProxyStatus()`, `useHealth()`, `useSlots()`, `useProps()`, `useLogs()`, `useRemotes()`, `useSlotStream()`, `useHealthStream()`, `useUplinkStatus()` |
 
 ### Pages — `pages/`
 
@@ -107,12 +106,10 @@ Quick-reference map of every module in `src/llama_manager/` and `frontend/src/` 
 | `ProxyControls.tsx` | Start/Stop/Restart buttons for proxy |
 | `HealthCard.tsx` | Dashboard health summary using ✓/✗/•/– characters; shows proxy + uplink + per-model status |
 | `LogViewer.tsx` | Log display with tab filters (Server/Info/Other/All), request_id click-through to detail modal |
-| `SlotsTable.tsx` | Table: slot ID, state, context size, processing; cancel button |
 | `ConfigEditor.tsx` | Form for `ModelConfig` or `RemoteManagerConfig`; save/delete; advanced section |
 | `config-defaults.ts` | `defaultConfig`, `defaultRemoteManager` templates; `SettingsTab` type |
 | `JsonTree.tsx` | Expandable color-coded JSON tree |
 | `TabBar.tsx` | `TabButton` component + `PANEL_BG` shared constant |
-| `PropsPanel.tsx` | Thin wrapper rendering `ModelProps` via `JsonTree` |
 | `RequestDetail.tsx` | Modal overlay — two-pane request/response body viewer |
 
 ---
@@ -123,7 +120,7 @@ Quick-reference map of every module in `src/llama_manager/` and `frontend/src/` 
 |------|-------------|---------------|
 | Server status polling | `ProcessManager.get_status()` → `GET /api/server/status?model=N` | `useServerStatus()` → `ServerStatusCard` |
 | Log streaming | `LogBuffer` → pub/sub → `WS /ws/logs?source=model-N` | `useLogs()` → `LogViewer` |
-| Proxy request | `openai_proxy()` / `handle_anthropic()` → KVCache → slot alloc → llama-server | n/a (external callers) |
+| Proxy request | `openai_proxy()` → KVCache → slot alloc → llama-server | n/a (external callers) |
 | Config change | `PUT /api/server/config` → `save_config()` + PM sync | `ConfigEditor` → `api.putConfig()` |
 | Remote federation | `RemoteManagerClient` (WS client) ↔ `RemoteModelProxy` (duck-typed PM) | `useRemotes()` → Dashboard remote panels |
 | JIT model start | `ensure_model_server()` in `proxy/lifecycle.py` | — |

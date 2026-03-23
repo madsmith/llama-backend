@@ -17,7 +17,6 @@ from ..kv_cache import (
     resolve_slot_save_path,
 )
 from .active_requests import ActiveRequestManager
-from .anthropic import handle_anthropic
 from .lifecycle import ensure_model_server, touch_model
 from .logging import log_req, log_resp, log_stream_end
 from .models import (
@@ -171,10 +170,6 @@ async def _stream_passthrough(
 
 
 async def openai_proxy(path: str, request: Request):
-    # Intercept Anthropic messages endpoint
-    if path == "messages":
-        return await handle_anthropic(request)
-
     method = request.method
     http_ver = request.scope.get("http_version", "1.1")
     req_size = int(request.headers.get("content-length", 0)) or None

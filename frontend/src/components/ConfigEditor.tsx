@@ -305,9 +305,8 @@ export default function ConfigEditor({
     return (
       <div className="space-y-4 max-w-xl">
         <p className="text-sm text-gray-400">
-          The proxy server exposes OpenAI-compatible and Anthropic Messages API
-          endpoints. External clients connect here instead of directly to
-          llama-server.
+          The proxy server exposes OpenAI-compatible endpoints. External
+          clients connect here instead of directly to llama-server.
         </p>
         <div>
           <label className="block text-sm font-medium text-gray-400 mb-1">
@@ -447,8 +446,8 @@ export default function ConfigEditor({
         )}
         <p className="text-xs text-gray-600">
           Supported endpoints: <code>/v1/chat/completions</code>,{" "}
-          <code>/v1/models</code>, <code>/v1/messages</code> (Anthropic format).
-          Changes take effect on next application restart.
+          <code>/v1/models</code>. Changes take effect on next application
+          restart.
         </p>
         <div className="flex items-center gap-3">
           <button
