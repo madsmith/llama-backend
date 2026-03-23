@@ -14,6 +14,7 @@ elif os.environ.get("LLAMA_VERBOSE", "").lower() in ("1", "true", "yes"):
 elif not logging.root.handlers:
     logging.basicConfig(level=logging.WARNING)
 
+logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,7 +28,7 @@ from .proxy import (
     stop_proxy,
 )
 from .event_bus import bus as event_bus
-from .proxy.model_registry import ModelRegistry
+from .model import ModelRegistry
 from .remote_manager_client import RemoteManagerClient, RemoteModelProxy
 from .routers import server, status, ws
 from .routers.events import router as events_router
@@ -70,31 +71,33 @@ async def _data_publisher(app: FastAPI) -> None:
 
     while True:
         try:
-            cfg = load_config()
             pms = app.state.process_managers
             for pm in pms:
                 if pm is None or isinstance(pm, RemoteModelProxy):
                     continue
                 if pm.state.value != "running":
                     continue
-                port = cfg.api_server.llama_server_starting_port + pm.model_index
-                base = f"http://127.0.0.1:{port}"
-                try:
-                    async with httpx.AsyncClient(timeout=2) as client:
-                        resp = await client.get(f"{base}/slots")
-                        if resp.status_code == 200:
-                            slots = resp.json()
-                            last_slots[pm.server_id] = slots
-                            event_bus.publish({"type": "slots", "server_id": pm.server_id, "slots": slots})
-                except Exception:
-                    pass
-                try:
-                    async with httpx.AsyncClient(timeout=2) as client:
-                        resp = await client.get(f"{base}/health")
-                        if resp.status_code in (200, 503):
-                            event_bus.publish({"type": "health", "server_id": pm.server_id, "health": resp.json()})
-                except Exception:
-                    pass
+
+                if isinstance(pm, ProcessManager):
+                    base = pm.get_server_address()
+                    try:
+                        async with httpx.AsyncClient(timeout=2) as client:
+                            resp = await client.get(f"{base}/slots")
+                            if resp.status_code == 200:
+                                slots = resp.json()
+                                last_slots[pm.get_server_identifier()] = slots
+                                event_bus.publish({"type": "slots", "server_id": pm.get_server_identifier(), "slots": slots})
+                    except Exception:
+                        pass
+                    try:
+                        async with httpx.AsyncClient(timeout=2) as client:
+                            resp = await client.get(f"{base}/health")
+                            if resp.status_code in (200, 503):
+                                event_bus.publish({"type": "health", "server_id": pm.get_server_identifier(), "health": resp.json()})
+                    except Exception:
+                        pass
+                else:
+                    logger.warning("Unknown process manager type: %s", type(pm))
         except Exception:
             pass
 
@@ -103,6 +106,7 @@ async def _data_publisher(app: FastAPI) -> None:
             for slots in last_slots.values()
             for s in slots
         )
+
         await asyncio.sleep(0.5 if active else 3.0)
 
 

@@ -8,10 +8,11 @@ import time
 from enum import Enum
 from pathlib import Path
 
-from .config import AppConfig, load_config
+from llama_manager.model import ModelIdentifier
+
+from .config import AppConfig, ModelConfig, load_config
 from .kv_cache import resolve_slot_save_path
 from .log_buffer import LogBuffer
-from .proxy.model_identifier import ModelIdentifier
 
 # Regexes for parsing prompt processing progress from llama-server logs
 _RE_NEW_PROMPT = re.compile(
@@ -36,21 +37,20 @@ class ServerState(str, Enum):
 
 class ProcessManager:
     def __init__(self, model_index: int = 0, config: AppConfig | None = None) -> None:
-        self.model_index = model_index
+        self.model_index: int = model_index
+        cfg: AppConfig = config or load_config()
+
         self.state: ServerState = ServerState.stopped
         self.process: asyncio.subprocess.Process | None = None
         self.pid: int | None = None
-        self.host: str | None = None
-        self.port: int | None = None
+        self.host: str = "127.0.0.1"
+        self.port: int = cfg.api_server.llama_server_starting_port + model_index
         self.started_at: float | None = None
-        cfg = config or load_config()
-        self.process_manager_id = f"model-{model_index}"
+        self.process_manager_id: str = f"model-{model_index}"
         self.model_identifier = ModelIdentifier(
             manager_id=cfg.manager_id,
             process_identifier=self.process_manager_id,
         )
-        self.server_id = str(self.model_identifier)
-        self.llama_port = cfg.api_server.llama_server_starting_port + model_index
         self.log_buffer = LogBuffer(maxlen=cfg.web_ui.log_buffer_size)
         self._subscribers: list[asyncio.Queue[dict]] = []
         self._reader_task: asyncio.Task | None = None
@@ -72,6 +72,12 @@ class ProcessManager:
             log.debug("subscriber removed (total=%d)", len(self._subscribers))
         except ValueError:
             pass
+
+    def get_server_address(self) -> str:
+        return f"http://{self.host}:{self.port}"
+
+    def get_server_identifier(self) -> str:
+        return str(self.model_identifier)
 
     def _log(self, text: str) -> None:
         """Write to log buffer + broadcast to WS clients + debug to stderr."""
@@ -103,7 +109,6 @@ class ProcessManager:
 
             model = cfg.models[self.model_index]
 
-            llama_host, llama_port = self._get_server_address()
             log.debug("loaded config: %s", cfg.model_dump(by_alias=True))
 
             self.log_buffer.clear()
@@ -120,19 +125,16 @@ class ProcessManager:
             cmd = self._build_command(
                 server_path,
                 model_path,
-                llama_host,
-                llama_port,
+                self.host,
+                self.port,
                 model,
                 cfg,
                 self.model_index,
             )
-            await self._spawn(cmd, llama_host, llama_port)
-
-    def _get_server_address(self) -> tuple[str, int]:
-        return "127.0.0.1", self.llama_port
+            await self._spawn(cmd)
 
     @staticmethod
-    def _resolve_llama_server_path(cfg: AppConfig, model) -> Path:
+    def _resolve_llama_server_path(cfg: AppConfig, model: ModelConfig) -> Path:
         raw = model.advanced.llama_server_path or cfg.api_server.llama_server_path
         if not raw:
             raise FileNotFoundError(
@@ -144,7 +146,7 @@ class ProcessManager:
         return path
 
     @staticmethod
-    def _resolve_model_path(model) -> Path:
+    def _resolve_model_path(model: ModelConfig) -> Path:
         if not model.model_path:
             raise FileNotFoundError(
                 "model path not configured \u2014 set it in Settings"
@@ -160,7 +162,7 @@ class ProcessManager:
         model_path: Path,
         host: str,
         port: int,
-        model,
+        model: ModelConfig,
         cfg: AppConfig,
         model_index: int,
     ) -> list[str]:
@@ -207,7 +209,7 @@ class ProcessManager:
         cmd += adv.extra_args
         return cmd
 
-    async def _spawn(self, cmd: list[str], host: str, port: int) -> None:
+    async def _spawn(self, cmd: list[str], host: str) -> None:
         self._log(f"$ {shlex.join(cmd)}")
         try:
             log.debug("calling create_subprocess_exec")
@@ -223,7 +225,6 @@ class ProcessManager:
 
         self.pid = self.process.pid
         self.host = host
-        self.port = port
         self.started_at = time.time()
         self._log(f"spawned pid {self.pid}")
         log.debug("starting _read_output task")
@@ -272,8 +273,6 @@ class ProcessManager:
 
         self.process = None
         self.pid = None
-        self.host = None
-        self.port = None
         self.started_at = None
         self.prompt_progress.clear()
         self._set_state(ServerState.stopped)
@@ -297,11 +296,14 @@ class ProcessManager:
         uptime = None
         if self.started_at is not None:
             uptime = time.time() - self.started_at
+
+        is_running = self.state == ServerState.running
+
         return {
             "state": self.state.value,
             "pid": self.pid,
-            "host": self.host,
-            "port": self.port,
+            "host": self.host if is_running else None,
+            "port": self.port if is_running else None,
             "uptime": uptime,
         }
 
@@ -359,5 +361,4 @@ class ProcessManager:
             self._broadcast({"type": "state", "state": self.state.value})
             self.process = None
             self.pid = None
-            self.port = None
             self.started_at = None
