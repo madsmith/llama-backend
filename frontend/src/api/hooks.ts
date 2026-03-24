@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { api, wsUrl } from "./client";
+import { getWsV2 } from "./wsv2";
 import type {
   ServerConfig,
   ServerStatus,
@@ -285,6 +286,28 @@ export function useHealthStream(serverId: string | undefined): HealthStatus | nu
   }, [serverId]);
 
   return health;
+}
+
+export function useProxyStatusWS() {
+  const [status, setStatus] = useState<ProxyStatus>({
+    state: "stopped",
+    host: null,
+    port: null,
+    uptime: null,
+    pid: null,
+  });
+
+  const refresh = useCallback(() => getWsV2().send({ msg: "proxy_status" }), []);
+
+  useEffect(() => {
+    return getWsV2().subscribe(
+      "proxy_status_response",
+      (msg) => setStatus(msg as unknown as ProxyStatus),
+      refresh,
+    );
+  }, [refresh]);
+
+  return { status, refresh };
 }
 
 export function useUplinkStatus(pollMs = 3000) {

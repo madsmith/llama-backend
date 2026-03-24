@@ -32,6 +32,7 @@ from .routers import status, ws
 from .routers.events import router as events_router
 from .routers.remotes import router as remotes_router
 from .routers.server import make_router as make_server_router
+from .routers.ws_v2 import make_router as make_ws_v2_router
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 FRONTEND_DIR = ROOT / "frontend"
@@ -190,6 +191,7 @@ app.add_middleware(
 )
 
 app.include_router(make_server_router(proxy_server))
+app.include_router(make_ws_v2_router(proxy_server))
 app.include_router(status.router)
 app.include_router(ws.router)
 app.include_router(events_router)

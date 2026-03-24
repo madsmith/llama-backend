@@ -9,7 +9,7 @@ import ProxyControls from "../components/ProxyControls";
 import HealthCard from "../components/HealthCard";
 import {
   useServerStatus,
-  useProxyStatus,
+  useProxyStatusWS,
   useRemotes,
   useUplinkStatus,
   useSlotStream,
@@ -170,9 +170,7 @@ function RemoteManagerSection({
 export default function Dashboard() {
   const [config, setConfig] = useState<ServerConfig | null>(null);
   const poll = pollRatesFromConfig(config);
-  const { status: proxyStatus, refresh: refreshProxy } = useProxyStatus(
-    poll.proxyStatus,
-  );
+  const { status: proxyStatus, refresh: refreshProxy } = useProxyStatusWS();
   const [snapshots, setSnapshots] = useState<Map<number, ServerSnapshot>>(
     new Map(),
   );
