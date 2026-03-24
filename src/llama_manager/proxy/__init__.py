@@ -1,11 +1,5 @@
 from .lifecycle import set_process_managers
-from .proxy import (
-    get_proxy_status,
-    proxy_app,
-    restart_proxy,
-    start_proxy,
-    stop_proxy,
-)
+from .proxy import ProxyServer
 from .subscription import (
     proxy_log_buffer,
     proxy_subscribe,
@@ -14,14 +8,10 @@ from .subscription import (
 )
 
 __all__ = [
-    "get_proxy_status",
-    "proxy_app",
+    "ProxyServer",
     "proxy_log_buffer",
     "proxy_subscribe",
     "proxy_unsubscribe",
-    "restart_proxy",
     "set_process_managers",
     "shutdown_proxy_subscribers",
-    "start_proxy",
-    "stop_proxy",
 ]

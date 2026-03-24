@@ -25,7 +25,7 @@ def _fmt_size(n: int) -> str:
     return f"{n / 1024:.1f}KB"
 
 
-def log_req(
+def log_request(
     server_name: str | None,
     method: str,
     path: str,
@@ -43,7 +43,7 @@ def log_req(
     )
 
 
-def log_resp(
+def log_response(
     server_name: str | None,
     status: int,
     http_ver: str = "1.1",

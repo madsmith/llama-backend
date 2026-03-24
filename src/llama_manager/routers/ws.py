@@ -104,11 +104,13 @@ async def manager_ws(ws: WebSocket, token: str = Query(default="")):
             {
                 "type": "snapshot",
                 "proxy_port": cfg.api_server.port,
+                "manager_id": cfg.manager_id,
                 "models": [
                     {
                         "index": i,
                         "name": cfg.models[i].name,
                         "model_id": cfg.models[i].effective_id,
+                        "process_identifier": pm.process_manager_id,
                         "server_id": pm.server_id,
                         "state": pm.get_status()["state"],
                     }

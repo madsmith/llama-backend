@@ -2,20 +2,26 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from .routes import config, proxy, server
+from llama_manager.proxy import ProxyServer
+from .routes import config, server
+from .routes.proxy import ProxyRoutes
 
-router = APIRouter(prefix="/api/server", tags=["server"])
+def make_router(proxy: ProxyServer) -> APIRouter:
+    router = APIRouter(prefix="/api/server", tags=["server"])
 
-router.get("/status")(server.get_status)
-router.post("/start")(server.start)
-router.post("/stop")(server.stop)
-router.post("/restart")(server.restart)
+    router.get("/status")(server.get_status)
+    router.post("/start")(server.start)
+    router.post("/stop")(server.stop)
+    router.post("/restart")(server.restart)
 
-router.get("/proxy-status")(proxy.proxy_status)
-router.post("/proxy-start")(proxy.proxy_start)
-router.post("/proxy-stop")(proxy.proxy_stop)
-router.post("/proxy-restart")(proxy.proxy_restart)
+    proxy_routes = ProxyRoutes(proxy)
+    router.get("/proxy-status")(proxy_routes.status)
+    router.post("/proxy-start")(proxy_routes.start)
+    router.post("/proxy-stop")(proxy_routes.stop)
+    router.post("/proxy-restart")(proxy_routes.restart)
 
-router.get("/config")(config.get_config)
-router.put("/config")(config.put_config)
-router.post("/config/generate-token")(config.generate_token)
+    router.get("/config")(config.get_config)
+    router.put("/config")(config.put_config)
+    router.post("/config/generate-token")(config.generate_token)
+
+    return router

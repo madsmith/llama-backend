@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import time
 
-from ..log_buffer import LogBuffer
+from llama_manager.log_buffer import LogBuffer
 
 # ---------------------------------------------------------------------------
 # Proxy-scoped log buffer + pub/sub (mirrors ProcessManager pattern)

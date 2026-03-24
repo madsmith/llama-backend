@@ -6,11 +6,11 @@ import logging
 from typing import TYPE_CHECKING
 
 import websockets
-from websockets.exceptions import WebSocketException
 
-from .config import RemoteManagerConfig, load_config
+from .config import AppConfig, RemoteManagerConfig
 from .event_bus import bus as event_bus
 from .log_buffer import LogBuffer
+from .model import ModelIdentifier
 from .process_manager import ServerState
 
 if TYPE_CHECKING:
@@ -31,6 +31,7 @@ class RemoteModelProxy:
         model_id: str | None,
         proxy_url: str,
         server_id: str,
+        model_identifier: ModelIdentifier,
         client: RemoteManagerClient,
         log_buffer_size: int = 10_000,
     ) -> None:
@@ -41,6 +42,7 @@ class RemoteModelProxy:
         self.model_id = model_id
         self.proxy_url = proxy_url
         self.server_id = server_id
+        self.model_identifier = model_identifier
         self._client = client
         self.state: ServerState = ServerState.stopped
         self.log_buffer = LogBuffer(maxlen=log_buffer_size)
@@ -122,11 +124,13 @@ class RemoteManagerClient:
     def __init__(
         self,
         remote_index: int,
-        cfg: RemoteManagerConfig,
+        config: RemoteManagerConfig,
+        app_config: AppConfig,
         app: FastAPI,
     ) -> None:
         self.remote_index = remote_index
-        self.cfg = cfg
+        self._config = config
+        self._app_config = app_config
         self.app = app
         self.models: list[RemoteModelProxy] = []
         self.connection_state: str = "disconnected"
@@ -157,14 +161,13 @@ class RemoteManagerClient:
             if proxy.local_index < len(pms) and pms[proxy.local_index] is proxy:
                 pms[proxy.local_index] = None
         # Trim trailing Nones that are past the local models zone
-        cfg = load_config()
-        local_count = len(cfg.models)
+        local_count = len(self._app_config.models)
         while len(pms) > local_count and pms[-1] is None:
             pms.pop()
         self.models.clear()
 
     def _ws_url(self) -> str:
-        return f"{self.cfg.ws_url}?token={self.cfg.token}"
+        return f"{self._config.ws_url}?token={self._config.token}"
 
     async def _run_loop(self) -> None:
         while not self._stop_event.is_set():
@@ -185,7 +188,7 @@ class RemoteManagerClient:
             try:
                 await asyncio.wait_for(
                     self._stop_event.wait(),
-                    timeout=self.cfg.reconnect_interval,
+                    timeout=self._config.reconnect_interval,
                 )
             except asyncio.TimeoutError:
                 pass
@@ -216,7 +219,8 @@ class RemoteManagerClient:
 
         if t == "snapshot":
             proxy_port = msg.get("proxy_port", 1234)
-            await self._reconcile_models(msg.get("models", []), proxy_port)
+            remote_manager_id = msg.get("manager_id", "")
+            await self._reconcile_models(msg.get("models", []), proxy_port, remote_manager_id)
 
         elif t == "state":
             proxy = self._get_proxy(msg.get("model", 0))
@@ -255,11 +259,10 @@ class RemoteManagerClient:
                 return p
         return None
 
-    async def _reconcile_models(self, model_descriptors: list[dict], proxy_port: int = 1234) -> None:
+    async def _reconcile_models(self, model_descriptors: list[dict], proxy_port: int = 1234, remote_manager_id: str = "") -> None:
         pms: list = self.app.state.process_managers
-        cfg = load_config()
-        log_buffer_size = cfg.web_ui.log_buffer_size
-        proxy_url = f"http://{self.cfg.host}:{proxy_port}"
+        log_buffer_size = self._app_config.web_ui.log_buffer_size
+        proxy_url = f"http://{self._config.host}:{proxy_port}"
 
         # Build a stable key->proxy map from existing models
         existing: dict[str, RemoteModelProxy] = {}
@@ -272,9 +275,19 @@ class RemoteManagerClient:
             rmi = desc.get("index", len(new_models))
             name = desc.get("name")
             model_id = desc.get("model_id")
-            server_id = desc.get("server_id") or f"{self.cfg.host}:model-{rmi}"
+            server_id = desc.get("server_id") or f"{self._config.host}:model-{rmi}"
             state_str = desc.get("state", "stopped")
             key = name or f"__idx_{rmi}"
+
+            # Construct ModelIdentifier: prefer parsing server_id, fall back to remote_manager_id
+            if remote_manager_id:
+                process_identifier = desc.get("process_identifier") or f"model-{rmi}"
+                model_identifier = ModelIdentifier(remote_manager_id, process_identifier)
+            else:
+                try:
+                    model_identifier = ModelIdentifier.from_string(server_id)
+                except ValueError:
+                    model_identifier = ModelIdentifier(self._config.host, f"model-{rmi}")
 
             if key in existing:
                 proxy = existing.pop(key)
@@ -283,9 +296,10 @@ class RemoteManagerClient:
                 proxy.model_id = model_id
                 proxy.proxy_url = proxy_url
                 proxy.server_id = server_id
+                proxy.model_identifier = model_identifier
             else:
                 # Find a free slot at or beyond the local models zone
-                local_count = len(cfg.models)
+                local_count = len(self._app_config.models)
                 local_index = len(pms)
                 for i in range(local_count, len(pms)):
                     if pms[i] is None:
@@ -299,6 +313,7 @@ class RemoteManagerClient:
                     model_id=model_id,
                     proxy_url=proxy_url,
                     server_id=server_id,
+                    model_identifier=model_identifier,
                     client=self,
                     log_buffer_size=log_buffer_size,
                 )

@@ -126,7 +126,7 @@ def load_config() -> AppConfig:
     if not cfg.manager_id:
         hostname = socket.gethostname()
         port = cfg.api_server.port
-        cfg.manager_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{hostname}:{port}"))
+        cfg.manager_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{hostname}:{port}"))
         save_config(cfg)
     elif is_missing:
         save_config(cfg)

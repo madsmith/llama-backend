@@ -14,7 +14,7 @@ async def get_health(request: Request, model: int = Query(default=0)):
 
     # For remote-manager-proxied models, fetch live from the remote manager's API
     if isinstance(pm, RemoteModelProxy):
-        cfg = pm._client.cfg
+        cfg = pm._client._config
         url = f"http://{cfg.host}:{cfg.port}/api/status/health?model={pm.remote_model_index}"
         try:
             async with httpx.AsyncClient(timeout=3) as client:

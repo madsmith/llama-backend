@@ -209,7 +209,7 @@ class ProcessManager:
         cmd += adv.extra_args
         return cmd
 
-    async def _spawn(self, cmd: list[str], host: str) -> None:
+    async def _spawn(self, cmd: list[str]) -> None:
         self._log(f"$ {shlex.join(cmd)}")
         try:
             log.debug("calling create_subprocess_exec")
@@ -224,7 +224,6 @@ class ProcessManager:
             return
 
         self.pid = self.process.pid
-        self.host = host
         self.started_at = time.time()
         self._log(f"spawned pid {self.pid}")
         log.debug("starting _read_output task")

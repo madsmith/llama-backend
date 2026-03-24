@@ -4,8 +4,10 @@ import secrets
 
 from fastapi import Request
 
-from ...config import AppConfig, load_config, save_config
-from ...process_manager import ProcessManager
+from llama_manager.config import AppConfig, load_config, save_config
+from llama_manager.remote_manager_client import RemoteManagerClient
+from llama_manager.process_manager import ProcessManager
+from llama_manager.proxy import set_process_managers
 
 
 def generate_uplink_token() -> str:
@@ -20,47 +22,46 @@ async def generate_token():
     return {"token": generate_uplink_token()}
 
 
-async def put_config(cfg: AppConfig, request: Request):
+async def put_config(config: AppConfig, request: Request):
     # Auto-generate uplink token when enabling for the first time
-    if cfg.manager_uplink.enabled and not cfg.manager_uplink.token:
-        cfg.manager_uplink.token = generate_uplink_token()
+    if config.manager_uplink.enabled and not config.manager_uplink.token:
+        config.manager_uplink.token = generate_uplink_token()
 
-    save_config(cfg)
+    save_config(config)
 
     # Sync local process managers list to match new model count and types
     pms: list[ProcessManager | None] = request.app.state.process_managers
-    while len(pms) < len(cfg.models):
+    while len(pms) < len(config.models):
         idx = len(pms)
-        m = cfg.models[idx]
-        pms.append(None if m.type == "remote" else ProcessManager(idx, cfg))
+        model = config.models[idx]
+        pms.append(None if model.type == "remote" else ProcessManager(idx, config))
+        
     # Update type for existing indices (local<->remote switch)
-    for i, m in enumerate(cfg.models):
+    for i, model in enumerate(config.models):
         if i >= len(pms):
             break
-        if m.type == "remote" and pms[i] is not None:
+        if model.type == "remote" and pms[i] is not None:
             pm = pms[i]
             if pm is not None and pm.state.value == "stopped":
                 pms[i] = None
-        elif m.type != "remote" and pms[i] is None:
-            pms[i] = ProcessManager(i, cfg)
+        elif model.type != "remote" and pms[i] is None:
+            pms[i] = ProcessManager(i, config)
     # Shrink if models were removed (only trim stopped managers from the end)
-    while len(pms) > len(cfg.models):
+    while len(pms) > len(config.models):
         pm = pms[-1]
         if pm is not None and pm.state.value != "stopped":
             break
         pms.pop()
 
-    from ...proxy import set_process_managers
     set_process_managers(pms)
 
     # Sync remote manager clients
-    await _sync_remote_managers(cfg, request)
+    await _sync_remote_managers(config, request)
 
-    return cfg.model_dump()
+    return config.model_dump()
 
 
-async def _sync_remote_managers(cfg: AppConfig, request: Request) -> None:
-    from ...remote_manager_client import RemoteManagerClient
+async def _sync_remote_managers(config: AppConfig, request: Request) -> None:
 
     clients: list[RemoteManagerClient] = getattr(
         request.app.state, "remote_manager_clients", []
@@ -68,31 +69,31 @@ async def _sync_remote_managers(cfg: AppConfig, request: Request) -> None:
 
     # Stop and remove clients beyond the new list length, or whose config changed
     new_clients: list[RemoteManagerClient] = []
-    for i, rm_cfg in enumerate(cfg.remote_managers):
+    for i, remote_config in enumerate(config.remote_managers):
         if i < len(clients):
             existing = clients[i]
             # Restart if URL or token changed
-            if existing.cfg.host != rm_cfg.host or existing.cfg.port != rm_cfg.port or existing.cfg.token != rm_cfg.token:
+            if existing._config.host != remote_config.host or existing._config.port != remote_config.port or existing._config.token != remote_config.token:
                 await existing.stop()
-                if rm_cfg.enabled and rm_cfg.host:
-                    client = RemoteManagerClient(i, rm_cfg, request.app)
+                if remote_config.enabled and remote_config.host:
+                    client = RemoteManagerClient(i, remote_config, config, request.app)
                     await client.start()
                     new_clients.append(client)
                 else:
                     new_clients.append(existing)  # keep as-is but stopped
             else:
                 # Update mutable fields without restart
-                existing.cfg = rm_cfg
+                existing._config = remote_config
                 new_clients.append(existing)
         else:
             # New entry
-            if rm_cfg.enabled and rm_cfg.host:
-                client = RemoteManagerClient(i, rm_cfg, request.app)
+            if remote_config.enabled and remote_config.host:
+                client = RemoteManagerClient(i, remote_config, config, request.app)
                 await client.start()
                 new_clients.append(client)
 
     # Stop clients for removed entries
-    for i in range(len(cfg.remote_managers), len(clients)):
+    for i in range(len(config.remote_managers), len(clients)):
         await clients[i].stop()
 
     request.app.state.remote_manager_clients = new_clients

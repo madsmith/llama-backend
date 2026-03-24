@@ -3,8 +3,9 @@ from __future__ import annotations
 import asyncio
 import time
 
-from ..config import load_config
-from ..process_manager import ProcessManager
+from llama_manager.config import AppConfig
+from llama_manager.process_manager import ProcessManager
+
 from .subscription import proxy_log
 
 # ---------------------------------------------------------------------------
@@ -21,14 +22,13 @@ def touch_model(model_index: int) -> None:
     _model_last_activity[model_index] = time.monotonic()
 
 
-async def _ttl_checker() -> None:
+async def task_ttl_checker(config: AppConfig) -> None:
     """Background task that stops idle models whose TTL has expired."""
     while True:
         await asyncio.sleep(30)
         try:
-            cfg = load_config()
             now = time.monotonic()
-            for i, m in enumerate(cfg.models):
+            for i, m in enumerate(config.models):
                 if m.model_ttl is None or m.type == "remote":
                     continue
                 if i >= len(_process_managers):
@@ -65,12 +65,11 @@ def set_ttl_task(task: asyncio.Task | None) -> None:
     _ttl_task = task
 
 
-async def ensure_model_server(model_index: int = 0) -> None:
+async def ensure_model_server(model_index: int, config: AppConfig) -> None:
     """Start model server on-demand if JIT or TTL is enabled and server isn't running."""
-    cfg = load_config()
-    m = cfg.models[model_index] if model_index < len(cfg.models) else None
-    has_ttl = m is not None and m.model_ttl is not None
-    if not cfg.api_server.jit_model_server and not has_ttl:
+    model = config.models[model_index] if model_index < len(config.models) else None
+    has_ttl = model is not None and model.model_ttl is not None
+    if not config.api_server.jit_model_server and not has_ttl:
         return
     if model_index < 0 or model_index >= len(_process_managers):
         return
@@ -82,7 +81,7 @@ async def ensure_model_server(model_index: int = 0) -> None:
     if pm.state.value not in ("stopped", "error"):
         return
 
-    timeout = cfg.api_server.jit_timeout or 80
+    timeout = config.api_server.jit_timeout or 80
     proxy_log(f"JIT: model server [{model_index}] is {pm.state.value}, starting...")
     await pm.start()
 

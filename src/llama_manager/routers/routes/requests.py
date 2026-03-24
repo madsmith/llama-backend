@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi.responses import JSONResponse
 
-from ...proxy.request_log import request_log
+from ...proxy.request_log import RequestLog
 
 
 def _truncate_body(body, max_len: int = 500):
@@ -20,7 +20,7 @@ def _truncate_body(body, max_len: int = 500):
 
 
 async def list_requests():
-    entries = request_log.list_entries()
+    entries = RequestLog.get_instance().list_entries()
     result = []
     for entry in entries:
         d = entry.to_dict()
@@ -31,7 +31,7 @@ async def list_requests():
 
 
 async def get_request(request_id: str):
-    entry = request_log.get(request_id)
+    entry = RequestLog.get_instance().get(request_id)
     if entry is None:
         return JSONResponse({"error": "Not found"}, status_code=404)
     return entry.to_dict()
