@@ -4,9 +4,9 @@ import httpx
 from fastapi import Query, Request
 from fastapi.responses import JSONResponse
 
-from ...llama_client import LlamaClient
-from ...proxy.active_requests import ActiveRequestManager
-from ...remote_manager_client import RemoteModelProxy
+from llama_manager.llama_client import LlamaClient
+from llama_manager.proxy.active_requests import ActiveRequestManager
+from llama_manager.remote_manager_client import RemoteModelProxy
 
 
 async def get_slots(request: Request, model: int = Query(default=0)):

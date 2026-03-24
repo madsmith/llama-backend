@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import Query
 from fastapi.responses import JSONResponse
 
-from ...llama_client import LlamaClient
+from llama_manager.llama_client import LlamaClient
 
 
 async def get_props(model: int = Query(default=0)):

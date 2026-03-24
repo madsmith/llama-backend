@@ -3,8 +3,8 @@ from __future__ import annotations
 from fastapi import Query, Request
 from fastapi.responses import JSONResponse
 
-from ...process_manager import ProcessManager
-from ...remote_manager_client import RemoteModelProxy
+from llama_manager.process_manager import ProcessManager
+from llama_manager.remote_manager_client import RemoteModelProxy
 
 
 def _process_manager(request: Request, model: int = 0) -> ProcessManager | RemoteModelProxy | None:

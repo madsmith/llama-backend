@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ..config import load_config
+from llama_manager.config import load_config
 
 
 # ---------------------------------------------------------------------------

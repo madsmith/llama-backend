@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..config import AppConfig
+from llama_manager.config import AppConfig
 
 
 def resolve_slot_save_path(cfg: AppConfig, model_index: int) -> Path | None:

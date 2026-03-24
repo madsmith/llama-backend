@@ -5,9 +5,9 @@ import json
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
-from ..config import load_config
-from ..remote_manager_client import RemoteModelProxy
-from ..proxy import proxy_log_buffer, proxy_subscribe, proxy_unsubscribe
+from llama_manager.config import load_config
+from llama_manager.proxy import proxy_log_buffer, proxy_subscribe, proxy_unsubscribe
+from llama_manager.remote_manager_client import RemoteModelProxy
 
 router = APIRouter()
 

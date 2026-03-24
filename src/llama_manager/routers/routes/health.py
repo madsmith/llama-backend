@@ -4,8 +4,8 @@ import httpx
 from fastapi import Query, Request
 from fastapi.responses import JSONResponse
 
-from ...llama_client import LlamaClient
-from ...remote_manager_client import RemoteModelProxy
+from llama_manager.llama_client import LlamaClient
+from llama_manager.remote_manager_client import RemoteModelProxy
 
 
 async def get_health(request: Request, model: int = Query(default=0)):
