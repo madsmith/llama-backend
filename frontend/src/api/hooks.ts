@@ -297,15 +297,37 @@ export function useProxyStatusWS() {
     pid: null,
   });
 
+  // Tracks the local epoch (ms) when the proxy started, derived from server uptime.
+  // Used to tick uptime locally without re-fetching.
+  const startedAtRef = useRef<number | null>(null);
+
+  const handleMessage = useCallback((msg: Record<string, unknown>) => {
+    const s = msg as unknown as ProxyStatus;
+    setStatus(s);
+    startedAtRef.current =
+      s.state === "running" && s.uptime != null
+        ? Date.now() - s.uptime * 1000
+        : null;
+  }, []);
+
   const refresh = useCallback(() => getWsV2().send({ msg: "proxy_status" }), []);
 
   useEffect(() => {
-    return getWsV2().subscribe(
-      "proxy_status_response",
-      (msg) => setStatus(msg as unknown as ProxyStatus),
-      refresh,
-    );
-  }, [refresh]);
+    return getWsV2().subscribe("proxy_status_response", handleMessage, refresh);
+  }, [handleMessage, refresh]);
+
+  // Tick uptime every second from the local anchor, no server round-trip needed.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (startedAtRef.current != null) {
+        setStatus((prev) => ({
+          ...prev,
+          uptime: (Date.now() - startedAtRef.current!) / 1000,
+        }));
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
 
   return { status, refresh };
 }

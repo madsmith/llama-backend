@@ -42,23 +42,32 @@ class WsV2ClientImpl implements WsV2Client {
     handler: MessageHandler,
     onConnect?: ConnectHandler,
   ): () => void {
-    console.log("Subscribing to message type:", msgType);
-    const sub = new Subscription(msgType, handler, onConnect);
+    console.log("Subscribe:", msgType);
+    const subscription = new Subscription(msgType, handler, onConnect);
 
     let bucket = this.handlers.get(msgType);
     if (!bucket) {
       bucket = new Set();
       this.handlers.set(msgType, bucket);
     }
-    bucket.add(sub);
+    bucket.add(subscription);
 
     if (onConnect) {
-      this.onConnectSubscriptions.add(sub);
-      if (this.isOpen()) onConnect();
+      this.onConnectSubscriptions.add(subscription);
+      if (this.isOpen()) {
+        // Defer so React StrictMode's synchronous cleanup can remove this
+        // subscription before the callback fires. The has() guard ensures a
+        // stale sub from the first (discarded) StrictMode mount doesn't send.
+        queueMicrotask(() => {
+          if (this.onConnectSubscriptions.has(subscription)) {
+            onConnect();
+          }
+        });
+      }
     }
 
     this.connect();
-    return () => this.unsubscribe(sub);
+    return () => this.unsubscribe(subscription);
   }
 
   send(msg: JsonMessage): void {
@@ -71,9 +80,7 @@ class WsV2ClientImpl implements WsV2Client {
   // ---- connection lifecycle ----
 
   public connect(): void {
-    console.log("Connecting to WebSocket");
     if (this.isOpen() || this.isConnecting() || this.reconnectTimer) return;
-    console.log("Creating new WebSocket connection");
 
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     this.ws = new WebSocket(`${proto}//${location.host}/v2/ws/manager`);
@@ -86,30 +93,30 @@ class WsV2ClientImpl implements WsV2Client {
   // ---- event handlers (clean, reusable) ----
 
   private _wsOpenHandler = (): void => {
-    console.log("WebSocket opened");
     for (const sub of this.onConnectSubscriptions) {
       sub.onConnect?.();
     }
   };
 
   private _wsMessageHandler = (event: MessageEvent): void => {
-    console.log("Received message:", event.data);
     const msg = this.parseMessage(event.data);
     if (!msg) return;
 
     const type = this.getMessageType(msg);
     if (!type) return;
 
+    console.log("Received:", type, msg);
+
     const bucket = this.handlers.get(type);
     if (!bucket) return;
 
     for (const sub of bucket) {
+      console.log("Dispatch message:", sub);
       sub.handler(msg);
     }
   };
 
   private _wsCloseHandler = (): void => {
-    console.log("WebSocket closed");
     this.ws = null;
 
     if (!this.hasSubscribers()) return;
@@ -165,11 +172,9 @@ let instance: WsV2Client | null = null;
 
 export function getWsV2(): WsV2Client {
   if (!instance) {
-    console.log("Creating new WsV2Client instance");
     const impl = new WsV2ClientImpl();
     impl.connect();
     instance = impl;
   }
-  console.log("Returning WsV2Client instance");
   return instance!;
 }
