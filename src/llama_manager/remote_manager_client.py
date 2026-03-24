@@ -129,7 +129,7 @@ class RemoteManagerClient:
         app: FastAPI,
     ) -> None:
         self.remote_index = remote_index
-        self._config = config
+        self.config = config
         self._app_config = app_config
         self.app = app
         self.models: list[RemoteModelProxy] = []
@@ -137,6 +137,7 @@ class RemoteManagerClient:
         self._ws: websockets.WebSocketClientProtocol | None = None
         self._task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
+        self.server_id: str | None = None
 
     async def start(self) -> None:
         self._stop_event.clear()
@@ -167,7 +168,7 @@ class RemoteManagerClient:
         self.models.clear()
 
     def _ws_url(self) -> str:
-        return f"{self._config.ws_url}?token={self._config.token}"
+        return f"{self.config.ws_url}?token={self.config.token}"
 
     async def _run_loop(self) -> None:
         while not self._stop_event.is_set():
@@ -188,7 +189,7 @@ class RemoteManagerClient:
             try:
                 await asyncio.wait_for(
                     self._stop_event.wait(),
-                    timeout=self._config.reconnect_interval,
+                    timeout=self.config.reconnect_interval,
                 )
             except asyncio.TimeoutError:
                 pass
@@ -220,6 +221,7 @@ class RemoteManagerClient:
         if t == "snapshot":
             proxy_port = msg.get("proxy_port", 1234)
             remote_manager_id = msg.get("manager_id", "")
+            self.server_id = remote_manager_id
             await self._reconcile_models(msg.get("models", []), proxy_port, remote_manager_id)
 
         elif t == "state":
@@ -262,7 +264,7 @@ class RemoteManagerClient:
     async def _reconcile_models(self, model_descriptors: list[dict], proxy_port: int = 1234, remote_manager_id: str = "") -> None:
         pms: list = self.app.state.process_managers
         log_buffer_size = self._app_config.web_ui.log_buffer_size
-        proxy_url = f"http://{self._config.host}:{proxy_port}"
+        proxy_url = f"http://{self.config.host}:{proxy_port}"
 
         # Build a stable key->proxy map from existing models
         existing: dict[str, RemoteModelProxy] = {}
@@ -275,7 +277,7 @@ class RemoteManagerClient:
             rmi = desc.get("index", len(new_models))
             name = desc.get("name")
             model_id = desc.get("model_id")
-            server_id = desc.get("server_id") or f"{self._config.host}:model-{rmi}"
+            server_id = desc.get("server_id") or f"{self.config.host}:model-{rmi}"
             state_str = desc.get("state", "stopped")
             key = name or f"__idx_{rmi}"
 
@@ -287,7 +289,7 @@ class RemoteManagerClient:
                 try:
                     model_identifier = ModelIdentifier.from_string(server_id)
                 except ValueError:
-                    model_identifier = ModelIdentifier(self._config.host, f"model-{rmi}")
+                    model_identifier = ModelIdentifier(self.config.host, f"model-{rmi}")
 
             if key in existing:
                 proxy = existing.pop(key)

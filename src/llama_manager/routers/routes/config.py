@@ -73,7 +73,7 @@ async def _sync_remote_managers(config: AppConfig, request: Request) -> None:
         if i < len(clients):
             existing = clients[i]
             # Restart if URL or token changed
-            if existing._config.host != remote_config.host or existing._config.port != remote_config.port or existing._config.token != remote_config.token:
+            if existing.config.host != remote_config.host or existing.config.port != remote_config.port or existing.config.token != remote_config.token:
                 await existing.stop()
                 if remote_config.enabled and remote_config.host:
                     client = RemoteManagerClient(i, remote_config, config, request.app)
@@ -83,7 +83,7 @@ async def _sync_remote_managers(config: AppConfig, request: Request) -> None:
                     new_clients.append(existing)  # keep as-is but stopped
             else:
                 # Update mutable fields without restart
-                existing._config = remote_config
+                existing.config = remote_config
                 new_clients.append(existing)
         else:
             # New entry
