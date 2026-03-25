@@ -1,7 +1,8 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import type { ServerStatus, SlotInfo, HealthStatus } from "../api/types";
 import { api } from "../api/client";
+import { getWsV2 } from "../api/wsv2";
 
 const stateColors: Record<string, string> = {
   stopped: "bg-gray-600",
@@ -172,9 +173,8 @@ function remoteDisplay(health: HealthStatus | null): {
 
 interface Props {
   name: string;
-  status: ServerStatus;
-  slots: SlotInfo[];
   modelIndex: number;
+  status: ServerStatus;
   onClick?: () => void;
   selected?: boolean;
   remoteAddress?: string;
@@ -183,15 +183,50 @@ interface Props {
 
 export default function ServerStatusCard({
   name,
-  status,
-  slots,
   modelIndex,
+  status,
   onClick,
   selected,
   remoteAddress,
   health,
 }: Props) {
   const navigate = useNavigate();
+  const [slots, setSlots] = useState<SlotInfo[]>([]);
+
+  // Initial slot fetch + push updates.
+  const handleSlotResponse = useCallback(
+    (msg: Record<string, unknown>) => {
+      if ((msg.model as number) !== modelIndex) return;
+      setSlots((msg.slots as SlotInfo[]) ?? []);
+    },
+    [modelIndex],
+  );
+
+  const requestSlots = useCallback(
+    () => getWsV2().send({ msg: "slot_status", model: modelIndex }),
+    [modelIndex],
+  );
+
+  useEffect(
+    () => getWsV2().subscribe("slot_status_response", handleSlotResponse, requestSlots),
+    [handleSlotResponse, requestSlots],
+  );
+
+  useEffect(
+    () =>
+      getWsV2().subscribeToEvent("slots", String(modelIndex), (data) => {
+        setSlots((data.slots as SlotInfo[]) ?? []);
+      }),
+    [modelIndex],
+  );
+
+  // Clear slots when server stops.
+  useEffect(() => {
+    if (status.state !== "running" && status.state !== "remote") {
+      setSlots([]);
+    }
+  }, [status.state]);
+
   const isRemote = status.state === "remote";
   const remote = isRemote ? remoteDisplay(health ?? null) : null;
   return (

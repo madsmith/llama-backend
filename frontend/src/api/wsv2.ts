@@ -10,6 +10,17 @@ export interface WsV2Client {
   ): () => void;
 
   send(msg: JsonMessage): void;
+
+  /**
+   * Subscribe to generic server-pushed events of *type* with correlation *id*.
+   * Sends `subscribe_event` on connect and `unsubscribe_event` on cleanup.
+   * Returns a React-compatible cleanup function.
+   */
+  subscribeToEvent(
+    type: string,
+    id: string,
+    handler: (eventData: Record<string, unknown>) => void,
+  ): () => void;
 }
 
 class Subscription {
@@ -31,6 +42,8 @@ class Subscription {
 class WsV2ClientImpl implements WsV2Client {
   private readonly handlers = new Map<string, Set<Subscription>>();
   private readonly onConnectSubscriptions = new Set<Subscription>();
+  // FIFO queue matching subscribe_event_response messages to subscribeToEvent callers.
+  private readonly _pendingEventSubs: Array<(subscriptionId: number) => void> = [];
 
   private ws: WebSocket | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -107,6 +120,13 @@ class WsV2ClientImpl implements WsV2Client {
 
     console.log("Received:", type, msg);
 
+    // Route subscribe_event_response to the FIFO pending queue.
+    if (type === "subscribe_event_response") {
+      const subId = typeof msg.subscription_id === "number" ? msg.subscription_id : -1;
+      this._pendingEventSubs.shift()?.(subId);
+      return;
+    }
+
     const bucket = this.handlers.get(type);
     if (!bucket) return;
 
@@ -115,6 +135,42 @@ class WsV2ClientImpl implements WsV2Client {
       sub.handler(msg);
     }
   };
+
+  subscribeToEvent(
+    type: string,
+    id: string,
+    handler: (eventData: Record<string, unknown>) => void,
+  ): () => void {
+    let subscriptionId: number | null = null;
+    let pendingCallback: ((subId: number) => void) | null = null;
+
+    const eventHandler = (msg: JsonMessage) => {
+      if (msg.type !== type || msg.id !== id) return;
+      handler(msg.event_data as Record<string, unknown>);
+    };
+
+    const onConnect = () => {
+      subscriptionId = null;
+      pendingCallback = (subId: number) => {
+        subscriptionId = subId;
+      };
+      this._pendingEventSubs.push(pendingCallback);
+      this.send({ msg: "subscribe_event", type, id });
+    };
+
+    const unsub = this.subscribe("event", eventHandler, onConnect);
+
+    return () => {
+      unsub();
+      if (pendingCallback !== null) {
+        const idx = this._pendingEventSubs.indexOf(pendingCallback);
+        if (idx !== -1) this._pendingEventSubs.splice(idx, 1);
+      }
+      if (subscriptionId !== null) {
+        this.send({ msg: "unsubscribe_event", type, subscription_id: subscriptionId });
+      }
+    };
+  }
 
   private _wsCloseHandler = (): void => {
     this.ws = null;

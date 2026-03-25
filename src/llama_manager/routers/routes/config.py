@@ -39,7 +39,7 @@ class ConfigRoutes:
         while len(pms) < len(config.models):
             idx = len(pms)
             model = config.models[idx]
-            pms.append(None if model.type == "remote" else ProcessManager(idx, config))
+            pms.append(None if model.type == "remote" else ProcessManager(idx, config, self.event_bus))
             
         # Update type for existing indices (local<->remote switch)
         for i, model in enumerate(config.models):
@@ -50,7 +50,7 @@ class ConfigRoutes:
                 if pm is not None and pm.state.value == "stopped":
                     pms[i] = None
             elif model.type != "remote" and pms[i] is None:
-                pms[i] = ProcessManager(i, config)
+                pms[i] = ProcessManager(i, config, self.event_bus)
         # Shrink if models were removed (only trim stopped managers from the end)
         while len(pms) > len(config.models):
             pm = pms[-1]

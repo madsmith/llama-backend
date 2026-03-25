@@ -7,19 +7,17 @@ import ServerControls from "../components/ServerControls";
 import ProxyStatusCard from "../components/ProxyStatusCard";
 import ProxyControls from "../components/ProxyControls";
 import LogViewer from "../components/LogViewer";
-import { useServerStatusWS, useSlotStatusWS, useProxyStatus, useLogs, useRemotes, pollRatesFromConfig } from "../api/hooks";
+import { useProxyStatus, useServerStatusWS, useLogs, useRemotes, pollRatesFromConfig } from "../api/hooks";
 
-function ModelLogCard({ modelIndex, name, source, navigate }: { modelIndex: number; name: string; source: string; navigate: (path: string) => void }) {
-  const { status, refresh } = useServerStatusWS(modelIndex);
-  const slots = useSlotStatusWS(modelIndex, status.state);
+function ModelLogCard({ modelIndex, serverId, name, source, navigate }: { modelIndex: number; serverId: string | undefined; name: string; source: string; navigate: (path: string) => void }) {
+  const { status, refresh } = useServerStatusWS(serverId);
 
   return (
     <div className="space-y-4">
       <ServerStatusCard
         name={name}
-        status={status}
-        slots={slots}
         modelIndex={modelIndex}
+        status={status}
         onClick={() => navigate(`/logs/${modelIndex}`)}
         selected={source === String(modelIndex)}
       />
@@ -158,10 +156,10 @@ export default function Logs() {
           <div key={i} data-source={String(i)}>
             <ModelLogCard
               modelIndex={i}
+              serverId={config?.manager_id ? `${config.manager_id}:model-${i}` : undefined}
               name={m.name ?? `Llama Server ${i + 1}`}
               source={source}
               navigate={navigate}
-
             />
           </div>
         ))}
@@ -170,10 +168,10 @@ export default function Logs() {
             <div key={m.local_index} data-source={String(m.local_index)}>
               <ModelLogCard
                 modelIndex={m.local_index}
+                serverId={m.server_id}
                 name={m.name ?? `Remote Model ${m.remote_model_index + 1}`}
                 source={source}
                 navigate={navigate}
-  
               />
             </div>
           )),

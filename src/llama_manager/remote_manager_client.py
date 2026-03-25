@@ -33,6 +33,7 @@ class RemoteModelProxy:
         server_id: str,
         model_identifier: ModelIdentifier,
         client: RemoteManagerClient,
+        event_bus: EventBus,
         log_buffer_size: int = 10_000,
     ) -> None:
         self.local_index = local_index
@@ -44,6 +45,7 @@ class RemoteModelProxy:
         self.server_id = server_id
         self.model_identifier = model_identifier
         self._client = client
+        self._event_bus = event_bus
         self.state: ServerState = ServerState.stopped
         self.log_buffer = LogBuffer(maxlen=log_buffer_size)
         self._subscribers: list[asyncio.Queue[dict]] = []
@@ -103,11 +105,11 @@ class RemoteModelProxy:
             self.state = ServerState(state_str)
         except ValueError:
             self.state = ServerState.error
-        self._broadcast({"type": "state", "state": self.state.value})
+        self._event_bus.publish({"type": "server_status", "id": self.server_id, "data": {"state": self.state.value}})
 
     def feed_log(self, text: str) -> None:
         line = self.log_buffer.append(text)
-        self._broadcast({"type": "log", "id": line.id, "text": line.text})
+        self._event_bus.publish({"type": "server_log", "id": self.server_id, "data": {"line_id": line.id, "text": line.text}})
 
     def set_slots(self, slots: list) -> None:
         self._cached_slots = slots
@@ -133,6 +135,7 @@ class RemoteManagerClient:
         self.remote_index = remote_index
         self.config = config
         self._app_config = app_config
+        self._event_bus = event_bus
         self.app = app
         self.models: list[RemoteModelProxy] = []
         self.connection_state: str = "disconnected"
@@ -247,7 +250,7 @@ class RemoteManagerClient:
             if proxy:
                 slots = msg.get("slots", [])
                 proxy.set_slots(slots)
-                event_bus.publish({"type": "slots", "server_id": proxy.server_id, "slots": slots})
+                self._event_bus.publish({"type": "slots", "server_id": proxy.server_id, "slots": slots})
 
         elif t == "health":
             proxy = self._get_proxy(msg.get("model", 0))
@@ -255,7 +258,7 @@ class RemoteManagerClient:
                 health = msg.get("health")
                 if health is not None:
                     proxy.set_health(health)
-                    event_bus.publish({"type": "health", "server_id": proxy.server_id, "health": health})
+                    self._event_bus.publish({"type": "health", "server_id": proxy.server_id, "health": health})
 
     def _get_proxy(self, remote_model_index: int) -> RemoteModelProxy | None:
         for p in self.models:
@@ -320,6 +323,7 @@ class RemoteManagerClient:
                     server_id=server_id,
                     model_identifier=model_identifier,
                     client=self,
+                    event_bus=self._event_bus,
                     log_buffer_size=log_buffer_size,
                 )
                 if local_index < len(pms):

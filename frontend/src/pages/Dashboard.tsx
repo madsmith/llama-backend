@@ -8,9 +8,8 @@ import ProxyStatusCard from "../components/ProxyStatusCard";
 import ProxyControls from "../components/ProxyControls";
 import HealthCard from "../components/HealthCard";
 import {
-  useServerStatusWS,
-  useSlotStatusWS,
   useProxyStatusWS,
+  useServerStatusWS,
   useRemotes,
   useUplinkStatus,
   useHealthStream,
@@ -44,8 +43,7 @@ function ModelPanel({
   onSnapshot: (index: number, snap: ServerSnapshot) => void;
 }) {
   const navigate = useNavigate();
-  const { status, refresh } = useServerStatusWS(modelIndex);
-  const slots = useSlotStatusWS(modelIndex, status.state);
+  const { status, refresh } = useServerStatusWS(serverId);
   const health = useHealthStream(serverId);
 
   useEffect(() => {
@@ -56,9 +54,8 @@ function ModelPanel({
     <div className="space-y-4">
       <ServerStatusCard
         name={name}
-        status={status}
-        slots={slots}
         modelIndex={modelIndex}
+        status={status}
         onClick={isRemote ? undefined : () => navigate(`/logs/${modelIndex}`)}
         remoteAddress={remoteAddress}
         health={isRemote ? health : undefined}
@@ -86,8 +83,7 @@ function RemoteModelPanel({
   onSnapshot: (index: number, snap: ServerSnapshot) => void;
 }) {
   const navigate = useNavigate();
-  const { status, refresh } = useServerStatusWS(modelIndex);
-  const slots = useSlotStatusWS(modelIndex, status.state);
+  const { status, refresh } = useServerStatusWS(serverId);
   const health = useHealthStream(serverId);
 
   useEffect(() => {
@@ -98,9 +94,8 @@ function RemoteModelPanel({
     <div className="space-y-4">
       <ServerStatusCard
         name={name}
-        status={status}
-        slots={slots}
         modelIndex={modelIndex}
+        status={status}
         onClick={() => navigate(`/logs/${modelIndex}`)}
       />
       <ServerControls status={status} modelIndex={modelIndex} onAction={refresh} />

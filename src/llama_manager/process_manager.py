@@ -8,6 +8,7 @@ import time
 from enum import Enum
 from pathlib import Path
 
+from llama_manager.event_bus import EventBus
 from llama_manager.model import ModelIdentifier
 
 from .config import AppConfig, ModelConfig, load_config
@@ -36,22 +37,22 @@ class ServerState(str, Enum):
 
 
 class ProcessManager:
-    def __init__(self, model_index: int = 0, config: AppConfig | None = None) -> None:
+    def __init__(self, model_index: int, config: AppConfig, event_bus: EventBus) -> None:
         self.model_index: int = model_index
-        cfg: AppConfig = config or load_config()
+        self.event_bus = event_bus
 
         self.state: ServerState = ServerState.stopped
         self.process: asyncio.subprocess.Process | None = None
         self.pid: int | None = None
         self.host: str = "127.0.0.1"
-        self.port: int = cfg.api_server.llama_server_starting_port + model_index
+        self.port: int = config.api_server.llama_server_starting_port + model_index
         self.started_at: float | None = None
         self.process_manager_id: str = f"model-{model_index}"
         self.model_identifier = ModelIdentifier(
-            manager_id=cfg.manager_id,
+            manager_id=config.manager_id,
             process_identifier=self.process_manager_id,
         )
-        self.log_buffer = LogBuffer(maxlen=cfg.web_ui.log_buffer_size)
+        self.log_buffer = LogBuffer(maxlen=config.web_ui.log_buffer_size)
         self._subscribers: list[asyncio.Queue[dict]] = []
         self._reader_task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
@@ -59,19 +60,6 @@ class ProcessManager:
         log.debug(
             "ProcessManager[%d] initialized, state=%s", model_index, self.state.value
         )
-
-    def subscribe(self) -> asyncio.Queue[dict]:
-        q: asyncio.Queue[dict] = asyncio.Queue(maxsize=256)
-        self._subscribers.append(q)
-        log.debug("subscriber added (total=%d)", len(self._subscribers))
-        return q
-
-    def unsubscribe(self, q: asyncio.Queue[dict]) -> None:
-        try:
-            self._subscribers.remove(q)
-            log.debug("subscriber removed (total=%d)", len(self._subscribers))
-        except ValueError:
-            pass
 
     def get_server_address(self) -> str:
         return f"http://{self.host}:{self.port}"
@@ -82,21 +70,20 @@ class ProcessManager:
     def _log(self, text: str) -> None:
         """Write to log buffer + broadcast to WS clients + debug to stderr."""
         line = self.log_buffer.append(text)
-        self._broadcast({"type": "log", "id": line.id, "text": line.text})
+        #self._broadcast({"type": "log", "id": line.id, "text": line.text})
+        self.event_bus.publish({"type": "server_log", "id": self.get_server_identifier(), "data": {
+            "line_id": line.id,
+            "text": line.text,
+        }})
         log.debug("[pm] %s", text)
 
     def _set_state(self, new: ServerState) -> None:
         old = self.state
         self.state = new
         log.debug("state %s -> %s", old.value, new.value)
-        self._broadcast({"type": "state", "state": new.value})
+        #self._broadcast({"type": "state", "state": new.value})
+        self.event_bus.publish({"type": "server_status", "id": self.get_server_identifier(), "data": {"state": new.value}})
 
-    def _broadcast(self, msg: dict) -> None:
-        for q in list(self._subscribers):
-            try:
-                q.put_nowait(msg)
-            except asyncio.QueueFull:
-                log.debug("subscriber queue full, dropping message")
 
     async def start(self, config: AppConfig | None = None) -> None:
         async with self._lock:
@@ -233,7 +220,9 @@ class ProcessManager:
         log.debug("_fail: %s", msg)
         self.state = ServerState.error
         self._log(f"ERROR: {msg}")
-        self._broadcast({"type": "state", "state": self.state.value})
+        #self._broadcast({"type": "state", "state": self.state.value})
+        self.event_bus.publish({"type": "server_status", "id": self.get_server_identifier(), "data": {"state": self.state.value}})
+
 
     async def stop(self) -> None:
         log.debug("stop() called")
@@ -281,15 +270,6 @@ class ProcessManager:
         async with self._lock:
             await self._stop_internal()
         await self.start()
-
-    def shutdown_subscribers(self) -> None:
-        """Send empty dict sentinel to all subscriber queues so WS handlers exit."""
-        log.debug("shutting down %d subscribers", len(self._subscribers))
-        for q in list(self._subscribers):
-            try:
-                q.put_nowait({})
-            except asyncio.QueueFull:
-                pass
 
     def get_status(self) -> dict:
         uptime = None
@@ -357,7 +337,8 @@ class ProcessManager:
         if self.state in (ServerState.starting, ServerState.running):
             self._log(f"process exited unexpectedly (rc={rc})")
             self.state = ServerState.error if rc != 0 else ServerState.stopped
-            self._broadcast({"type": "state", "state": self.state.value})
+            #self._broadcast({"type": "state", "state": self.state.value})
+            self.event_bus.publish({"type": "server_status", "id": self.get_server_identifier(), "data": {"state": self.state.value}})
             self.process = None
             self.pid = None
             self.started_at = None

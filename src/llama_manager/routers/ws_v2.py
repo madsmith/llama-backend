@@ -2,15 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import ClassVar
+from typing import Callable, ClassVar
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from llama_manager.llama_manager import LlamaManager
 from llama_manager.process_manager import ProcessManager
+from llama_manager.remote_manager_client import RemoteModelProxy
 from llama_manager.proxy.active_requests import ActiveRequestManager
 from llama_manager.protocol.ws_messages import (
+    EventResponse,
     IncomingMessage,
     ProxyStatusRequest,
     ProxyStatusResponse,
@@ -19,8 +21,11 @@ from llama_manager.protocol.ws_messages import (
     SlotStatusRequest,
     SlotStatusResponse,
     SlotStatusEvent,
+    SubscribeEventRequest,
+    SubscribeEventResponse,
     SubscribeSlotStatusRequest,
     SubscribeSlotStatusResponse,
+    UnsubscribeEventRequest,
     UnsubscribeSlotStatusRequest,
 )
 
@@ -34,13 +39,16 @@ class WsV2Connection:
         SlotStatusRequest: "_on_slot_status",
         SubscribeSlotStatusRequest: "_on_subscribe_slot_status",
         UnsubscribeSlotStatusRequest: "_on_unsubscribe_slot_status",
+        SubscribeEventRequest: "_on_subscribe_event",
+        UnsubscribeEventRequest: "_on_unsubscribe_event",
     }
 
     def __init__(self, manager: LlamaManager, ws: WebSocket) -> None:
         self.manager = manager
         self.ws = ws
         self.outgoing: asyncio.Queue[str] = asyncio.Queue()
-        self.subscriptions: list[int] = []
+        # Maps subscription_id → teardown callable; covers both typed and generic subs.
+        self._subscriptions: dict[int, Callable[[], None]] = {}
 
     # ------------------------------------------------------------------
     # Entry point
@@ -64,8 +72,8 @@ class WsV2Connection:
             pass
         finally:
             sender_task.cancel()
-            for handle in self.subscriptions:
-                self.manager.slot_status.unsubscribe(handle)
+            for teardown in self._subscriptions.values():
+                teardown()
 
     # ------------------------------------------------------------------
     # Outgoing
@@ -104,13 +112,18 @@ class WsV2Connection:
         return ProxyStatusResponse(**self.manager.proxy.status())
 
     async def _on_server_status(self, msg: ServerStatusRequest) -> BaseModel | None:
-        pms = self.manager.process_managers
-        if msg.model < 0 or msg.model >= len(pms):
-            return None
-        return ServerStatusResponse(model=msg.model, **pms[msg.model].get_status())
+        for pm in self.manager.get_process_managers():
+            server_id = (
+                pm.get_server_identifier() if isinstance(pm, ProcessManager)
+                else pm.server_id if isinstance(pm, RemoteModelProxy)
+                else None
+            )
+            if server_id == msg.id:
+                return ServerStatusResponse(id=msg.id, **pm.get_status())
+        return None
 
     async def _on_slot_status(self, msg: SlotStatusRequest) -> BaseModel | None:
-        pms = self.manager.process_managers
+        pms = self.manager.get_process_managers()
         if msg.model < 0 or msg.model >= len(pms):
             return None
         pm = pms[msg.model]
@@ -157,7 +170,7 @@ class WsV2Connection:
 
             handle = self.manager.slot_status.subscribe(server_id, _on_change)
             _handle_box.append(handle)
-            self.subscriptions.append(handle)
+            self._subscriptions[handle] = lambda h=handle: self.manager.slot_status.unsubscribe(h)
 
         return SubscribeSlotStatusResponse(
             subscription_id=handle,
@@ -166,11 +179,71 @@ class WsV2Connection:
         )
 
     async def _on_unsubscribe_slot_status(self, msg: UnsubscribeSlotStatusRequest) -> None:
-        self.manager.slot_status.unsubscribe(msg.subscription_id)
-        try:
-            self.subscriptions.remove(msg.subscription_id)
-        except ValueError:
-            pass
+        teardown = self._subscriptions.pop(msg.subscription_id, None)
+        if teardown is not None:
+            teardown()
+
+    async def _on_subscribe_event(self, msg: SubscribeEventRequest) -> BaseModel:
+        if msg.type == "slots":
+            return await self._on_subscribe_event_slots(msg)
+        if msg.type == "server_status":
+            return await self._on_subscribe_event_server_status(msg)
+        return SubscribeEventResponse(subscription_id=-1)
+
+    async def _on_subscribe_event_slots(self, msg: SubscribeEventRequest) -> BaseModel:
+        model = int(msg.id) if msg.id is not None else 0
+        pms = self.manager.get_process_managers()
+        server_id: str | None = None
+        if 0 <= model < len(pms):
+            pm = pms[model]
+            if isinstance(pm, ProcessManager):
+                server_id = pm.get_server_identifier()
+            elif isinstance(pm, RemoteModelProxy):
+                server_id = pm.server_id
+
+        subscription_id = -1
+        if server_id is not None:
+            def _on_change(updated_slots: list[dict]) -> None:
+                self._push(EventResponse(
+                    type="slots",
+                    id=str(model),
+                    event_data={"model": model, "slots": updated_slots},
+                ))
+
+            subscription_id = self.manager.slot_status.subscribe(server_id, _on_change)
+            self._subscriptions[subscription_id] = lambda h=subscription_id: self.manager.slot_status.unsubscribe(h)
+
+        return SubscribeEventResponse(subscription_id=subscription_id)
+
+    async def _on_subscribe_event_server_status(self, msg: SubscribeEventRequest) -> BaseModel:
+        server_id = msg.id
+        q = self.manager.event_bus.subscribe("server_status")
+
+        async def _listen() -> None:
+            try:
+                while True:
+                    event = await q.get()
+                    if event.get("id") != server_id:
+                        continue
+                    self._push(EventResponse(
+                        type="server_status",
+                        id=msg.id,
+                        event_data=event.get("data", {}),
+                    ))
+            except asyncio.CancelledError:
+                pass
+            finally:
+                self.manager.event_bus.unsubscribe(q)
+
+        task = asyncio.create_task(_listen())
+        subscription_id = id(task)
+        self._subscriptions[subscription_id] = task.cancel
+        return SubscribeEventResponse(subscription_id=subscription_id)
+
+    async def _on_unsubscribe_event(self, msg: UnsubscribeEventRequest) -> None:
+        teardown = self._subscriptions.pop(msg.subscription_id, None)
+        if teardown is not None:
+            teardown()
 
 
 # ---------------------------------------------------------------------------

@@ -332,7 +332,7 @@ export function useProxyStatusWS() {
   return { status, refresh };
 }
 
-export function useServerStatusWS(modelIndex = 0) {
+export function useServerStatusWS(serverId: string | undefined) {
   const [status, setStatus] = useState<ServerStatus>({
     state: "stopped",
     pid: null,
@@ -341,12 +341,11 @@ export function useServerStatusWS(modelIndex = 0) {
     uptime: null,
   });
 
-  // Local anchor for ticking uptime without server round-trips.
   const startedAtRef = useRef<number | null>(null);
 
-  const handleMessage = useCallback(
+  const handleStatusResponse = useCallback(
     (msg: Record<string, unknown>) => {
-      if ((msg.model as number) !== modelIndex) return;
+      if (!serverId || msg.id !== serverId) return;
       const s = msg as unknown as ServerStatus;
       setStatus(s);
       startedAtRef.current =
@@ -354,19 +353,29 @@ export function useServerStatusWS(modelIndex = 0) {
           ? Date.now() - s.uptime * 1000
           : null;
     },
-    [modelIndex],
+    [serverId],
   );
 
-  const refresh = useCallback(
-    () => getWsV2().send({ msg: "server_status", model: modelIndex }),
-    [modelIndex],
+  const refresh = useCallback(() => {
+    if (serverId) getWsV2().send({ msg: "server_status", id: serverId });
+  }, [serverId]);
+
+  useEffect(
+    () => getWsV2().subscribe("server_status_response", handleStatusResponse, refresh),
+    [handleStatusResponse, refresh],
   );
 
   useEffect(() => {
-    return getWsV2().subscribe("server_status_response", handleMessage, refresh);
-  }, [handleMessage, refresh]);
+    if (!serverId) return;
+    return getWsV2().subscribeToEvent("server_status", serverId, (data) => {
+      const state = data.state as ServerStatus["state"];
+      setStatus((prev) => ({ ...prev, state }));
+      if (state !== "running" && state !== "remote") {
+        startedAtRef.current = null;
+      }
+    });
+  }, [serverId]);
 
-  // Tick uptime every second from the local anchor.
   useEffect(() => {
     const id = setInterval(() => {
       if (startedAtRef.current != null) {

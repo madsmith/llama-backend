@@ -44,7 +44,7 @@ class LlamaManager:
                         async with httpx.AsyncClient(timeout=2) as client:
                             resp = await client.get(f"{base}/health")
                             if resp.status_code in (200, 503):
-                                event_bus.publish({"type": "health", "server_id": pm.get_server_identifier(), "health": resp.json()})
+                                self.event_bus.publish({"type": "health", "server_id": pm.get_server_identifier(), "health": resp.json()})
                     except Exception:
                         pass
             except Exception:
@@ -55,7 +55,7 @@ class LlamaManager:
         @asynccontextmanager
         async def lifespan(app: FastAPI):
             self.process_managers = [
-                None if m.type == "remote" else ProcessManager(idx, self.config)
+                None if m.type == "remote" else ProcessManager(idx, self.config, self.event_bus)
                 for idx, m in enumerate(self.config.models)
             ]
             app.state.process_managers = self.process_managers
@@ -97,7 +97,6 @@ class LlamaManager:
 
             for pm in self.process_managers:
                 if pm is not None:
-                    pm.shutdown_subscribers()
                     await pm.stop()
 
             if vite is not None:

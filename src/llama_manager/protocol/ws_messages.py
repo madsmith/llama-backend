@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated, Literal, Union
+from typing import Annotated, Any, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -49,7 +49,7 @@ class ProxyStatusRequest(BaseModel):
 
 class ServerStatusRequest(BaseModel):
     msg: Literal["server_status"] = "server_status"
-    model: int = 0
+    id: str
 
 
 class SlotStatusRequest(BaseModel):
@@ -67,6 +67,23 @@ class UnsubscribeSlotStatusRequest(BaseModel):
     subscription_id: int
 
 
+class SubscribeEventRequest(BaseModel):
+    """Generic event subscription. *id* is a client-chosen correlation token
+    returned in the response so callers can match async request/response pairs."""
+    msg: Literal["subscribe_event"] = "subscribe_event"
+    type: str
+    sub_type: str | None = None
+    id: str | None = None
+
+
+class UnsubscribeEventRequest(BaseModel):
+    """Cancel a generic event subscription by its server-assigned subscription_id."""
+    msg: Literal["unsubscribe_event"] = "unsubscribe_event"
+    type: str
+    sub_type: str | None = None
+    subscription_id: int  # subscription_id from SubscribeEventResponse
+
+
 IncomingMessage = Annotated[
     Union[
         ProxyStatusRequest,
@@ -74,6 +91,8 @@ IncomingMessage = Annotated[
         SlotStatusRequest,
         SubscribeSlotStatusRequest,
         UnsubscribeSlotStatusRequest,
+        SubscribeEventRequest,
+        UnsubscribeEventRequest,
     ],
     Field(discriminator="msg"),
 ]
@@ -94,7 +113,7 @@ class ProxyStatusResponse(BaseModel):
 
 class ServerStatusResponse(BaseModel):
     msg: Literal["server_status_response"] = "server_status_response"
-    model: int
+    id: str
     state: str
     pid: int | None
     host: str | None
@@ -120,3 +139,19 @@ class SlotStatusEvent(BaseModel):
     subscription_id: int
     model: int
     slots: list[SlotInfo]
+
+
+class SubscribeEventResponse(BaseModel):
+    """Confirms a generic subscription; *subscription_id* is the server-assigned
+    token used in subsequent EventResponse messages and UnsubscribeEventRequest."""
+    msg: Literal["subscribe_event_response"] = "subscribe_event_response"
+    subscription_id: int
+
+
+class EventResponse(BaseModel):
+    """Generic event pushed to subscribers."""
+    msg: Literal["event"] = "event"
+    type: str
+    sub_type: str | None = None
+    id: str | None = None
+    event_data: dict[str, Any]
