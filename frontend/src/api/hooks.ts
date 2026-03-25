@@ -333,13 +333,7 @@ export function useProxyStatusWS() {
 }
 
 export function useServerStatusWS(serverId: string | undefined) {
-  const [status, setStatus] = useState<ServerStatus>({
-    state: "stopped",
-    pid: null,
-    host: null,
-    port: null,
-    uptime: null,
-  });
+  const [status, setStatus] = useState<ServerStatus | null>(null);
 
   const startedAtRef = useRef<number | null>(null);
 
@@ -369,7 +363,7 @@ export function useServerStatusWS(serverId: string | undefined) {
     if (!serverId) return;
     return getWsV2().subscribeToEvent("server_status", serverId, (data) => {
       const state = data.state as ServerStatus["state"];
-      setStatus((prev) => ({ ...prev, state }));
+      setStatus((prev) => prev ? { ...prev, state } : null);
       if (state !== "running" && state !== "remote") {
         startedAtRef.current = null;
       }
@@ -379,10 +373,10 @@ export function useServerStatusWS(serverId: string | undefined) {
   useEffect(() => {
     const id = setInterval(() => {
       if (startedAtRef.current != null) {
-        setStatus((prev) => ({
+        setStatus((prev) => prev ? ({
           ...prev,
           uptime: (Date.now() - startedAtRef.current!) / 1000,
-        }));
+        }) : null);
       }
     }, 1000);
     return () => clearInterval(id);

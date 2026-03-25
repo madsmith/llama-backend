@@ -3,7 +3,7 @@ import type { HealthStatus, ProxyStatus, ServerStatus, UplinkStatus } from "../a
 
 interface ServerInfo {
   name: string;
-  status: ServerStatus;
+  status: ServerStatus | null;
   health: HealthStatus | null;
   autoStart: boolean;
   hasTTL: boolean;
@@ -19,6 +19,7 @@ const Check = () => <span className="text-green-500">&#10003;</span>;
 const Cross = () => <span className="text-red-500">&#10005;</span>;
 const Dot = () => <span className="text-gray-500">&#9679;</span>;
 const Dash = () => <span className="text-yellow-500">&#9679;</span>;
+const Question = () => <span className="text-yellow-500">?</span>;
 
 /**
  * A stopped server that isn't expected to be running right now.
@@ -27,11 +28,13 @@ const Dash = () => <span className="text-yellow-500">&#9679;</span>;
  * - Auto-start without TTL: should always be running — NOT offline.
  */
 const isOffline = (s: ServerInfo) =>
-  s.status.state === "stopped" && (s.hasTTL || !s.autoStart);
+  s.status?.state === "stopped" && (s.hasTTL || !s.autoStart);
 
 export default function HealthCard({ proxyStatus, servers, uplink }: Props) {
   const proxyOk = proxyStatus.state === "running";
+  const serverUnknown = (s: ServerInfo) => s.health === null;
   const serverOk = (s: ServerInfo) => {
+    if (s.status === null) return false;
     if (isOffline(s)) return true;
     const healthOk =
       s.health?.status === "ok" || s.health?.status === "no slot available";
@@ -40,7 +43,8 @@ export default function HealthCard({ proxyStatus, servers, uplink }: Props) {
     return s.status.state === "running" && healthOk;
   };
   const allServersOk = servers.every(serverOk);
-  const allOk = proxyOk && allServersOk;
+  const anyUnknown = servers.some(serverUnknown);
+  const allOk = proxyOk && allServersOk && !anyUnknown;
 
   return (
     <div className="rounded-xl border border-gray-800 bg-gray-900 p-5">
@@ -68,26 +72,31 @@ export default function HealthCard({ proxyStatus, servers, uplink }: Props) {
           </Fragment>
         )}
         {servers.map((s) => {
+          const unknown = serverUnknown(s);
           const ok = serverOk(s);
           const offline = isOffline(s);
-          const isRemote = s.status.state === "remote";
-          const displayState = offline
-            ? "offline"
-            : isRemote
-              ? s.health?.status === "ok"
-                ? "running"
-                : (s.health?.status ?? "offline")
-              : s.status.state;
-          const stateColor = offline
-            ? "text-gray-500"
-            : ok
-              ? "text-green-400"
-              : displayState === "starting" || displayState === "unknown"
-                ? "text-yellow-400"
-                : "text-red-400";
+          const isRemote = s.status?.state === "remote";
+          const displayState = unknown
+            ? "unknown"
+            : offline
+              ? "offline"
+              : isRemote
+                ? s.health?.status === "ok"
+                  ? "running"
+                  : (s.health?.status ?? "offline")
+                : s.status!.state;
+          const stateColor = unknown
+            ? "text-yellow-400"
+            : offline
+              ? "text-gray-500"
+              : ok
+                ? "text-green-400"
+                : displayState === "starting" || displayState === "unknown"
+                  ? "text-yellow-400"
+                  : "text-red-400";
           return (
             <Fragment key={s.name}>
-              {offline ? <Dot /> : ok ? <Check /> : <Cross />}
+              {unknown ? <Question /> : offline ? <Dot /> : ok ? <Check /> : <Cross />}
               <span className="text-sm text-gray-300">
                 {s.name}
                 {isRemote && (
@@ -110,9 +119,9 @@ export default function HealthCard({ proxyStatus, servers, uplink }: Props) {
         })}
       </div>
       <div className="mt-3 flex items-center gap-2">
-        {allOk ? <Check /> : <Cross />}
+        {allOk ? <Check /> : anyUnknown ? <Question /> : <Cross />}
         <span className="text-lg font-medium">
-          {allOk ? "Healthy" : "Degraded"}
+          {allOk ? "Healthy" : anyUnknown ? "Degraded (unknown)" : "Degraded"}
         </span>
       </div>
     </div>

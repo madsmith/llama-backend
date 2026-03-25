@@ -11,17 +11,18 @@ import { useProxyStatus, useServerStatusWS, useLogs, useRemotes, pollRatesFromCo
 
 function ModelLogCard({ modelIndex, serverId, name, source, navigate }: { modelIndex: number; serverId: string | undefined; name: string; source: string; navigate: (path: string) => void }) {
   const { status, refresh } = useServerStatusWS(serverId);
+  const statusOrStopped = status ?? { state: "stopped" as const, pid: null, host: null, port: null, uptime: null };
 
   return (
     <div className="space-y-4">
       <ServerStatusCard
         name={name}
         modelIndex={modelIndex}
-        status={status}
+        status={statusOrStopped}
         onClick={() => navigate(`/logs/${modelIndex}`)}
         selected={source === String(modelIndex)}
       />
-      <ServerControls status={status} modelIndex={modelIndex} onAction={refresh} />
+      <ServerControls status={statusOrStopped} modelIndex={modelIndex} onAction={refresh} />
     </div>
   );
 }
