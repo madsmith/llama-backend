@@ -13,8 +13,13 @@ class ProxyStatusRequest(BaseModel):
     msg: Literal["proxy_status"] = "proxy_status"
 
 
+class ServerStatusRequest(BaseModel):
+    msg: Literal["server_status"] = "server_status"
+    model: int = 0
+
+
 IncomingMessage = Annotated[
-    Union[ProxyStatusRequest],
+    Union[ProxyStatusRequest, ServerStatusRequest],
     Field(discriminator="msg"),
 ]
 
@@ -30,3 +35,13 @@ class ProxyStatusResponse(BaseModel):
     port: int | None
     uptime: float | None
     pid: int | None
+
+
+class ServerStatusResponse(BaseModel):
+    msg: Literal["server_status_response"] = "server_status_response"
+    model: int
+    state: str
+    pid: int | None
+    host: str | None
+    port: int | None
+    uptime: float | None

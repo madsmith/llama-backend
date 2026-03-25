@@ -7,10 +7,12 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import TypeAdapter, ValidationError
 
 from llama_manager.proxy import ProxyServer
-from llama_manager.ws_messages import (
+from llama_manager.protocol.ws_messages import (
     IncomingMessage,
     ProxyStatusRequest,
     ProxyStatusResponse,
+    ServerStatusRequest,
+    ServerStatusResponse,
 )
 
 
@@ -35,7 +37,7 @@ def make_router(proxy: ProxyServer) -> APIRouter:
                 except (json.JSONDecodeError, ValidationError):
                     continue
 
-                response = _dispatch(msg, proxy)
+                response = _dispatch(msg, proxy, ws.app.state)
                 if response is not None:
                     await ws.send_text(response.model_dump_json())
         except (WebSocketDisconnect, asyncio.CancelledError):
@@ -44,7 +46,33 @@ def make_router(proxy: ProxyServer) -> APIRouter:
     return router
 
 
-def _dispatch(msg: IncomingMessage, proxy: ProxyServer) -> ProxyStatusResponse | None:
-    if isinstance(msg, ProxyStatusRequest):
-        return ProxyStatusResponse(**proxy.status())
-    return None
+def _dispatch_proxy_status(
+    _msg: ProxyStatusRequest, proxy: ProxyServer, _state: object
+) -> ProxyStatusResponse:
+    return ProxyStatusResponse(**proxy.status())
+
+
+def _dispatch_server_status(
+    msg: ServerStatusRequest, _proxy: ProxyServer, state: object
+) -> ServerStatusResponse | None:
+    managers = state.process_managers  # type: ignore[attr-defined]
+    if msg.model < 0 or msg.model >= len(managers):
+        return None
+    return ServerStatusResponse(model=msg.model, **managers[msg.model].get_status())
+
+
+_HANDLERS = {
+    ProxyStatusRequest: _dispatch_proxy_status,
+    ServerStatusRequest: _dispatch_server_status,
+}
+
+
+def _dispatch(
+    msg: IncomingMessage,
+    proxy: ProxyServer,
+    state: object,
+) -> ProxyStatusResponse | ServerStatusResponse | None:
+    handler = _HANDLERS.get(type(msg))
+    if handler is None:
+        return None
+    return handler(msg, proxy, state)  # type: ignore[arg-type]

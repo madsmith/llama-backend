@@ -8,13 +8,12 @@ import ProxyStatusCard from "../components/ProxyStatusCard";
 import ProxyControls from "../components/ProxyControls";
 import HealthCard from "../components/HealthCard";
 import {
-  useServerStatus,
+  useServerStatusWS,
   useProxyStatusWS,
   useRemotes,
   useUplinkStatus,
   useSlotStream,
   useHealthStream,
-  pollRatesFromConfig,
 } from "../api/hooks";
 
 interface ServerSnapshot {
@@ -23,13 +22,6 @@ interface ServerSnapshot {
   health: HealthStatus | null;
   autoStart: boolean;
   hasTTL: boolean;
-}
-
-interface PollRates {
-  serverStatus?: number;
-  proxyStatus?: number;
-  slots?: number;
-  slotsActive?: number;
 }
 
 function ModelPanel({
@@ -41,7 +33,6 @@ function ModelPanel({
   autoStart,
   hasTTL,
   onSnapshot,
-  poll,
 }: {
   modelIndex: number;
   serverId: string | undefined;
@@ -51,10 +42,9 @@ function ModelPanel({
   autoStart: boolean;
   hasTTL: boolean;
   onSnapshot: (index: number, snap: ServerSnapshot) => void;
-  poll?: PollRates;
 }) {
   const navigate = useNavigate();
-  const { status, refresh } = useServerStatus(modelIndex, poll?.serverStatus);
+  const { status, refresh } = useServerStatusWS(modelIndex);
   const slots = useSlotStream(serverId);
   const health = useHealthStream(serverId);
 
@@ -89,16 +79,14 @@ function RemoteModelPanel({
   serverId,
   name,
   onSnapshot,
-  poll,
 }: {
   modelIndex: number;
   serverId: string;
   name: string;
   onSnapshot: (index: number, snap: ServerSnapshot) => void;
-  poll?: PollRates;
 }) {
   const navigate = useNavigate();
-  const { status, refresh } = useServerStatus(modelIndex, poll?.serverStatus);
+  const { status, refresh } = useServerStatusWS(modelIndex);
   const slots = useSlotStream(serverId);
   const health = useHealthStream(serverId);
 
@@ -129,11 +117,9 @@ function connectionDot(state: RemoteManagerStatus["connection_state"]) {
 function RemoteManagerSection({
   rm,
   onSnapshot,
-  poll,
 }: {
   rm: RemoteManagerStatus;
   onSnapshot: (index: number, snap: ServerSnapshot) => void;
-  poll?: PollRates;
 }) {
   return (
     <div className="space-y-3">
@@ -158,7 +144,6 @@ function RemoteManagerSection({
               serverId={m.server_id}
               name={m.name ?? `Remote Model ${m.remote_model_index + 1}`}
               onSnapshot={onSnapshot}
-              poll={poll}
             />
           ))}
         </div>
@@ -169,7 +154,6 @@ function RemoteManagerSection({
 
 export default function Dashboard() {
   const [config, setConfig] = useState<ServerConfig | null>(null);
-  const poll = pollRatesFromConfig(config);
   const { status: proxyStatus, refresh: refreshProxy } = useProxyStatusWS();
   const [snapshots, setSnapshots] = useState<Map<number, ServerSnapshot>>(
     new Map(),
@@ -218,7 +202,6 @@ export default function Dashboard() {
             autoStart={m.auto_start ?? false}
             hasTTL={m.model_ttl != null}
             onSnapshot={handleSnapshot}
-            poll={poll}
           />
         ))}
       </div>
@@ -230,7 +213,6 @@ export default function Dashboard() {
               key={rm.index}
               rm={rm}
               onSnapshot={handleSnapshot}
-              poll={poll}
             />
           ))}
         </div>

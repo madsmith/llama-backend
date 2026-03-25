@@ -332,6 +332,56 @@ export function useProxyStatusWS() {
   return { status, refresh };
 }
 
+export function useServerStatusWS(modelIndex = 0) {
+  const [status, setStatus] = useState<ServerStatus>({
+    state: "stopped",
+    pid: null,
+    host: null,
+    port: null,
+    uptime: null,
+  });
+
+  // Local anchor for ticking uptime without server round-trips.
+  const startedAtRef = useRef<number | null>(null);
+
+  const handleMessage = useCallback(
+    (msg: Record<string, unknown>) => {
+      if ((msg.model as number) !== modelIndex) return;
+      const s = msg as unknown as ServerStatus;
+      setStatus(s);
+      startedAtRef.current =
+        s.state === "running" && s.uptime != null
+          ? Date.now() - s.uptime * 1000
+          : null;
+    },
+    [modelIndex],
+  );
+
+  const refresh = useCallback(
+    () => getWsV2().send({ msg: "server_status", model: modelIndex }),
+    [modelIndex],
+  );
+
+  useEffect(() => {
+    return getWsV2().subscribe("server_status_response", handleMessage, refresh);
+  }, [handleMessage, refresh]);
+
+  // Tick uptime every second from the local anchor.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (startedAtRef.current != null) {
+        setStatus((prev) => ({
+          ...prev,
+          uptime: (Date.now() - startedAtRef.current!) / 1000,
+        }));
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  return { status, refresh };
+}
+
 export function useUplinkStatus(pollMs = 3000) {
   const [uplink, setUplink] = useState<UplinkStatus | null>(null);
 
