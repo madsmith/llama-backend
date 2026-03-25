@@ -3,7 +3,7 @@ import { api } from "../api/client";
 import type { ServerStatus } from "../api/types";
 
 interface Props {
-  status: ServerStatus;
+  status?: ServerStatus;
   modelIndex: number;
   onAction: () => void;
 }
@@ -26,28 +26,29 @@ export default function ServerControls({ status, modelIndex, onAction }: Props) 
     }
   };
 
-  const isStopped = status.state === "stopped" || status.state === "error";
-  const isRunning = status.state === "running";
+  const isUnknown = !status;
+  const isStopped = status?.state === "stopped" || status?.state === "error";
+  const isRunning = status?.state === "running";
 
   return (
     <div className="space-y-3">
       <div className="flex gap-2">
         <button
-          disabled={busy || !isStopped}
+          disabled={busy || isUnknown || !isStopped}
           onClick={() => act(() => api.start(modelIndex))}
           className="rounded-md bg-green-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-600 disabled:opacity-40 disabled:cursor-not-allowed transition"
         >
           Start
         </button>
         <button
-          disabled={busy || !isRunning}
+          disabled={busy || isUnknown || !isRunning}
           onClick={() => act(() => api.stop(modelIndex))}
           className="rounded-md bg-red-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed transition"
         >
           Stop
         </button>
         <button
-          disabled={busy || !isRunning}
+          disabled={busy || isUnknown || !isRunning}
           onClick={() => act(() => api.restart(modelIndex))}
           className="rounded-md bg-yellow-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-yellow-600 disabled:opacity-40 disabled:cursor-not-allowed transition"
         >
