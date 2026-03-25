@@ -26,7 +26,7 @@ export default function ServerControls({ status, modelIndex, onAction }: Props) 
     }
   };
 
-  const isUnknown = !status;
+  const isUnknown = !status || status.state === "unknown";
   const isStopped = status?.state === "stopped" || status?.state === "error";
   const isRunning = status?.state === "running";
 

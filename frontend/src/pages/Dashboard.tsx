@@ -45,7 +45,7 @@ function ModelPanel({
   const navigate = useNavigate();
   const { status, refresh } = useServerStatusWS(serverId);
   const health = useHealthStream(serverId);
-  const statusOrStopped = status ?? { state: "stopped" as const, pid: null, host: null, port: null, uptime: null };
+  const statusOrUnknown = status ?? { state: "unknown" as const, pid: null, host: null, port: null, uptime: null };
 
   useEffect(() => {
     onSnapshot(modelIndex, { name, status, health, autoStart, hasTTL });
@@ -56,14 +56,14 @@ function ModelPanel({
       <ServerStatusCard
         name={name}
         modelIndex={modelIndex}
-        status={statusOrStopped}
+        status={statusOrUnknown}
         onClick={isRemote ? undefined : () => navigate(`/logs/${modelIndex}`)}
         remoteAddress={remoteAddress}
         health={isRemote ? health : undefined}
       />
       {!isRemote && (
         <ServerControls
-          status={statusOrStopped}
+          status={statusOrUnknown}
           modelIndex={modelIndex}
           onAction={refresh}
         />
@@ -86,7 +86,7 @@ function RemoteModelPanel({
   const navigate = useNavigate();
   const { status, refresh } = useServerStatusWS(serverId);
   const health = useHealthStream(serverId);
-  const statusOrStopped = status ?? { state: "stopped" as const, pid: null, host: null, port: null, uptime: null };
+  const statusOrUnknown = status ?? { state: "unknown" as const, pid: null, host: null, port: null, uptime: null };
 
   useEffect(() => {
     onSnapshot(modelIndex, { name, status, health, autoStart: false, hasTTL: false });
@@ -97,7 +97,7 @@ function RemoteModelPanel({
       <ServerStatusCard
         name={name}
         modelIndex={modelIndex}
-        status={statusOrStopped}
+        status={statusOrUnknown}
         onClick={() => navigate(`/logs/${modelIndex}`)}
       />
       <ServerControls status={status} modelIndex={modelIndex} onAction={refresh} />

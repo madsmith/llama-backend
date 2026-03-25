@@ -1,5 +1,5 @@
 export interface ServerStatus {
-  state: "stopped" | "starting" | "running" | "stopping" | "error" | "remote";
+  state: "unknown" | "stopped" | "starting" | "running" | "stopping" | "error" | "remote";
   pid: number | null;
   host: string | null;
   port: number | null;
@@ -99,7 +99,7 @@ export interface RemoteManagerStatus {
 }
 
 export interface ProxyStatus {
-  state: "running" | "stopped";
+  state: "unknown" | "running" | "stopped";
   host: string | null;
   port: number | null;
   uptime: number | null;

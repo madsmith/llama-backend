@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import { getWsV2 } from "../api/wsv2";
 
 const stateColors: Record<string, string> = {
+  unknown: "bg-yellow-500",
   stopped: "bg-gray-600",
   starting: "bg-yellow-500",
   running: "bg-green-500",
@@ -14,6 +15,7 @@ const stateColors: Record<string, string> = {
 };
 
 const stateLabels: Record<string, string> = {
+  unknown: "Unknown",
   stopped: "Stopped",
   starting: "Starting",
   running: "Running",

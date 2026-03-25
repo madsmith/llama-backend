@@ -29,6 +29,7 @@ log = logging.getLogger(__name__)
 
 
 class ServerState(str, Enum):
+    unknown = "unknown"
     stopped = "stopped"
     starting = "starting"
     running = "running"
@@ -233,7 +234,7 @@ class ProcessManager:
         log.debug(
             "_stop_internal: state=%s, process=%s", self.state.value, self.process
         )
-        if self.process is None or self.state == ServerState.stopped:
+        if self.process is None or self.state == ServerState.stopped or self.state == ServerState.unknown:
             log.debug("nothing to stop")
             return
         self._set_state(ServerState.stopping)

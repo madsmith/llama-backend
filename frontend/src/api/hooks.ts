@@ -25,7 +25,7 @@ export function pollRatesFromConfig(cfg: ServerConfig | null) {
 
 export function useServerStatus(modelIndex = 0, pollMs = 3000) {
   const [status, setStatus] = useState<ServerStatus>({
-    state: "stopped",
+    state: "unknown",
     pid: null,
     host: null,
     port: null,
@@ -50,7 +50,7 @@ export function useServerStatus(modelIndex = 0, pollMs = 3000) {
 
 export function useProxyStatus(pollMs = 5000) {
   const [status, setStatus] = useState<ProxyStatus>({
-    state: "stopped",
+    state: "unknown",
     host: null,
     port: null,
     uptime: null,
@@ -297,7 +297,7 @@ export function useHealthStream(serverId: string | undefined): HealthStatus | nu
 
 export function useProxyStatusWS() {
   const [status, setStatus] = useState<ProxyStatus>({
-    state: "stopped",
+    state: "unknown",
     host: null,
     port: null,
     uptime: null,

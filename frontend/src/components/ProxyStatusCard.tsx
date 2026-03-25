@@ -1,11 +1,13 @@
 import type { ProxyStatus } from "../api/types";
 
 const stateColors: Record<string, string> = {
+  unknown: "bg-yellow-500",
   stopped: "bg-gray-600",
   running: "bg-green-500",
 };
 
 const stateLabels: Record<string, string> = {
+  unknown: "Unknown",
   stopped: "Stopped",
   running: "Running",
 };

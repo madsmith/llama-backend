@@ -46,7 +46,7 @@ class RemoteModelProxy:
         self.model_identifier = model_identifier
         self._client = client
         self._event_bus = event_bus
-        self.state: ServerState = ServerState.stopped
+        self.state: ServerState = ServerState.unknown
         self.log_buffer = LogBuffer(maxlen=log_buffer_size)
         self._subscribers: list[asyncio.Queue[dict]] = []
         self._cached_slots: list[dict] = []

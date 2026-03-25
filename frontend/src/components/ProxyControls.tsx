@@ -25,6 +25,7 @@ export default function ProxyControls({ status, onAction }: Props) {
     }
   };
 
+  const isUnknown = status.state === "unknown";
   const isStopped = status.state === "stopped";
   const isRunning = status.state === "running";
 
@@ -32,14 +33,14 @@ export default function ProxyControls({ status, onAction }: Props) {
     <div className="space-y-3">
       <div className="flex gap-2">
         <button
-          disabled={busy || !isStopped}
+          disabled={busy || isUnknown || !isStopped}
           onClick={() => act(() => api.proxyStart())}
           className="rounded-md bg-green-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-600 disabled:opacity-40 disabled:cursor-not-allowed transition"
         >
           Start
         </button>
         <button
-          disabled={busy || !isRunning}
+          disabled={busy || isUnknown || !isRunning}
           onClick={() => act(() => api.proxyStop())}
           className="rounded-md bg-red-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed transition"
         >
