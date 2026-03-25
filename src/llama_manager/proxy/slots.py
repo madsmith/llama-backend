@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Protocol
+import time
+from typing import Callable, Protocol
 
 import httpx
 
@@ -13,6 +14,8 @@ from llama_manager.remote_manager_client import RemoteModelProxy
 from llama_manager.proxy.subscription import proxy_log
 
 logger = logging.getLogger(__name__)
+
+SubscriptionHandle = int
 
 
 class ProcessManagerProvider(Protocol):
@@ -26,7 +29,10 @@ class SlotStatusService:
         self._provider = provider
         self._event_bus = event_bus
         self._cache: dict[int, list[dict]] = {}
+        self._subscriptions: dict[SubscriptionHandle, tuple[str, Callable[[list[dict]], None]]] = {}
+        self._next_handle: SubscriptionHandle = 0
         self._task: asyncio.Task | None = None
+        self._event_task: asyncio.Task | None = None
 
     # ------------------------------------------------------------------
     # Public query interface
@@ -43,16 +49,41 @@ class SlotStatusService:
         return await self._fetch(model)
 
     # ------------------------------------------------------------------
+    # Subscription interface
+    # ------------------------------------------------------------------
+
+    def subscribe(
+        self,
+        server_id: str,
+        callback: Callable[[list[dict]], None],
+    ) -> SubscriptionHandle:
+        """Register *callback* to be called whenever slots change for *server_id*.
+
+        Returns a handle that can be passed to :meth:`unsubscribe`.
+        """
+        handle = self._next_handle
+        self._next_handle += 1
+        self._subscriptions[handle] = (server_id, callback)
+        return handle
+
+    def unsubscribe(self, handle: SubscriptionHandle) -> None:
+        self._subscriptions.pop(handle, None)
+
+    # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
     async def start(self) -> None:
         self._task = asyncio.create_task(self._poll_loop())
+        self._event_task = asyncio.create_task(self._event_loop())
 
     async def stop(self) -> None:
         if self._task is not None:
             self._task.cancel()
             self._task = None
+        if self._event_task is not None:
+            self._event_task.cancel()
+            self._event_task = None
 
     # ------------------------------------------------------------------
     # Internals
@@ -67,18 +98,17 @@ class SlotStatusService:
             return None
 
         if isinstance(pm, RemoteModelProxy):
-            cfg = pm._client.config
-            url = f"http://{cfg.host}:{cfg.port}/api/status/slots?model={pm.remote_model_index}"
-            try:
-                async with httpx.AsyncClient(timeout=3) as client:
-                    resp = await client.get(url)
-                    if resp.status_code == 200:
-                        slots = resp.json()
-                        pm.set_slots(slots)
-                        self._cache[model] = slots
-                        return slots
-            except Exception:
-                pass
+            # Slots arrive pushed via event bus (_event_loop keeps _cache current).
+            # Fall back to a live fetch from the remote llama server if the port is known,
+            # otherwise return the proxy's own stale cache.
+            if model in self._cache:
+                return self._cache[model]
+            if pm.llama_server_port is not None:
+                base_url = f"http://{pm._client.config.host}:{pm.llama_server_port}"
+                slots = await LlamaClient(0, base_url=base_url).get_slots()
+                if slots is not None:
+                    self._cache[model] = slots
+                    return slots
             return pm.get_cached_slots()
 
         if not isinstance(pm, ProcessManager):
@@ -89,28 +119,90 @@ class SlotStatusService:
             self._cache[model] = slots
         return slots
 
+    def _notify(self, server_id: str, slots: list[dict]) -> None:
+        for sub_server_id, callback in list(self._subscriptions.values()):
+            if sub_server_id == server_id:
+                callback(slots)
+
+    async def _event_loop(self) -> None:
+        """Listen for slot events pushed via the event bus (remote models)."""
+        q = self._event_bus.subscribe()
+        try:
+            while True:
+                event = await q.get()
+                if event.get("type") != "slots":
+                    continue
+                server_id = event.get("server_id")
+                slots = event.get("slots")
+                if not server_id or slots is None:
+                    continue
+                # Only handle remote model events — local models are updated by _poll_loop
+                pms = self._provider.get_process_managers()
+                for i, pm in enumerate(pms):
+                    if isinstance(pm, RemoteModelProxy) and pm.server_id == server_id:
+                        self._cache[i] = slots
+                        self._notify(server_id, slots)
+                        break
+        finally:
+            self._event_bus.unsubscribe(q)
+
     async def _poll_loop(self) -> None:
+        # Per-server scheduling state
+        next_poll: dict[int, float] = {}   # model index → monotonic time of next fetch
+        last_slots: dict[int, list[dict] | None] = {}  # model index → last known slots
+
         while True:
-            any_active = False
-            for i, pm in enumerate(self._provider.get_process_managers()):
+            now = time.monotonic()
+            pms = self._provider.get_process_managers()
+
+            # Initialise scheduling state for newly-seen managers
+            for i in range(len(pms)):
+                if i not in next_poll:
+                    next_poll[i] = now
+                    last_slots[i] = None
+
+            # Poll every server that is due
+            for i, pm in enumerate(pms):
                 if not isinstance(pm, ProcessManager):
                     continue
                 if pm.state.value != "running":
                     continue
+                if now < next_poll.get(i, 0):
+                    continue
+
+                server_id = pm.get_server_identifier()
                 try:
                     slots = await LlamaClient(i).get_slots()
-                    if slots is not None:
-                        self._cache[i] = slots
-                        self._event_bus.publish({
-                            "type": "slots",
-                            "server_id": pm.get_server_identifier(),
-                            "slots": slots,
-                        })
-                        if any(s.get("is_processing") for s in slots):
-                            any_active = True
                 except Exception:
-                    pass
-            await asyncio.sleep(0.5 if any_active else 3.0)
+                    next_poll[i] = time.monotonic() + 3.0
+                    continue
+
+                if slots is None:
+                    next_poll[i] = time.monotonic() + 3.0
+                    continue
+
+                # Only publish and notify on actual change
+                if slots != last_slots.get(i):
+                    self._cache[i] = slots
+                    self._event_bus.publish({
+                        "type": "slots",
+                        "server_id": server_id,
+                        "slots": slots,
+                    })
+                    self._notify(server_id, slots)
+                    last_slots[i] = slots
+
+                active = any(s.get("is_processing") for s in slots)
+                next_poll[i] = time.monotonic() + (0.5 if active else 3.0)
+
+            # Sleep only until the nearest due server
+            running = {
+                i for i, pm in enumerate(pms)
+                if isinstance(pm, ProcessManager) and pm.state.value == "running"
+            }
+            due_times = [t for i, t in next_poll.items() if i in running]
+            sleep_for = max(0.0, min(due_times) - time.monotonic()) if due_times else 3.0
+            await asyncio.sleep(sleep_for)
 
 
 # ------------------------------------------------------------------

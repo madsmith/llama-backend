@@ -113,6 +113,7 @@ async def manager_ws(ws: WebSocket, token: str = Query(default="")):
                         "process_identifier": pm.process_manager_id,
                         "server_id": pm.server_id,
                         "state": pm.get_status()["state"],
+                        "llama_port": cfg.api_server.llama_server_starting_port + i,
                     }
                     for i, pm in local_pms
                 ],

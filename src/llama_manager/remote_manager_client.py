@@ -49,6 +49,7 @@ class RemoteModelProxy:
         self._subscribers: list[asyncio.Queue[dict]] = []
         self._cached_slots: list[dict] = []
         self._cached_health: dict | None = None
+        self.llama_server_port: int | None = None
 
     # --- ProcessManager duck-type interface ---
 
@@ -279,6 +280,7 @@ class RemoteManagerClient:
             model_id = desc.get("model_id")
             server_id = desc.get("server_id") or f"{self.config.host}:model-{rmi}"
             state_str = desc.get("state", "stopped")
+            llama_port: int | None = desc.get("llama_port")
             key = name or f"__idx_{rmi}"
 
             # Construct ModelIdentifier: prefer parsing server_id, fall back to remote_manager_id
@@ -323,6 +325,8 @@ class RemoteManagerClient:
                     pms[local_index] = proxy
                 else:
                     pms.append(proxy)
+
+            proxy.llama_server_port = llama_port
 
             # Apply state from snapshot
             try:

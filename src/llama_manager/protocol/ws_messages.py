@@ -57,8 +57,24 @@ class SlotStatusRequest(BaseModel):
     model: int = 0
 
 
+class SubscribeSlotStatusRequest(BaseModel):
+    msg: Literal["subscribe_slot_status"] = "subscribe_slot_status"
+    model: int = 0
+
+
+class UnsubscribeSlotStatusRequest(BaseModel):
+    msg: Literal["unsubscribe_slot_status"] = "unsubscribe_slot_status"
+    subscription_id: int
+
+
 IncomingMessage = Annotated[
-    Union[ProxyStatusRequest, ServerStatusRequest, SlotStatusRequest],
+    Union[
+        ProxyStatusRequest,
+        ServerStatusRequest,
+        SlotStatusRequest,
+        SubscribeSlotStatusRequest,
+        UnsubscribeSlotStatusRequest,
+    ],
     Field(discriminator="msg"),
 ]
 
@@ -88,5 +104,19 @@ class ServerStatusResponse(BaseModel):
 
 class SlotStatusResponse(BaseModel):
     msg: Literal["slot_status_response"] = "slot_status_response"
+    model: int
+    slots: list[SlotInfo]
+
+
+class SubscribeSlotStatusResponse(BaseModel):
+    msg: Literal["subscribe_slot_status_response"] = "subscribe_slot_status_response"
+    subscription_id: int
+    model: int
+    slots: list[SlotInfo]
+
+
+class SlotStatusEvent(BaseModel):
+    msg: Literal["slot_status_event"] = "slot_status_event"
+    subscription_id: int
     model: int
     slots: list[SlotInfo]
