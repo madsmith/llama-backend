@@ -3,7 +3,7 @@ import { api } from "../api/client";
 import type { ServerStatus } from "../api/types";
 
 interface Props {
-  status?: ServerStatus;
+  status: ServerStatus | null;
   modelIndex: number;
   onAction: () => void;
 }
