@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import load_config
 from .dev import DevViteService
 from .llama_manager import LlamaManager
-from .routers import status, ws
+from .routers import status
 from .routers.events import make_router as make_events_router
 from .routers.remotes import router as remotes_router
 from .routers.server import make_router as make_server_router
@@ -47,7 +47,6 @@ app.add_middleware(
 app.include_router(make_server_router(manager.proxy))
 app.include_router(make_ws_v2_router(manager))
 app.include_router(status.router)
-app.include_router(ws.router)
 app.include_router(make_events_router(manager.event_bus))
 app.include_router(remotes_router)
 

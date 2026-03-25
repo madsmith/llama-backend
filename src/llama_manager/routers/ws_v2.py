@@ -4,9 +4,10 @@ import asyncio
 import json
 from typing import Callable, ClassVar
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
+from llama_manager.config import load_config
 from llama_manager.llama_manager import LlamaManager
 from llama_manager.process_manager import ProcessManager
 from llama_manager.remote_manager_client import RemoteModelProxy
@@ -346,6 +347,173 @@ class WsV2Connection:
 
 
 # ---------------------------------------------------------------------------
+# Uplink connection (/v2/ws/link)
+# ---------------------------------------------------------------------------
+
+class UplinkConnection:
+    """Handles a single /v2/ws/link WebSocket connection from a downlink manager."""
+
+    def __init__(self, manager: LlamaManager, ws: WebSocket) -> None:
+        self.manager = manager
+        self.ws = ws
+        self.outgoing: asyncio.Queue[str] = asyncio.Queue()
+
+    def _push_json(self, data: dict) -> None:
+        self.outgoing.put_nowait(json.dumps(data))
+
+    async def run(self) -> None:
+        cfg = load_config()
+        pms = self.manager.get_process_managers()
+        local_pms = [
+            (i, pms[i])
+            for i in range(len(cfg.models))
+            if i < len(pms) and isinstance(pms[i], ProcessManager)
+        ]
+        server_id_to_index = {pm.get_server_identifier(): i for i, pm in local_pms}
+
+        # Snapshot
+        await self.ws.send_json({
+            "type": "snapshot",
+            "proxy_port": cfg.api_server.port,
+            "manager_id": cfg.manager_id,
+            "models": [
+                {
+                    "index": i,
+                    "name": cfg.models[i].name,
+                    "model_id": cfg.models[i].effective_id,
+                    "process_identifier": pm.process_manager_id,
+                    "server_id": pm.get_server_identifier(),
+                    "state": pm.get_status()["state"],
+                    "llama_port": pm.port,
+                }
+                for i, pm in local_pms
+            ],
+        })
+
+        # Log history
+        for i, pm in local_pms:
+            lines = pm.log_buffer.snapshot()
+            if lines:
+                await self.ws.send_json({
+                    "type": "log_history",
+                    "model": i,
+                    "lines": [{"id": ln.id, "text": ln.text} for ln in lines],
+                })
+
+        if self.manager.app is not None:
+            self.manager.app.state.uplink_client_count += 1
+
+        sender_task = asyncio.create_task(self._sender())
+        listener_tasks = [
+            asyncio.create_task(self._listen_server_status(server_id_to_index)),
+            asyncio.create_task(self._listen_server_log(server_id_to_index)),
+            asyncio.create_task(self._listen_health(server_id_to_index)),
+        ]
+        slot_handles: list[int] = []
+        for i, pm in local_pms:
+            server_id = pm.get_server_identifier()
+
+            def _on_slots(slots: list[dict], _i: int = i, _sid: str = server_id) -> None:
+                self._push_json({"type": "slots", "model": _i, "server_id": _sid, "slots": slots})
+
+            slot_handles.append(self.manager.slot_status.subscribe(server_id, _on_slots))
+
+        try:
+            while True:
+                try:
+                    data = await self.ws.receive_text()
+                except WebSocketDisconnect:
+                    break
+                try:
+                    await self._handle_command(json.loads(data), local_pms)
+                except Exception:
+                    pass
+        finally:
+            sender_task.cancel()
+            for task in listener_tasks:
+                task.cancel()
+            for handle in slot_handles:
+                self.manager.slot_status.unsubscribe(handle)
+            if self.manager.app is not None:
+                self.manager.app.state.uplink_client_count -= 1
+
+    async def _sender(self) -> None:
+        try:
+            while True:
+                await self.ws.send_text(await self.outgoing.get())
+        except asyncio.CancelledError:
+            pass
+
+    async def _listen_server_status(self, server_id_to_index: dict[str, int]) -> None:
+        q = self.manager.event_bus.subscribe("server_status")
+        try:
+            while True:
+                event = await q.get()
+                sid = event.get("id")
+                if sid in server_id_to_index:
+                    self._push_json({
+                        "type": "state",
+                        "model": server_id_to_index[sid],
+                        "state": event.get("data", {}).get("state"),
+                    })
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self.manager.event_bus.unsubscribe(q)
+
+    async def _listen_server_log(self, server_id_to_index: dict[str, int]) -> None:
+        q = self.manager.event_bus.subscribe("server_log")
+        try:
+            while True:
+                event = await q.get()
+                sid = event.get("id")
+                if sid in server_id_to_index:
+                    data = event.get("data", {})
+                    self._push_json({
+                        "type": "log",
+                        "model": server_id_to_index[sid],
+                        "id": data.get("line_id"),
+                        "text": data.get("text"),
+                    })
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self.manager.event_bus.unsubscribe(q)
+
+    async def _listen_health(self, server_id_to_index: dict[str, int]) -> None:
+        q = self.manager.event_bus.subscribe("health")
+        try:
+            while True:
+                event = await q.get()
+                sid = event.get("server_id")
+                if sid in server_id_to_index:
+                    self._push_json({
+                        "type": "health",
+                        "model": server_id_to_index[sid],
+                        "server_id": sid,
+                        "health": event.get("health"),
+                    })
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self.manager.event_bus.unsubscribe(q)
+
+    async def _handle_command(self, cmd: dict, local_pms: list[tuple[int, ProcessManager]]) -> None:
+        t = cmd.get("type")
+        model_idx = cmd.get("model", 0)
+        pm_map = {i: pm for i, pm in local_pms}
+        pm = pm_map.get(model_idx)
+        if pm is None:
+            return
+        if t == "start":
+            asyncio.create_task(pm.start())
+        elif t == "stop":
+            asyncio.create_task(pm.stop())
+        elif t == "restart":
+            asyncio.create_task(pm.restart())
+
+
+# ---------------------------------------------------------------------------
 # Router factory
 # ---------------------------------------------------------------------------
 
@@ -356,5 +524,17 @@ def make_router(manager: LlamaManager) -> APIRouter:
     async def _(ws: WebSocket) -> None:
         await ws.accept()
         await WsV2Connection(manager, ws).run()
+
+    @router.websocket("/v2/ws/link")
+    async def _link(ws: WebSocket, token: str = Query(default="")) -> None:
+        config = manager.config
+        if not config.manager_uplink.enabled:
+            await ws.close(code=4403, reason="Uplink disabled")
+            return
+        if not config.manager_uplink.token or token != config.manager_uplink.token:
+            await ws.close(code=4401, reason="Invalid token")
+            return
+        await ws.accept()
+        await UplinkConnection(manager, ws).run()
 
     return router

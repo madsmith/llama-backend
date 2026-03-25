@@ -100,7 +100,7 @@ class RemoteManagerConfig(BaseModel):
 
     @property
     def ws_url(self) -> str:
-        return f"ws://{self.host}:{self.port}/ws/manager"
+        return f"ws://{self.host}:{self.port}/v2/ws/link"
 
 
 class AppConfig(BaseModel):
