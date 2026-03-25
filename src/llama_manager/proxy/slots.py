@@ -26,6 +26,7 @@ class SlotStatusService:
     """Owns slot state for all models: live-fetch, cache, and background polling."""
 
     def __init__(self, provider: ProcessManagerProvider, event_bus: EventBus) -> None:
+        self._active_until: dict[int, float] = {}
         self._provider = provider
         self._event_bus = event_bus
         self._cache: dict[int, list[dict]] = {}
@@ -33,6 +34,13 @@ class SlotStatusService:
         self._next_handle: SubscriptionHandle = 0
         self._task: asyncio.Task | None = None
         self._event_task: asyncio.Task | None = None
+
+    def mark_active(self, model_index: int, duration_ms: float = 2000) -> None:
+        """Signal that model_index just received a request; boost poll rate for duration_ms."""
+        self._active_until[model_index] = time.monotonic() + duration_ms / 1000
+
+    def is_active(self, model_index: int) -> bool:
+        return time.monotonic() < self._active_until.get(model_index, 0.0)
 
     # ------------------------------------------------------------------
     # Public query interface
@@ -192,14 +200,19 @@ class SlotStatusService:
                     self._notify(server_id, slots)
                     last_slots[i] = slots
 
-                active = any(s.get("is_processing") for s in slots)
+                active = any(s.get("is_processing") for s in slots) or self.is_active(i)
                 next_poll[i] = time.monotonic() + (0.5 if active else 3.0)
 
-            # Sleep only until the nearest due server
+            # Sleep only until the nearest due server.
+            # Promote models flagged active via mark_active() to fast polling so
+            # a newly-arrived request is picked up without waiting out a slow cycle.
             running = {
                 i for i, pm in enumerate(pms)
                 if isinstance(pm, ProcessManager) and pm.state.value == "running"
             }
+            for i in running:
+                if self.is_active(i):
+                    next_poll[i] = min(next_poll.get(i, now + 3.0), time.monotonic() + 0.5)
             due_times = [t for i, t in next_poll.items() if i in running]
             sleep_for = max(0.0, min(due_times) - time.monotonic()) if due_times else 3.0
             await asyncio.sleep(sleep_for)

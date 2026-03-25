@@ -3,11 +3,14 @@ from __future__ import annotations
 import json
 import logging
 import time
+from typing import TYPE_CHECKING
 
 import httpx
 from fastapi import Request
 from starlette.responses import JSONResponse, StreamingResponse
 
+if TYPE_CHECKING:
+    from llama_manager.llama_manager import LlamaManager
 from llama_manager.config import AppConfig
 from llama_manager.kv_cache import (
     CacheHit,
@@ -40,8 +43,9 @@ request_log = RequestLog.get_instance()
 
 
 class OpenAIProxy:
-    def __init__(self, config: AppConfig) -> None:
-        self._config = config
+    def __init__(self, manager: LlamaManager) -> None:
+        self._config: AppConfig = manager.config
+        self._slot_status = manager.slot_status
 
 
     async def __call__(self, path: str, request: Request):
@@ -59,6 +63,8 @@ class OpenAIProxy:
 
                 model_index = resolve_model_index(model_id, self._config)
                 backend = resolve_backend(model_id, self._config)
+                if model_index is not None:
+                    self._slot_status.mark_active(model_index)
                 if backend is None or model_index is None:
                     log_request(None, method, f"/v1/{path}", http_ver, req_size, request_id=request_id)
                     log_response(None, 404, request_id=request_id)

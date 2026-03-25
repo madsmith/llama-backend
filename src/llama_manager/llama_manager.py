@@ -20,9 +20,9 @@ log = logging.getLogger(__name__)
 class LlamaManager:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
-        self.proxy = ProxyServer(config)
         self.process_managers: list[ProcessManager | None] = []
         self.slot_status = SlotStatusService(self, event_bus)
+        self.proxy = ProxyServer(self)
 
     def get_process_managers(self) -> list[ProcessManager | None]:
         return self.process_managers

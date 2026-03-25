@@ -13,8 +13,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import Response
 from typing import Any
 
+from typing import TYPE_CHECKING
+
 from llama_manager.config import AppConfig
 
+if TYPE_CHECKING:
+    from llama_manager.llama_manager import LlamaManager
 from .lifecycle import task_ttl_checker, get_ttl_task, set_ttl_task
 from .openai import OpenAIProxy
 from .request_log import RequestLog
@@ -24,8 +28,8 @@ logger = logging.getLogger(__name__)
 
 
 class ProxyServer:
-    def __init__(self, config: AppConfig) -> None:
-        self.config = config
+    def __init__(self, manager: LlamaManager) -> None:
+        self.config: AppConfig = manager.config
 
         self.app = FastAPI(title="Llama Proxy")
         self.app.add_middleware(
@@ -35,15 +39,15 @@ class ProxyServer:
             allow_headers=["*"],
         )
         self.app.middleware("http")(self._request_id_middleware)
-        self._openai = OpenAIProxy(config)
+        self._openai = OpenAIProxy(manager)
         self.app.api_route(
             "/v1/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"]
         )(self._openai)
 
         self._server: uvicorn.Server | None = None
         self._task: asyncio.Task | None = None
-        self._host: str = config.api_server.host
-        self._port: int = config.api_server.port
+        self._host: str = self.config.api_server.host
+        self._port: int = self.config.api_server.port
         self._started_at: float | None = None
 
 
