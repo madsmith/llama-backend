@@ -8,8 +8,8 @@ import httpx
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import TypeAdapter, ValidationError
 
+from llama_manager.llama_manager import LlamaManager
 from llama_manager.llama_client import LlamaClient
-from llama_manager.proxy import ProxyServer
 from llama_manager.proxy.active_requests import ActiveRequestManager
 from llama_manager.remote_manager_client import RemoteModelProxy
 from llama_manager.protocol.ws_messages import (
@@ -23,7 +23,7 @@ from llama_manager.protocol.ws_messages import (
 )
 
 
-def make_router(proxy: ProxyServer) -> APIRouter:
+def make_router(manager: LlamaManager) -> APIRouter:
     router = APIRouter()
 
     @router.websocket("/v2/ws/manager")
@@ -44,7 +44,7 @@ def make_router(proxy: ProxyServer) -> APIRouter:
                 except (json.JSONDecodeError, ValidationError):
                     continue
 
-                response = await _dispatch(msg, proxy, ws.app.state)
+                response = await _dispatch(msg, manager)
                 if response is not None:
                     await ws.send_text(response.model_dump_json())
         except (WebSocketDisconnect, asyncio.CancelledError):
@@ -54,27 +54,25 @@ def make_router(proxy: ProxyServer) -> APIRouter:
 
 
 async def _dispatch_proxy_status(
-    _msg: ProxyStatusRequest, proxy: ProxyServer, _state: object
+    _msg: ProxyStatusRequest, manager: LlamaManager
 ) -> ProxyStatusResponse:
-    return ProxyStatusResponse(**proxy.status())
+    return ProxyStatusResponse(**manager.proxy.status())
 
 
 async def _dispatch_server_status(
-    msg: ServerStatusRequest, _proxy: ProxyServer, state: object
+    msg: ServerStatusRequest, manager: LlamaManager
 ) -> ServerStatusResponse | None:
-    managers = state.process_managers  # type: ignore[attr-defined]
-    if msg.model < 0 or msg.model >= len(managers):
+    if msg.model < 0 or msg.model >= len(manager.process_managers):
         return None
-    return ServerStatusResponse(model=msg.model, **managers[msg.model].get_status())
+    return ServerStatusResponse(model=msg.model, **manager.process_managers[msg.model].get_status())
 
 
 async def _dispatch_slot_status(
-    msg: SlotStatusRequest, _proxy: ProxyServer, state: object
+    msg: SlotStatusRequest, manager: LlamaManager
 ) -> SlotStatusResponse | None:
-    managers = state.process_managers  # type: ignore[attr-defined]
-    if msg.model < 0 or msg.model >= len(managers):
+    if msg.model < 0 or msg.model >= len(manager.process_managers):
         return None
-    pm = managers[msg.model]
+    pm = manager.process_managers[msg.model]
 
     if isinstance(pm, RemoteModelProxy):
         cfg = pm._client.config
@@ -118,10 +116,9 @@ _HANDLERS: dict[type, Callable[..., Awaitable[Any]]] = {
 
 async def _dispatch(
     msg: IncomingMessage,
-    proxy: ProxyServer,
-    state: object,
+    manager: LlamaManager,
 ) -> ProxyStatusResponse | ServerStatusResponse | SlotStatusResponse | None:
     handler = _HANDLERS.get(type(msg))
     if handler is None:
         return None
-    return await handler(msg, proxy, state)  # type: ignore[arg-type]
+    return await handler(msg, manager)  # type: ignore[arg-type]

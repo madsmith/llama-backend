@@ -2,7 +2,41 @@ from __future__ import annotations
 
 from typing import Annotated, Literal, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+
+# ---------------------------------------------------------------------------
+# Shared sub-models
+# ---------------------------------------------------------------------------
+
+class SlotParams(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    temperature: float | None = None
+    top_p: float | None = None
+    min_p: float | None = None
+    chat_format: str | None = None
+    n_predict: int | None = None
+
+
+class SlotNextToken(BaseModel):
+    n_decoded: int | None = None
+    n_remain: int | None = None
+    has_next_token: bool | None = None
+
+
+class SlotInfo(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    id: int
+    id_task: int | None = None
+    n_ctx: int
+    is_processing: bool
+    speculative: bool
+    params: SlotParams | None = None
+    next_token: list[SlotNextToken] | None = None
+    prompt_progress: float | None = None
+    prompt_n_processed: int | None = None
+    prompt_n_total: int | None = None
+    cancellable: bool | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -55,4 +89,4 @@ class ServerStatusResponse(BaseModel):
 class SlotStatusResponse(BaseModel):
     msg: Literal["slot_status_response"] = "slot_status_response"
     model: int
-    slots: list[dict]
+    slots: list[SlotInfo]
