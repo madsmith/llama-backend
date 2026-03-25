@@ -97,6 +97,12 @@ class PutConfigRequest(BaseModel):
     config: dict[str, Any]
 
 
+class LoadLogRequest(BaseModel):
+    msg: Literal["load_log"] = "load_log"
+    type: Literal["proxy", "server"]
+    id: str | None = None  # server_id when type="server"
+
+
 IncomingMessage = Annotated[
     Union[
         ProxyStatusRequest,
@@ -109,6 +115,7 @@ IncomingMessage = Annotated[
         GetConfigRequest,
         PutConfigRequest,
         GenerateTokenRequest,
+        LoadLogRequest,
     ],
     Field(discriminator="msg"),
 ]
@@ -186,3 +193,16 @@ class GetConfigResponse(BaseModel):
 class PutConfigResponse(BaseModel):
     msg: Literal["put_config_response"] = "put_config_response"
     config: dict[str, Any]
+
+
+class LogLine(BaseModel):
+    id: int
+    text: str
+    request_id: str | None = None
+
+
+class LoadLogResponse(BaseModel):
+    msg: Literal["load_log_response"] = "load_log_response"
+    type: str
+    id: str | None = None
+    lines: list[LogLine]

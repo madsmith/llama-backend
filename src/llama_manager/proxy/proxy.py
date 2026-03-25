@@ -16,20 +16,23 @@ from typing import Any
 from typing import TYPE_CHECKING
 
 from llama_manager.config import AppConfig
+from llama_manager.log_buffer import LogBuffer
 
 if TYPE_CHECKING:
     from llama_manager.llama_manager import LlamaManager
 from .lifecycle import task_ttl_checker, get_ttl_task, set_ttl_task
 from .openai import OpenAIProxy
 from .request_log import RequestLog
-from .subscription import proxy_log
+from .subscription import set_proxy_server
 
 logger = logging.getLogger(__name__)
 
 
 class ProxyServer:
     def __init__(self, manager: LlamaManager) -> None:
+        self._manager = manager
         self.config: AppConfig = manager.config
+        self.log_buffer = LogBuffer(maxlen=self.config.web_ui.log_buffer_size)
 
         self.app = FastAPI(title="Llama Proxy")
         self.app.add_middleware(
@@ -49,6 +52,16 @@ class ProxyServer:
         self._host: str = self.config.api_server.host
         self._port: int = self.config.api_server.port
         self._started_at: float | None = None
+
+        set_proxy_server(self)
+
+    def log(self, text: str, *, request_id: str | None = None) -> None:
+        stamped = f"[{time.strftime('%H:%M:%S')}] {text}"
+        line = self.log_buffer.append(stamped, request_id=request_id)
+        self._manager.event_bus.publish({
+            "type": "proxy_log",
+            "data": {"line_id": line.id, "text": line.text, "request_id": request_id},
+        })
 
 
     async def start(self) -> None:
@@ -70,7 +83,7 @@ class ProxyServer:
         self._started_at = time.time()
 
         logger.info("Proxy server started on %s:%s", self._host, self._port)
-        proxy_log(f"Proxy started on {self._host}:{self._port}")
+        self.log(f"Proxy started on {self._host}:{self._port}")
         set_ttl_task(asyncio.create_task(task_ttl_checker(config)))
 
 
@@ -90,7 +103,7 @@ class ProxyServer:
         self._task = None
         self._started_at = None
 
-        proxy_log("Proxy stopped")
+        self.log("Proxy stopped")
 
 
     async def restart(self) -> None:

@@ -19,6 +19,9 @@ from llama_manager.protocol.ws_messages import (
     GetConfigRequest,
     GetConfigResponse,
     IncomingMessage,
+    LoadLogRequest,
+    LoadLogResponse,
+    LogLine,
     ProxyStatusRequest,
     ProxyStatusResponse,
     PutConfigRequest,
@@ -51,6 +54,7 @@ class WsV2Connection:
         GetConfigRequest: "_on_get_config",
         PutConfigRequest: "_on_put_config",
         GenerateTokenRequest: "_on_generate_token",
+        LoadLogRequest: "_on_load_log",
     }
 
     def __init__(self, manager: LlamaManager, ws: WebSocket) -> None:
@@ -198,6 +202,8 @@ class WsV2Connection:
             return await self._on_subscribe_event_slots(msg)
         if msg.type == "server_status":
             return await self._on_subscribe_event_server_status(msg)
+        if msg.type == "log":
+            return await self._on_subscribe_event_log(msg)
         return SubscribeEventResponse(subscription_id=-1)
 
     async def _on_subscribe_event_slots(self, msg: SubscribeEventRequest) -> BaseModel:
@@ -249,6 +255,77 @@ class WsV2Connection:
         subscription_id = id(task)
         self._subscriptions[subscription_id] = task.cancel
         return SubscribeEventResponse(subscription_id=subscription_id)
+
+    async def _on_subscribe_event_log(self, msg: SubscribeEventRequest) -> BaseModel:
+        if msg.sub_type == "proxy":
+            event_type = "proxy_log"
+
+            async def _listen() -> None:
+                q = self.manager.event_bus.subscribe(event_type)
+                try:
+                    while True:
+                        event = await q.get()
+                        self._push(EventResponse(
+                            type="log",
+                            sub_type="proxy",
+                            event_data=event.get("data", {}),
+                        ))
+                except asyncio.CancelledError:
+                    pass
+                finally:
+                    self.manager.event_bus.unsubscribe(q)
+
+        elif msg.sub_type == "server":
+            server_id = msg.id
+
+            async def _listen() -> None:
+                q = self.manager.event_bus.subscribe("server_log")
+                try:
+                    while True:
+                        event = await q.get()
+                        if event.get("id") != server_id:
+                            continue
+                        self._push(EventResponse(
+                            type="log",
+                            sub_type="server",
+                            id=server_id,
+                            event_data=event.get("data", {}),
+                        ))
+                except asyncio.CancelledError:
+                    pass
+                finally:
+                    self.manager.event_bus.unsubscribe(q)
+
+        else:
+            return SubscribeEventResponse(subscription_id=-1)
+
+        task = asyncio.create_task(_listen())
+        subscription_id = id(task)
+        self._subscriptions[subscription_id] = task.cancel
+        return SubscribeEventResponse(subscription_id=subscription_id)
+
+    async def _on_load_log(self, msg: LoadLogRequest) -> BaseModel:
+        if msg.type == "proxy":
+            lines = self.manager.proxy.log_buffer.snapshot()
+            return LoadLogResponse(
+                type="proxy",
+                lines=[LogLine(id=l.id, text=l.text, request_id=l.request_id) for l in lines],
+            )
+        # type == "server"
+        for pm in self.manager.get_process_managers():
+            server_id = (
+                pm.get_server_identifier() if isinstance(pm, ProcessManager)
+                else pm.server_id if isinstance(pm, RemoteModelProxy)
+                else None
+            )
+            if server_id == msg.id and isinstance(pm, ProcessManager):
+                lines = pm.log_buffer.snapshot()
+                return LoadLogResponse(
+                    type="server",
+                    id=msg.id,
+                    lines=[LogLine(id=l.id, text=l.text, request_id=l.request_id) for l in lines],
+                )
+        return LoadLogResponse(type="server", id=msg.id, lines=[])
 
     async def _on_unsubscribe_event(self, msg: UnsubscribeEventRequest) -> None:
         teardown = self._subscriptions.pop(msg.subscription_id, None)

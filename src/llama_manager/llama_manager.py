@@ -11,7 +11,7 @@ from .config import AppConfig, save_config
 from .dev import DevViteService
 from .event_bus import EventBus
 from .process_manager import ProcessManager
-from .proxy import ProxyServer, set_process_managers, shutdown_proxy_subscribers
+from .proxy import ProxyServer, set_process_managers
 from .proxy.slots import SlotStatusService
 from .remote_manager_client import RemoteManagerClient
 
@@ -166,7 +166,6 @@ class LlamaManager:
                 await client.stop()
 
             await self.proxy.stop()
-            shutdown_proxy_subscribers()
 
             for pm in self.process_managers:
                 if pm is not None:

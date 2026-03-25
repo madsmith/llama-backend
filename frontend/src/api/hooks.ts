@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { api, wsUrl } from "./client";
+import { api } from "./client";
 import { getWsV2 } from "./wsv2";
 import type {
   ServerConfig,
@@ -8,7 +8,6 @@ import type {
   HealthStatus,
   SlotInfo,
   ModelProps,
-  LogMessage,
   RemoteManagerStatus,
   UplinkStatus,
 } from "./types";
@@ -141,51 +140,59 @@ export function useProps() {
 
 export type LogLine = { id: number; text: string; request_id?: string };
 
-export function useLogs(source = "model-0") {
+export function useLogs(type: "proxy" | "server", serverId?: string) {
   const [lines, setLines] = useState<LogLine[]>([]);
   const [connected, setConnected] = useState(false);
-  const wsRef = useRef<WebSocket | null>(null);
-  const [serverState, setServerState] = useState<string | null>(null);
+  const maxIdRef = useRef(0);
 
   useEffect(() => {
-    let cancelled = false;
+    if (type === "server" && !serverId) return;
 
-    function connect() {
-      if (cancelled) return;
-      const ws = new WebSocket(wsUrl(source));
-      wsRef.current = ws;
+    const wsv2 = getWsV2();
+    maxIdRef.current = 0;
 
-      ws.onopen = () => setConnected(true);
-      ws.onclose = () => {
-        setConnected(false);
-        if (!cancelled) setTimeout(connect, 2000);
-      };
-      ws.onmessage = (ev) => {
-        const msg: LogMessage = JSON.parse(ev.data);
-        if (msg.type === "log" && msg.id != null && msg.text != null) {
-          const line: LogLine = { id: msg.id!, text: msg.text! };
-          if (msg.request_id) line.request_id = msg.request_id;
-          setLines((prev) => [...prev, line]);
-        } else if (msg.type === "state" && msg.state) {
-          setServerState(msg.state);
-          if (msg.state === "starting") {
-            setLines([]);
-          }
-        }
-      };
-    }
-
-    connect();
-    return () => {
-      cancelled = true;
-      wsRef.current?.close();
+    const onConnect = () => {
+      setConnected(true);
       setLines([]);
+      maxIdRef.current = 0;
+      wsv2.send({ msg: "load_log", type, ...(serverId ? { id: serverId } : {}) });
     };
-  }, [source]);
+
+    const handleLoad = (msg: Record<string, unknown>) => {
+      if (msg.type !== type) return;
+      if (type === "server" && msg.id !== serverId) return;
+      const loaded = ((msg.lines as Array<{ id: number; text: string; request_id?: string }>) ?? []).map((l) => {
+        const line: LogLine = { id: l.id, text: l.text };
+        if (l.request_id) line.request_id = l.request_id;
+        return line;
+      });
+      maxIdRef.current = loaded.reduce((m, l) => Math.max(m, l.id), 0);
+      setLines(loaded);
+    };
+
+    const handleEvent = (data: Record<string, unknown>) => {
+      const lineId = data.line_id as number;
+      if (lineId <= maxIdRef.current) return;
+      maxIdRef.current = lineId;
+      const line: LogLine = { id: lineId, text: data.text as string };
+      if (data.request_id) line.request_id = data.request_id as string;
+      setLines((prev) => [...prev, line]);
+    };
+
+    const unsubLoad = wsv2.subscribe("load_log_response", handleLoad, onConnect);
+    const unsubEvent = wsv2.subscribeToEvent("log", type === "server" ? serverId! : null, handleEvent, type);
+
+    return () => {
+      setConnected(false);
+      setLines([]);
+      unsubLoad();
+      unsubEvent();
+    };
+  }, [type, serverId]);
 
   const clear = useCallback(() => setLines([]), []);
 
-  return { lines, connected, serverState, clear };
+  return { lines, connected, clear };
 }
 
 export function useRemotes(pollMs = 3000) {

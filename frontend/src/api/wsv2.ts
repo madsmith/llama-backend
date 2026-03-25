@@ -24,11 +24,15 @@ export interface WsV2Client {
    * Subscribe to generic server-pushed events of *type* with correlation *id*.
    * Sends `subscribe_event` on connect and `unsubscribe_event` on cleanup.
    * Returns a React-compatible cleanup function.
+   *
+   * Pass `id: null` for events with no correlation id (e.g. proxy log events).
+   * Pass `subType` when the protocol requires a `sub_type` field (e.g. log events).
    */
   subscribeToEvent(
     type: string,
-    id: string,
+    id: string | null,
     handler: (eventData: Record<string, unknown>) => void,
+    subType?: string,
   ): () => void;
 }
 
@@ -163,14 +167,17 @@ class WsV2ClientImpl implements WsV2Client {
 
   subscribeToEvent(
     type: string,
-    id: string,
+    id: string | null,
     handler: (eventData: Record<string, unknown>) => void,
+    subType?: string,
   ): () => void {
     let subscriptionId: number | null = null;
     let pendingCallback: ((subId: number) => void) | null = null;
 
     const eventHandler = (msg: JsonMessage) => {
-      if (msg.type !== type || msg.id !== id) return;
+      if (msg.type !== type) return;
+      if (id !== null && msg.id !== id) return;
+      if (subType !== undefined && msg.sub_type !== subType) return;
       handler(msg.event_data as Record<string, unknown>);
     };
 
@@ -180,7 +187,10 @@ class WsV2ClientImpl implements WsV2Client {
         subscriptionId = subId;
       };
       this._pendingEventSubs.push(pendingCallback);
-      this.send({ msg: "subscribe_event", type, id });
+      const sendMsg: JsonMessage = { msg: "subscribe_event", type };
+      if (id !== null) sendMsg.id = id;
+      if (subType !== undefined) sendMsg.sub_type = subType;
+      this.send(sendMsg);
     };
 
     const unsub = this.subscribe("event", eventHandler, onConnect);
@@ -192,7 +202,9 @@ class WsV2ClientImpl implements WsV2Client {
         if (idx !== -1) this._pendingEventSubs.splice(idx, 1);
       }
       if (subscriptionId !== null) {
-        this.send({ msg: "unsubscribe_event", type, subscription_id: subscriptionId });
+        const unsubMsg: JsonMessage = { msg: "unsubscribe_event", type, subscription_id: subscriptionId };
+        if (subType !== undefined) unsubMsg.sub_type = subType;
+        this.send(unsubMsg);
       }
     };
   }

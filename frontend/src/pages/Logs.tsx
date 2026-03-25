@@ -93,11 +93,16 @@ function ScrollStrip({ children, source }: { children: React.ReactNode; source: 
 export default function Logs() {
   const { source = "proxy" } = useParams<{ source: string }>();
   const navigate = useNavigate();
-  const wsSource = source === "proxy" ? "proxy" : `model-${source}`;
   const [config, setConfig] = useState<ServerConfig | null>(null);
   const poll = pollRatesFromConfig(config);
   const { status: proxyStatus, refresh: refreshProxy } = useProxyStatus(poll.proxyStatus);
-  const { lines, connected, clear } = useLogs(wsSource);
+  const logServerId = source !== "proxy" && config?.manager_id
+    ? `${config.manager_id}:model-${source}`
+    : undefined;
+  const { lines, connected, clear } = useLogs(
+    source === "proxy" ? "proxy" : "server",
+    logServerId,
+  );
 
   useEffect(() => { document.title = "Llama Manager - Logs"; }, []);
 
@@ -180,7 +185,7 @@ export default function Logs() {
       </ScrollStrip>
       <h2 className="text-lg font-semibold mb-2">{logHeader} Logs</h2>
       <div className="flex-1 min-h-0">
-        <LogViewer lines={lines} connected={connected} onClear={clear} source={wsSource} />
+        <LogViewer lines={lines} connected={connected} onClear={clear} source={source} />
       </div>
     </div>
   );

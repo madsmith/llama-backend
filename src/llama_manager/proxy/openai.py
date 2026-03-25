@@ -35,7 +35,6 @@ from .models import (
 )
 from .request_log import RequestLog
 from .slots import slot_restore, slot_save
-from .subscription import proxy_log
 from .translate import normalize_messages
 
 logger = logging.getLogger(__name__)
@@ -44,6 +43,7 @@ request_log = RequestLog.get_instance()
 
 class OpenAIProxy:
     def __init__(self, manager: LlamaManager) -> None:
+        self._manager = manager
         self._config: AppConfig = manager.config
         self._slot_status = manager.slot_status
 
@@ -228,7 +228,7 @@ class OpenAIProxy:
             elapsed = time.monotonic() - t0
             msg = backend_error_msg(exc)
             log_response(server_name, 502, elapsed=elapsed, request_id=request_id)
-            proxy_log(f"[{server_name}] {msg}", request_id=request_id)
+            self._manager.proxy.log(f"[{server_name}] {msg}", request_id=request_id)
             resp_body = {"error": {"message": msg, "type": "server_error"}}
             if request_id:
                 request_log.update(request_id, response_status=502, response_body=resp_body, elapsed=elapsed)
@@ -302,7 +302,7 @@ class OpenAIProxy:
                                 cancel_event = ActiveRequestManager.register(model_index, active_slot_id)
                         async for line in resp.aiter_lines():
                             if cancel_event is not None and cancel_event.is_set():
-                                proxy_log(
+                                self._manager.proxy.log(
                                     f"\u2190 [{server_name}] slot {active_slot_id} cancelled by operator"
                                 )
                                 error = json.dumps(
@@ -317,7 +317,7 @@ class OpenAIProxy:
                                 yield f"data: {error}\n\n"
                                 return
                             if await request.is_disconnected():
-                                proxy_log(
+                                self._manager.proxy.log(
                                     f"\u2190 [{server_name}] client disconnected, aborting stream"
                                 )
                                 return
@@ -346,7 +346,7 @@ class OpenAIProxy:
             except BACKEND_ERRORS as exc:
                 msg = backend_error_msg(exc)
                 log_response(server_name, 502, elapsed=time.monotonic() - t0, request_id=request_id)
-                proxy_log(f"[{server_name}] {msg}", request_id=request_id)
+                self._manager.proxy.log(f"[{server_name}] {msg}", request_id=request_id)
                 error = json.dumps({"error": {"message": msg, "type": "server_error"}})
                 yield f"data: {error}\n\n"
                 if request_id:

@@ -73,7 +73,3 @@ export const api = {
       .sendRequest<{ token: string }>({ msg: "generate_token" }, "generate_token_response"),
 };
 
-export function wsUrl(source = "model-0"): string {
-  const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${location.host}/ws/logs?source=${source}`;
-}
