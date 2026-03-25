@@ -134,12 +134,10 @@ class SlotStatusService:
 
     async def _event_loop(self) -> None:
         """Listen for slot events pushed via the event bus (remote models)."""
-        q = self._event_bus.subscribe()
+        q = self._event_bus.subscribe("slots")
         try:
             while True:
                 event = await q.get()
-                if event.get("type") != "slots":
-                    continue
                 server_id = event.get("server_id")
                 slots = event.get("slots")
                 if not server_id or slots is None:
