@@ -11,11 +11,18 @@ from llama_manager.llama_manager import LlamaManager
 from llama_manager.process_manager import ProcessManager
 from llama_manager.remote_manager_client import RemoteModelProxy
 from llama_manager.proxy.active_requests import ActiveRequestManager
+from llama_manager.config import AppConfig
 from llama_manager.protocol.ws_messages import (
     EventResponse,
+    GenerateTokenRequest,
+    GenerateTokenResponse,
+    GetConfigRequest,
+    GetConfigResponse,
     IncomingMessage,
     ProxyStatusRequest,
     ProxyStatusResponse,
+    PutConfigRequest,
+    PutConfigResponse,
     ServerStatusRequest,
     ServerStatusResponse,
     SlotStatusRequest,
@@ -41,6 +48,9 @@ class WsV2Connection:
         UnsubscribeSlotStatusRequest: "_on_unsubscribe_slot_status",
         SubscribeEventRequest: "_on_subscribe_event",
         UnsubscribeEventRequest: "_on_unsubscribe_event",
+        GetConfigRequest: "_on_get_config",
+        PutConfigRequest: "_on_put_config",
+        GenerateTokenRequest: "_on_generate_token",
     }
 
     def __init__(self, manager: LlamaManager, ws: WebSocket) -> None:
@@ -244,6 +254,18 @@ class WsV2Connection:
         teardown = self._subscriptions.pop(msg.subscription_id, None)
         if teardown is not None:
             teardown()
+
+    async def _on_generate_token(self, _msg: GenerateTokenRequest) -> BaseModel:
+        return GenerateTokenResponse(token=self.manager.generate_token())
+
+    async def _on_get_config(self, _msg: GetConfigRequest) -> BaseModel:
+        from llama_manager.config import load_config
+        return GetConfigResponse(config=load_config().model_dump())
+
+    async def _on_put_config(self, msg: PutConfigRequest) -> BaseModel:
+        config = AppConfig.model_validate(msg.config)
+        updated = await self.manager.apply_config(config)
+        return PutConfigResponse(config=updated.model_dump())
 
 
 # ---------------------------------------------------------------------------

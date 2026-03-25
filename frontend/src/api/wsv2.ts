@@ -12,6 +12,15 @@ export interface WsV2Client {
   send(msg: JsonMessage): void;
 
   /**
+   * One-shot request/response: sends *requestMsg* on connect, resolves with
+   * the first response of *responseType*, then unsubscribes.
+   */
+  sendRequest<T extends JsonMessage>(
+    requestMsg: JsonMessage,
+    responseType: string,
+  ): Promise<T>;
+
+  /**
    * Subscribe to generic server-pushed events of *type* with correlation *id*.
    * Sends `subscribe_event` on connect and `unsubscribe_event` on cleanup.
    * Returns a React-compatible cleanup function.
@@ -88,6 +97,22 @@ class WsV2ClientImpl implements WsV2Client {
     if (this.isOpen()) {
       this.ws!.send(JSON.stringify(msg));
     }
+  }
+
+  sendRequest<T extends JsonMessage>(
+    requestMsg: JsonMessage,
+    responseType: string,
+  ): Promise<T> {
+    return new Promise((resolve) => {
+      const onResponse = (msg: JsonMessage) => {
+        unsub();
+        resolve(msg as T);
+      };
+      const onConnect = () => {
+        this.send(requestMsg);
+      };
+      const unsub = this.subscribe(responseType, onResponse, onConnect);
+    });
   }
 
   // ---- connection lifecycle ----

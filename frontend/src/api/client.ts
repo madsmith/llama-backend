@@ -9,6 +9,7 @@ import type {
   RemoteManagerStatus,
   UplinkStatus,
 } from "./types";
+import { getWsV2 } from "./wsv2";
 
 const BASE = "";
 
@@ -44,13 +45,14 @@ export const api = {
     request<ProxyStatus>("/api/server/proxy-stop", { method: "POST" }),
   proxyRestart: () =>
     request<ProxyStatus>("/api/server/proxy-restart", { method: "POST" }),
-  getConfig: () => request<ServerConfig>("/api/server/config"),
+  getConfig: () =>
+    getWsV2()
+      .sendRequest<{ config: ServerConfig }>({ msg: "get_config" }, "get_config_response")
+      .then((r) => r.config),
   putConfig: (cfg: ServerConfig) =>
-    request<ServerConfig>("/api/server/config", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(cfg),
-    }),
+    getWsV2()
+      .sendRequest<{ config: ServerConfig }>({ msg: "put_config", config: cfg }, "put_config_response")
+      .then((r) => r.config),
   getHealth: (model = 0) =>
     request<HealthStatus>(`/api/status/health?model=${model}`),
   getSlots: (model = 0) =>
@@ -67,7 +69,8 @@ export const api = {
   getRemotes: () => request<RemoteManagerStatus[]>("/api/remotes"),
   getUplinkStatus: () => request<UplinkStatus>("/api/remotes/uplink"),
   generateUplinkToken: () =>
-    request<{ token: string }>("/api/server/config/generate-token", { method: "POST" }),
+    getWsV2()
+      .sendRequest<{ token: string }>({ msg: "generate_token" }, "generate_token_response"),
 };
 
 export function wsUrl(source = "model-0"): string {

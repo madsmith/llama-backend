@@ -44,7 +44,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(make_server_router(manager.proxy, manager.event_bus))
+app.include_router(make_server_router(manager.proxy))
 app.include_router(make_ws_v2_router(manager))
 app.include_router(status.router)
 app.include_router(ws.router)

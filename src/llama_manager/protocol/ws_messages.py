@@ -84,6 +84,19 @@ class UnsubscribeEventRequest(BaseModel):
     subscription_id: int  # subscription_id from SubscribeEventResponse
 
 
+class GenerateTokenRequest(BaseModel):
+    msg: Literal["generate_token"] = "generate_token"
+
+
+class GetConfigRequest(BaseModel):
+    msg: Literal["get_config"] = "get_config"
+
+
+class PutConfigRequest(BaseModel):
+    msg: Literal["put_config"] = "put_config"
+    config: dict[str, Any]
+
+
 IncomingMessage = Annotated[
     Union[
         ProxyStatusRequest,
@@ -93,6 +106,9 @@ IncomingMessage = Annotated[
         UnsubscribeSlotStatusRequest,
         SubscribeEventRequest,
         UnsubscribeEventRequest,
+        GetConfigRequest,
+        PutConfigRequest,
+        GenerateTokenRequest,
     ],
     Field(discriminator="msg"),
 ]
@@ -155,3 +171,18 @@ class EventResponse(BaseModel):
     sub_type: str | None = None
     id: str | None = None
     event_data: dict[str, Any]
+
+
+class GenerateTokenResponse(BaseModel):
+    msg: Literal["generate_token_response"] = "generate_token_response"
+    token: str
+
+
+class GetConfigResponse(BaseModel):
+    msg: Literal["get_config_response"] = "get_config_response"
+    config: dict[str, Any]
+
+
+class PutConfigResponse(BaseModel):
+    msg: Literal["put_config_response"] = "put_config_response"
+    config: dict[str, Any]
