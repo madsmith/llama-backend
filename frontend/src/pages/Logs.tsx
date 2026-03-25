@@ -7,11 +7,11 @@ import ServerControls from "../components/ServerControls";
 import ProxyStatusCard from "../components/ProxyStatusCard";
 import ProxyControls from "../components/ProxyControls";
 import LogViewer from "../components/LogViewer";
-import { useServerStatus, useProxyStatus, useLogs, useSlots, useRemotes, pollRatesFromConfig } from "../api/hooks";
+import { useServerStatusWS, useSlotStatusWS, useProxyStatus, useLogs, useRemotes, pollRatesFromConfig } from "../api/hooks";
 
-function ModelLogCard({ modelIndex, name, source, navigate, poll }: { modelIndex: number; name: string; source: string; navigate: (path: string) => void; poll?: { serverStatus?: number; slots?: number; slotsActive?: number } }) {
-  const { status, refresh } = useServerStatus(modelIndex, poll?.serverStatus);
-  const slots = useSlots(modelIndex, poll?.slots, poll?.slotsActive, status.state);
+function ModelLogCard({ modelIndex, name, source, navigate }: { modelIndex: number; name: string; source: string; navigate: (path: string) => void }) {
+  const { status, refresh } = useServerStatusWS(modelIndex);
+  const slots = useSlotStatusWS(modelIndex, status.state);
 
   return (
     <div className="space-y-4">
@@ -161,7 +161,7 @@ export default function Logs() {
               name={m.name ?? `Llama Server ${i + 1}`}
               source={source}
               navigate={navigate}
-              poll={poll}
+
             />
           </div>
         ))}
@@ -173,7 +173,7 @@ export default function Logs() {
                 name={m.name ?? `Remote Model ${m.remote_model_index + 1}`}
                 source={source}
                 navigate={navigate}
-                poll={poll}
+  
               />
             </div>
           )),

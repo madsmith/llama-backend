@@ -382,6 +382,46 @@ export function useServerStatusWS(modelIndex = 0) {
   return { status, refresh };
 }
 
+export function useSlotStatusWS(
+  modelIndex = 0,
+  serverState?: string,
+  pollMs = 5000,
+  activePollMs = 500,
+) {
+  const [slots, setSlots] = useState<SlotInfo[]>([]);
+  const hasActive = slots.some((s) => s.is_processing);
+  const effectiveMs = hasActive ? activePollMs : pollMs;
+  const active = serverState === "running" || serverState === "remote";
+
+  const handleMessage = useCallback(
+    (msg: Record<string, unknown>) => {
+      if ((msg.model as number) !== modelIndex) return;
+      setSlots((msg.slots as SlotInfo[]) ?? []);
+    },
+    [modelIndex],
+  );
+
+  const refresh = useCallback(
+    () => getWsV2().send({ msg: "slot_status", model: modelIndex }),
+    [modelIndex],
+  );
+
+  useEffect(() => {
+    return getWsV2().subscribe("slot_status_response", handleMessage, refresh);
+  }, [handleMessage, refresh]);
+
+  useEffect(() => {
+    if (!active) {
+      setSlots([]);
+      return;
+    }
+    const id = setInterval(refresh, effectiveMs);
+    return () => clearInterval(id);
+  }, [refresh, effectiveMs, active]);
+
+  return slots;
+}
+
 export function useUplinkStatus(pollMs = 3000) {
   const [uplink, setUplink] = useState<UplinkStatus | null>(null);
 

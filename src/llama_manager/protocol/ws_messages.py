@@ -18,8 +18,13 @@ class ServerStatusRequest(BaseModel):
     model: int = 0
 
 
+class SlotStatusRequest(BaseModel):
+    msg: Literal["slot_status"] = "slot_status"
+    model: int = 0
+
+
 IncomingMessage = Annotated[
-    Union[ProxyStatusRequest, ServerStatusRequest],
+    Union[ProxyStatusRequest, ServerStatusRequest, SlotStatusRequest],
     Field(discriminator="msg"),
 ]
 
@@ -45,3 +50,9 @@ class ServerStatusResponse(BaseModel):
     host: str | None
     port: int | None
     uptime: float | None
+
+
+class SlotStatusResponse(BaseModel):
+    msg: Literal["slot_status_response"] = "slot_status_response"
+    model: int
+    slots: list[dict]
