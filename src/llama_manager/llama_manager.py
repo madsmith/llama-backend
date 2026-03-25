@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING
 
 from fastapi import FastAPI
 
@@ -12,10 +11,8 @@ from .dev import DevViteService
 from .event_bus import bus as event_bus
 from .process_manager import ProcessManager
 from .proxy import ProxyServer, set_process_managers, shutdown_proxy_subscribers
-from .remote_manager_client import RemoteManagerClient, RemoteModelProxy
-
-if TYPE_CHECKING:
-    pass
+from .proxy.slots import SlotStatusService
+from .remote_manager_client import RemoteManagerClient
 
 log = logging.getLogger(__name__)
 
@@ -25,50 +22,33 @@ class LlamaManager:
         self.config = config
         self.proxy = ProxyServer(config)
         self.process_managers: list[ProcessManager | None] = []
+        self.slot_status = SlotStatusService(self, event_bus)
+
+    def get_process_managers(self) -> list[ProcessManager | None]:
+        return self.process_managers
 
     async def data_publisher(self) -> None:
-        """Publish slot and health events for running local models to the event bus."""
+        """Publish health events for running local models to the event bus."""
         import httpx
-
-        last_slots: dict[str, list[dict]] = {}
 
         while True:
             try:
                 for pm in self.process_managers:
-                    if pm is None or isinstance(pm, RemoteModelProxy):
+                    if not isinstance(pm, ProcessManager):
                         continue
                     if pm.state.value != "running":
                         continue
-
-                    if isinstance(pm, ProcessManager):
-                        base = pm.get_server_address()
-                        try:
-                            async with httpx.AsyncClient(timeout=2) as client:
-                                resp = await client.get(f"{base}/slots")
-                                if resp.status_code == 200:
-                                    slots = resp.json()
-                                    last_slots[pm.get_server_identifier()] = slots
-                                    event_bus.publish({"type": "slots", "server_id": pm.get_server_identifier(), "slots": slots})
-                        except Exception:
-                            pass
-                        try:
-                            async with httpx.AsyncClient(timeout=2) as client:
-                                resp = await client.get(f"{base}/health")
-                                if resp.status_code in (200, 503):
-                                    event_bus.publish({"type": "health", "server_id": pm.get_server_identifier(), "health": resp.json()})
-                        except Exception:
-                            pass
-                    else:
-                        log.warning("Unknown process manager type: %s", type(pm))
+                    base = pm.get_server_address()
+                    try:
+                        async with httpx.AsyncClient(timeout=2) as client:
+                            resp = await client.get(f"{base}/health")
+                            if resp.status_code in (200, 503):
+                                event_bus.publish({"type": "health", "server_id": pm.get_server_identifier(), "health": resp.json()})
+                    except Exception:
+                        pass
             except Exception:
                 pass
-
-            active = any(
-                s.get("is_processing")
-                for slots in last_slots.values()
-                for s in slots
-            )
-            await asyncio.sleep(0.5 if active else 3.0)
+            await asyncio.sleep(3.0)
 
     def get_lifespan(self, vite: DevViteService | None = None):
         @asynccontextmanager
@@ -100,11 +80,13 @@ class LlamaManager:
                     await client.start()
 
             data_publisher_task = asyncio.create_task(self.data_publisher())
+            await self.slot_status.start()
 
             yield
 
             # === Teardown ===
             data_publisher_task.cancel()
+            await self.slot_status.stop()
 
             for client in app.state.remote_manager_clients:
                 await client.stop()

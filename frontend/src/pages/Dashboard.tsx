@@ -9,10 +9,10 @@ import ProxyControls from "../components/ProxyControls";
 import HealthCard from "../components/HealthCard";
 import {
   useServerStatusWS,
+  useSlotStatusWS,
   useProxyStatusWS,
   useRemotes,
   useUplinkStatus,
-  useSlotStream,
   useHealthStream,
 } from "../api/hooks";
 
@@ -45,7 +45,7 @@ function ModelPanel({
 }) {
   const navigate = useNavigate();
   const { status, refresh } = useServerStatusWS(modelIndex);
-  const slots = useSlotStream(serverId);
+  const slots = useSlotStatusWS(modelIndex, status.state);
   const health = useHealthStream(serverId);
 
   useEffect(() => {
@@ -87,7 +87,7 @@ function RemoteModelPanel({
 }) {
   const navigate = useNavigate();
   const { status, refresh } = useServerStatusWS(modelIndex);
-  const slots = useSlotStream(serverId);
+  const slots = useSlotStatusWS(modelIndex, status.state);
   const health = useHealthStream(serverId);
 
   useEffect(() => {
