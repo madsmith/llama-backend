@@ -160,7 +160,7 @@ class WsV2ClientImpl implements WsV2Client {
     if (!bucket) return;
 
     for (const sub of bucket) {
-      console.log("Dispatch message:", sub);
+      console.log("Dispatch message:", sub, msg);
       sub.handler(msg);
     }
   };
