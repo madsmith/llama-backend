@@ -220,6 +220,13 @@ export default function ServerStatusCard({
     [modelIndex],
   );
 
+  // Fetch slots immediately when server becomes running.
+  useEffect(() => {
+    if (status.state === "running") {
+      requestSlots();
+    }
+  }, [status.state, requestSlots]);
+
   // Clear slots when server stops.
   useEffect(() => {
     if (status.state !== "running" && status.state !== "remote") {
