@@ -59,7 +59,7 @@ def main() -> None:
         port=args.port,
         reload=args.dev,
         reload_dirs=["src/llama_manager"] if args.dev else None,
-        reload_delay=3.0 if args.dev else None,
+        reload_delay=5.0 if args.dev else None,
         log_level=log_level,
     )
 
