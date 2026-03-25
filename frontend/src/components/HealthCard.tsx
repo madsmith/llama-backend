@@ -32,7 +32,7 @@ const isOffline = (s: ServerInfo) =>
 
 export default function HealthCard({ proxyStatus, servers, uplink }: Props) {
   const proxyOk = proxyStatus.state === "running";
-  const serverUnknown = (s: ServerInfo) => s.health === null;
+  const serverUnknown = (s: ServerInfo) => s.health === null && !s.autoStart;
   const serverOk = (s: ServerInfo) => {
     if (s.status === null) return false;
     if (isOffline(s)) return true;
@@ -42,6 +42,7 @@ export default function HealthCard({ proxyStatus, servers, uplink }: Props) {
       return healthOk || s.health?.status === "unknown";
     return s.status.state === "running" && healthOk;
   };
+  console.log
   const allServersOk = servers.every(serverOk);
   const anyUnknown = servers.some(serverUnknown);
   const allOk = proxyOk && allServersOk && !anyUnknown;
