@@ -72,6 +72,3 @@ class EventBus:
                     q.put_nowait(event)
                 except asyncio.QueueFull:
                     pass  # slow subscriber — drop rather than block
-
-
-bus = EventBus()

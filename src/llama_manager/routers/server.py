@@ -3,10 +3,13 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from llama_manager.proxy import ProxyServer
-from .routes import config, server
-from .routes.proxy import ProxyRoutes
+from llama_manager.event_bus import EventBus
 
-def make_router(proxy: ProxyServer) -> APIRouter:
+from .routes import server
+from .routes.proxy import ProxyRoutes
+from .routes.config import ConfigRoutes
+
+def make_router(proxy: ProxyServer, event_bus: EventBus) -> APIRouter:
     router = APIRouter(prefix="/api/server", tags=["server"])
 
     router.get("/status")(server.get_status)
@@ -20,8 +23,9 @@ def make_router(proxy: ProxyServer) -> APIRouter:
     router.post("/proxy-stop")(proxy_routes.stop)
     router.post("/proxy-restart")(proxy_routes.restart)
 
-    router.get("/config")(config.get_config)
-    router.put("/config")(config.put_config)
-    router.post("/config/generate-token")(config.generate_token)
+    config_routes = ConfigRoutes(event_bus)
+    router.get("/config")(config_routes.get_config)
+    router.put("/config")(config_routes.put_config)
+    router.post("/config/generate-token")(config_routes.generate_token)
 
     return router

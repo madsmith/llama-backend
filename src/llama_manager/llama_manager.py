@@ -8,7 +8,7 @@ from fastapi import FastAPI
 
 from .config import AppConfig
 from .dev import DevViteService
-from .event_bus import bus as event_bus
+from .event_bus import EventBus
 from .process_manager import ProcessManager
 from .proxy import ProxyServer, set_process_managers, shutdown_proxy_subscribers
 from .proxy.slots import SlotStatusService
@@ -20,8 +20,9 @@ log = logging.getLogger(__name__)
 class LlamaManager:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
+        self.event_bus = EventBus()
         self.process_managers: list[ProcessManager | None] = []
-        self.slot_status = SlotStatusService(self, event_bus)
+        self.slot_status = SlotStatusService(self, self.event_bus)
         self.proxy = ProxyServer(self)
 
     def get_process_managers(self) -> list[ProcessManager | None]:
@@ -75,7 +76,7 @@ class LlamaManager:
 
             for i, remote_config in enumerate(self.config.remote_managers):
                 if remote_config.enabled and remote_config.host:
-                    client = RemoteManagerClient(i, remote_config, self.config, app)
+                    client = RemoteManagerClient(i, remote_config, self.config, self.event_bus, app)
                     app.state.remote_manager_clients.append(client)
                     await client.start()
 

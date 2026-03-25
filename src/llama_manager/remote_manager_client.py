@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import websockets
 
 from .config import AppConfig, RemoteManagerConfig
-from .event_bus import bus as event_bus
+from .event_bus import EventBus
 from .log_buffer import LogBuffer
 from .model import ModelIdentifier
 from .process_manager import ServerState
@@ -127,6 +127,7 @@ class RemoteManagerClient:
         remote_index: int,
         config: RemoteManagerConfig,
         app_config: AppConfig,
+        event_bus: EventBus,
         app: FastAPI,
     ) -> None:
         self.remote_index = remote_index
