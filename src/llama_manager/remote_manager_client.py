@@ -13,7 +13,7 @@ from .log_buffer import LogBuffer
 from .model import ModelIdentifier
 from .process_manager import ServerState
 
-log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class RemoteModelProxy:
@@ -107,7 +107,6 @@ class RemoteModelProxy:
         self._event_bus.publish({"type": "server_log", "id": self.server_id, "data": {"line_id": line.id, "text": line.text}})
 
     def set_slots(self, slots: list) -> None:
-        print("RemoteModelProxy.set_slots", slots)
         self._cached_slots = slots
 
     def set_health(self, health: dict) -> None:
@@ -165,7 +164,7 @@ class RemoteManagerClient:
             except asyncio.CancelledError:
                 break
             except Exception as exc:
-                log.debug("Remote manager [%d] error: %r", self.remote_index, exc)
+                logger.debug("Remote manager [%d] error: %r", self.remote_index, exc)
 
             if self._stop_event.is_set():
                 break
@@ -186,12 +185,12 @@ class RemoteManagerClient:
 
     async def _connect_and_serve(self) -> None:
         url = self._ws_url()
-        log.debug("Remote manager [%d] connecting to %s", self.remote_index, url)
+        logger.debug("Remote manager [%d] connecting to %s", self.remote_index, url)
         self.connection_state = "connecting"
         async with websockets.connect(url) as ws:
             self._ws = ws
             self.connection_state = "connected"
-            log.debug("Remote manager [%d] connected", self.remote_index)
+            logger.debug("Remote manager [%d] connected", self.remote_index)
             async for raw in ws:
                 if self._stop_event.is_set():
                     break
@@ -330,7 +329,7 @@ class RemoteManagerClient:
         try:
             await self._ws.send(json.dumps({"type": cmd, "model": remote_model_index}))
         except Exception as exc:
-            log.debug("Failed to send command to remote manager [%d]: %r", self.remote_index, exc)
+            logger.debug("Failed to send command to remote manager [%d]: %r", self.remote_index, exc)
 
     async def request_health(self, remote_model_index: int) -> dict | None:
         """Send a get_health request and await the response, returning None on timeout or error."""
@@ -366,8 +365,10 @@ class RemoteManagerClient:
                 "model": remote_model_index,
                 "request_id": request_id,
             }))
-            return await asyncio.wait_for(future, timeout=5.0)
-        except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+            result = await asyncio.wait_for(future, timeout=5.0)
+            return result
+        except (asyncio.TimeoutError, asyncio.CancelledError, Exception) as e:
+            logger.debug("Failed to receive get_slots response: %r", e)
             return []
         finally:
             self._pending_requests.pop(request_id, None)
