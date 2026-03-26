@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 
 import websockets
 
@@ -41,6 +42,7 @@ class RemoteModelProxy:
         self._client = client
         self._event_bus = event_bus
         self.state: ServerState = ServerState.unknown
+        self._started_at: float | None = None
         self.log_buffer = LogBuffer(maxlen=log_buffer_size)
         self._subscribers: list[asyncio.Queue[dict]] = []
         self._cached_slots: list[dict] = []
@@ -68,12 +70,14 @@ class RemoteModelProxy:
                 pass
 
     def get_status(self) -> dict:
+        is_running = self.state == ServerState.running
+        uptime = (time.time() - self._started_at) if is_running and self._started_at is not None else None
         return {
             "state": self.state.value,
             "pid": None,
-            "host": None,
-            "port": None,
-            "uptime": None,
+            "host": self._client.config.host if is_running else None,
+            "port": self.llama_server_port if is_running else None,
+            "uptime": uptime,
         }
 
     def get_prompt_progress(self) -> dict:
@@ -95,10 +99,15 @@ class RemoteModelProxy:
                 pass
 
     def set_state(self, state_str: str) -> None:
+        prev = self.state
         try:
             self.state = ServerState(state_str)
         except ValueError:
             self.state = ServerState.error
+        if self.state == ServerState.running and prev != ServerState.running:
+            self._started_at = time.time()
+        elif self.state != ServerState.running:
+            self._started_at = None
         self._event_bus.publish({"type": "server_status", "id": self.server_id, "data": {"state": self.state.value}})
 
     def feed_log(self, text: str) -> None:
@@ -304,13 +313,7 @@ class RemoteManagerClient:
                 )
 
             proxy.llama_server_port = llama_port
-
-            # Apply state from snapshot
-            try:
-                proxy.state = ServerState(state_str)
-            except ValueError:
-                proxy.state = ServerState.error
-
+            proxy.set_state(state_str)
             new_models.append(proxy)
 
         # Shut down subscribers for models that disappeared from the remote

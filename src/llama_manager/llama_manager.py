@@ -13,7 +13,7 @@ from .event_bus import EventBus
 from .process_manager import ProcessManager
 from .proxy import ProxyServer, set_process_managers
 from .proxy.slots import SlotStatusService
-from .remote_manager_client import RemoteManagerClient
+from .remote_manager_client import RemoteManagerClient, RemoteModelProxy
 
 log = logging.getLogger(__name__)
 
@@ -32,8 +32,8 @@ class LlamaManager:
     def get_process_managers(self) -> list[ProcessManager | None]:
         return self.process_managers
 
-    def get_remote_models(self) -> list:
-        return [m for c in self.remote_manager_clients for m in c.models]
+    def get_remote_models(self) -> list[RemoteModelProxy]:
+        return [model for client in self.remote_manager_clients for model in client.models]
 
     async def data_publisher(self) -> None:
         """Publish health events for running local models to the event bus."""

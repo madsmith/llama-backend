@@ -131,26 +131,38 @@ class WsV2Connection:
     @request_handler(ServerStatusRequest)
     async def _on_server_status(self, msg: ServerStatusRequest) -> BaseModel | None:
         for pm in self.manager.get_process_managers():
-            server_id = (
-                pm.get_server_identifier() if isinstance(pm, ProcessManager)
-                else pm.server_id if isinstance(pm, RemoteModelProxy)
-                else None
-            )
-            if server_id == msg.id:
+            if isinstance(pm, ProcessManager) and pm.get_server_identifier() == msg.id:
                 return ServerStatusResponse(id=msg.id, **pm.get_status())
+        for proxy in self.manager.get_remote_models():
+            if proxy.server_id == msg.id:
+                print("Remote proxy status:", proxy.get_status())
+                return ServerStatusResponse(id=msg.id, **proxy.get_status())
         return None
 
     @request_handler(SlotStatusRequest)
     async def _on_slot_status(self, msg: SlotStatusRequest) -> BaseModel | None:
-        pms = self.manager.get_process_managers()
-        if msg.model < 0 or msg.model >= len(pms):
-            return None
-        pm = pms[msg.model]
+        # Remote model proxy: return cached slots directly (updated via uplink event stream).
+        for proxy in self.manager.get_remote_models():
+            if proxy.server_id == msg.server_id:
+                print("Remote slots", proxy.get_cached_slots())
+                return SlotStatusResponse(
+                    server_id=msg.server_id,
+                    slots=[dict(s) for s in proxy.get_cached_slots()],
+                )
 
-        slots = [dict(s) for s in (await self.manager.slot_status.get_slots(msg.model) or [])]
+        # Find the local ProcessManager for this server_id.
+        pm: ProcessManager | None = None
+        model_index: int | None = None
+        for i, p in enumerate(self.manager.get_process_managers()):
+            if isinstance(p, ProcessManager) and p.get_server_identifier() == msg.server_id:
+                pm = p
+                model_index = i
+                break
 
-        if isinstance(pm, ProcessManager):
-            cancellable = set(ActiveRequestManager.list_cancellable(msg.model))
+        slots = [dict(s) for s in (await self.manager.slot_status.get_slots(msg.server_id) or [])]
+
+        if pm is not None and model_index is not None:
+            cancellable = set(ActiveRequestManager.list_cancellable(model_index))
             progress = pm.get_prompt_progress()
             if progress:
                 for slot in slots:
@@ -162,39 +174,29 @@ class WsV2Connection:
             for slot in slots:
                 slot["cancellable"] = slot.get("id") in cancellable
 
-        return SlotStatusResponse(model=msg.model, slots=slots)
+        return SlotStatusResponse(server_id=msg.server_id, slots=slots)
 
     @request_handler(SubscribeSlotStatusRequest)
     async def _on_subscribe_slot_status(self, msg: SubscribeSlotStatusRequest) -> BaseModel:
-        pms = self.manager.get_process_managers()
-        server_id: str | None = None
-        if 0 <= msg.model < len(pms):
-            pm = pms[msg.model]
-            if isinstance(pm, ProcessManager):
-                server_id = pm.get_server_identifier()
-            elif isinstance(pm, RemoteModelProxy):
-                server_id = pm.server_id
+        server_id = msg.server_id
+        slots = await self.manager.slot_status.get_slots(server_id) or []
 
-        slots = await self.manager.slot_status.get_slots(msg.model) or []
+        _handle_box: list[int] = []
 
-        handle = -1
-        if server_id is not None:
-            _handle_box: list[int] = []
+        def _on_change(updated_slots: list[dict]) -> None:
+            self._push(SlotStatusEvent(
+                subscription_id=_handle_box[0],
+                server_id=server_id,
+                slots=updated_slots,
+            ))
 
-            def _on_change(updated_slots: list[dict]) -> None:
-                self._push(SlotStatusEvent(
-                    subscription_id=_handle_box[0],
-                    model=msg.model,
-                    slots=updated_slots,
-                ))
-
-            handle = self.manager.slot_status.subscribe(server_id, _on_change)
-            _handle_box.append(handle)
-            self._subscriptions[handle] = lambda h=handle: self.manager.slot_status.unsubscribe(h)
+        handle = self.manager.slot_status.subscribe(server_id, _on_change)
+        _handle_box.append(handle)
+        self._subscriptions[handle] = lambda h=handle: self.manager.slot_status.unsubscribe(h)
 
         return SubscribeSlotStatusResponse(
             subscription_id=handle,
-            model=msg.model,
+            server_id=server_id,
             slots=slots,
         )
 
@@ -215,23 +217,15 @@ class WsV2Connection:
         return SubscribeEventResponse(subscription_id=-1)
 
     async def _on_subscribe_event_slots(self, msg: SubscribeEventRequest) -> BaseModel:
-        model = int(msg.id) if msg.id is not None else 0
-        pms = self.manager.get_process_managers()
-        server_id: str | None = None
-        if 0 <= model < len(pms):
-            pm = pms[model]
-            if isinstance(pm, ProcessManager):
-                server_id = pm.get_server_identifier()
-            elif isinstance(pm, RemoteModelProxy):
-                server_id = pm.server_id
+        server_id = msg.id  # client sends the server_id directly as the event id
 
         subscription_id = -1
         if server_id is not None:
             def _on_change(updated_slots: list[dict]) -> None:
                 self._push(EventResponse(
                     type="slots",
-                    id=str(model),
-                    event_data={"model": model, "slots": updated_slots},
+                    id=server_id,
+                    event_data={"server_id": server_id, "slots": updated_slots},
                 ))
 
             subscription_id = self.manager.slot_status.subscribe(server_id, _on_change)

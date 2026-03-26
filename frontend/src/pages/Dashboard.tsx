@@ -56,6 +56,7 @@ function ModelPanel({
       <ServerStatusCard
         name={name}
         modelIndex={modelIndex}
+        serverId={serverId}
         status={statusOrUnknown}
         onClick={isRemote ? undefined : () => navigate(`/logs/${modelIndex}`)}
         remoteAddress={remoteAddress}
@@ -76,29 +77,23 @@ function RemoteModelPanel({
   modelIndex,
   serverId,
   name,
-  onSnapshot,
 }: {
   modelIndex: number;
   serverId: string;
   name: string;
-  onSnapshot: (index: number, snap: ServerSnapshot) => void;
 }) {
   const navigate = useNavigate();
   const { status, refresh } = useServerStatusWS(serverId);
-  const health = useHealthStream(serverId);
   const statusOrUnknown = status ?? { state: "unknown" as const, pid: null, host: null, port: null, uptime: null };
-
-  useEffect(() => {
-    onSnapshot(modelIndex, { name, status, health, autoStart: false, hasTTL: false });
-  }, [modelIndex, name, status, health, onSnapshot]);
 
   return (
     <div className="space-y-4">
       <ServerStatusCard
         name={name}
         modelIndex={modelIndex}
+        serverId={serverId}
         status={statusOrUnknown}
-        onClick={() => navigate(`/logs/${modelIndex}`)}
+        onClick={() => navigate(`/logs/${serverId}/${modelIndex}`)}
       />
       <ServerControls status={status} modelIndex={modelIndex} onAction={refresh} />
     </div>
@@ -111,13 +106,7 @@ function connectionDot(state: RemoteManagerStatus["connection_state"]) {
   return "bg-gray-600";
 }
 
-function RemoteManagerSection({
-  rm,
-  onSnapshot,
-}: {
-  rm: RemoteManagerStatus;
-  onSnapshot: (index: number, snap: ServerSnapshot) => void;
-}) {
+function RemoteManagerSection({ rm }: { rm: RemoteManagerStatus }) {
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2 mt-2">
@@ -140,7 +129,6 @@ function RemoteManagerSection({
               modelIndex={m.remote_model_index}
               serverId={m.server_id}
               name={m.name ?? `Remote Model ${m.remote_model_index + 1}`}
-              onSnapshot={onSnapshot}
             />
           ))}
         </div>
@@ -206,15 +194,11 @@ export default function Dashboard() {
         <div className="space-y-4">
           <h2 className="text-lg font-semibold text-gray-400">Remotes</h2>
           {remotes.map((rm) => (
-            <RemoteManagerSection
-              key={rm.index}
-              rm={rm}
-              onSnapshot={handleSnapshot}
-            />
+            <RemoteManagerSection key={rm.index} rm={rm} />
           ))}
         </div>
       )}
-      <HealthCard proxyStatus={proxyStatus} servers={servers} uplink={uplink ?? undefined} />
+      <HealthCard proxyStatus={proxyStatus} servers={servers} remotes={remotes} uplink={uplink ?? undefined} />
     </div>
   );
 }

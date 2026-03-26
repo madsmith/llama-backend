@@ -1,5 +1,5 @@
 import { Fragment } from "react";
-import type { HealthStatus, ProxyStatus, ServerStatus, UplinkStatus } from "../api/types";
+import type { HealthStatus, ProxyStatus, RemoteManagerStatus, ServerStatus, UplinkStatus } from "../api/types";
 
 interface ServerInfo {
   name: string;
@@ -12,6 +12,7 @@ interface ServerInfo {
 interface Props {
   proxyStatus: ProxyStatus;
   servers: ServerInfo[];
+  remotes?: RemoteManagerStatus[];
   uplink?: UplinkStatus;
 }
 
@@ -30,7 +31,7 @@ const Question = () => <span className="text-yellow-500">?</span>;
 const isOffline = (s: ServerInfo) =>
   s.status?.state === "stopped" && (s.hasTTL || !s.autoStart);
 
-export default function HealthCard({ proxyStatus, servers, uplink }: Props) {
+export default function HealthCard({ proxyStatus, servers, remotes, uplink }: Props) {
   const proxyOk = proxyStatus.state === "running";
   const serverUnknown = (s: ServerInfo) => s.status === null || s.status.state === "unknown" || s.health === null;
   const serverOk = (s: ServerInfo) => {
@@ -62,7 +63,12 @@ export default function HealthCard({ proxyStatus, servers, uplink }: Props) {
   };
   const allServersOk = servers.every(serverOk);
   const anyUnknown = servers.some(serverUnknown);
-  const allOk = proxyOk && allServersOk && !anyUnknown;
+
+  const remoteModels = remotes?.flatMap(rm => rm.models) ?? [];
+  const allRemotesOk = remoteModels.every(m => m.state === "running" || m.state === "stopped");
+  const anyRemoteUnknown = remoteModels.some(m => m.state === "unknown");
+
+  const allOk = proxyOk && allServersOk && !anyUnknown && allRemotesOk && !anyRemoteUnknown;
 
   return (
     <div className="rounded-xl border border-gray-800 bg-gray-900 p-5">
@@ -138,6 +144,28 @@ export default function HealthCard({ proxyStatus, servers, uplink }: Props) {
             </Fragment>
           );
         })}
+        {remotes?.flatMap(rm =>
+          rm.models.map(m => {
+            const state = m.state;
+            const unknown = state === "unknown";
+            const ok = state === "running" || state === "stopped";
+            const stateColor = unknown
+              ? "text-yellow-400"
+              : ok
+                ? state === "running" ? "text-green-400" : "text-gray-500"
+                : state === "starting" ? "text-yellow-400" : "text-red-400";
+            return (
+              <Fragment key={m.server_id}>
+                {unknown ? <Question /> : state === "stopped" ? <Dot /> : ok ? <Check /> : <Cross />}
+                <span className="text-sm text-gray-300">
+                  {m.name ?? `Remote Model ${m.remote_model_index + 1}`}
+                  <span className="ml-2 text-xs text-gray-600">{rm.name ?? rm.url}</span>
+                </span>
+                <span className={`text-sm ${stateColor}`}>{state}</span>
+              </Fragment>
+            );
+          })
+        )}
       </div>
       <div className="mt-3 flex items-center gap-2">
         {allOk ? <Check /> : anyUnknown ? <Question /> : <Cross />}

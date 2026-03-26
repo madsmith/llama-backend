@@ -54,12 +54,12 @@ class ServerStatusRequest(BaseModel):
 
 class SlotStatusRequest(BaseModel):
     msg: Literal["slot_status"] = "slot_status"
-    model: int = 0
+    server_id: str
 
 
 class SubscribeSlotStatusRequest(BaseModel):
     msg: Literal["subscribe_slot_status"] = "subscribe_slot_status"
-    model: int = 0
+    server_id: str
 
 
 class UnsubscribeSlotStatusRequest(BaseModel):
@@ -156,21 +156,21 @@ class ServerStatusResponse(BaseModel):
 
 class SlotStatusResponse(BaseModel):
     msg: Literal["slot_status_response"] = "slot_status_response"
-    model: int
+    server_id: str
     slots: list[SlotInfo]
 
 
 class SubscribeSlotStatusResponse(BaseModel):
     msg: Literal["subscribe_slot_status_response"] = "subscribe_slot_status_response"
     subscription_id: int
-    model: int
+    server_id: str
     slots: list[SlotInfo]
 
 
 class SlotStatusEvent(BaseModel):
     msg: Literal["slot_status_event"] = "slot_status_event"
     subscription_id: int
-    model: int
+    server_id: str
     slots: list[SlotInfo]
 
 

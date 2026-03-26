@@ -20,6 +20,7 @@ SubscriptionHandle = int
 
 class ProcessManagerProvider(Protocol):
     def get_process_managers(self) -> list[ProcessManager | None]: ...
+    def get_remote_models(self) -> list[RemoteModelProxy]: ...
 
 
 class SlotStatusService:
@@ -29,7 +30,7 @@ class SlotStatusService:
         self._active_until: dict[int, float] = {}
         self._provider = provider
         self._event_bus = event_bus
-        self._cache: dict[int, list[dict]] = {}
+        self._cache: dict[str, list[dict]] = {}
         self._subscriptions: dict[SubscriptionHandle, tuple[str, Callable[[list[dict]], None]]] = {}
         self._next_handle: SubscriptionHandle = 0
         self._task: asyncio.Task | None = None
@@ -46,15 +47,15 @@ class SlotStatusService:
     # Public query interface
     # ------------------------------------------------------------------
 
-    async def get_slots(self, model: int, *, read_cache: bool = True) -> list[dict] | None:
-        """Return slot info for *model*.
+    async def get_slots(self, server_id: str, *, read_cache: bool = True) -> list[dict] | None:
+        """Return slot info for *server_id*.
 
         Returns cached results by default.  Pass ``read_cache=False`` to
         bypass the cache and fetch live from the server.
         """
-        if read_cache and model in self._cache:
-            return self._cache[model]
-        return await self._fetch(model)
+        if read_cache and server_id in self._cache:
+            return self._cache[server_id]
+        return await self._fetch(server_id)
 
     # ------------------------------------------------------------------
     # Subscription interface
@@ -97,35 +98,30 @@ class SlotStatusService:
     # Internals
     # ------------------------------------------------------------------
 
-    async def _fetch(self, model: int) -> list[dict] | None:
-        pms = self._provider.get_process_managers()
-        if model < 0 or model >= len(pms):
-            return None
-        pm = pms[model]
-        if pm is None:
-            return None
-
-        if isinstance(pm, RemoteModelProxy):
-            # Slots arrive pushed via event bus (_event_loop keeps _cache current).
-            # Fall back to a live fetch from the remote llama server if the port is known,
-            # otherwise return the proxy's own stale cache.
-            if model in self._cache:
-                return self._cache[model]
-            if pm.llama_server_port is not None:
-                base_url = f"http://{pm._client.config.host}:{pm.llama_server_port}"
-                slots = await LlamaClient(0, base_url=base_url).get_slots()
+    async def _fetch(self, server_id: str) -> list[dict] | None:
+        for pm in self._provider.get_process_managers():
+            if isinstance(pm, ProcessManager) and pm.get_server_identifier() == server_id:
+                slots = await LlamaClient(pm.model_index).get_slots()
                 if slots is not None:
-                    self._cache[model] = slots
-                    return slots
-            return pm.get_cached_slots()
+                    self._cache[server_id] = slots
+                return slots
 
-        if not isinstance(pm, ProcessManager):
-            return None
+        for proxy in self._provider.get_remote_models():
+            if proxy.server_id == server_id:
+                # Slots arrive pushed via event bus (_event_loop keeps _cache current).
+                # Fall back to a live fetch from the remote llama server if the port is known,
+                # otherwise return the proxy's own stale cache.
+                if server_id in self._cache:
+                    return self._cache[server_id]
+                if proxy.llama_server_port is not None:
+                    base_url = f"http://{proxy._client.config.host}:{proxy.llama_server_port}"
+                    slots = await LlamaClient(0, base_url=base_url).get_slots()
+                    if slots is not None:
+                        self._cache[server_id] = slots
+                        return slots
+                return proxy.get_cached_slots()
 
-        slots = await LlamaClient(model).get_slots()
-        if slots is not None:
-            self._cache[model] = slots
-        return slots
+        return None
 
     def _notify(self, server_id: str, slots: list[dict]) -> None:
         for sub_server_id, callback in list(self._subscriptions.values()):
@@ -143,12 +139,10 @@ class SlotStatusService:
                 if not server_id or slots is None:
                     continue
                 # Only handle remote model events — local models are updated by _poll_loop
-                pms = self._provider.get_process_managers()
-                for i, pm in enumerate(pms):
-                    if isinstance(pm, RemoteModelProxy) and pm.server_id == server_id:
-                        self._cache[i] = slots
-                        self._notify(server_id, slots)
-                        break
+                remote_models = self._provider.get_remote_models()
+                if any(m.server_id == server_id for m in remote_models):
+                    self._cache[server_id] = slots
+                    self._notify(server_id, slots)
         finally:
             self._event_bus.unsubscribe(q)
 
@@ -189,7 +183,7 @@ class SlotStatusService:
 
                 # Only publish and notify on actual change
                 if slots != last_slots.get(i):
-                    self._cache[i] = slots
+                    self._cache[server_id] = slots
                     self._event_bus.publish({
                         "type": "slots",
                         "server_id": server_id,

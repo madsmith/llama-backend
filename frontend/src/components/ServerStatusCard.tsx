@@ -176,6 +176,7 @@ function remoteDisplay(health: HealthStatus | null): {
 interface Props {
   name: string;
   modelIndex: number;
+  serverId?: string;
   status: ServerStatus;
   onClick?: () => void;
   selected?: boolean;
@@ -186,6 +187,7 @@ interface Props {
 export default function ServerStatusCard({
   name,
   modelIndex,
+  serverId,
   status,
   onClick,
   selected,
@@ -198,15 +200,15 @@ export default function ServerStatusCard({
   // Initial slot fetch + push updates.
   const handleSlotResponse = useCallback(
     (msg: Record<string, unknown>) => {
-      if ((msg.model as number) !== modelIndex) return;
+      if (msg.server_id !== serverId) return;
       setSlots((msg.slots as SlotInfo[]) ?? []);
     },
-    [modelIndex],
+    [serverId],
   );
 
   const requestSlots = useCallback(
-    () => getWsV2().send({ msg: "slot_status", model: modelIndex }),
-    [modelIndex],
+    () => serverId && getWsV2().send({ msg: "slot_status", server_id: serverId }),
+    [serverId],
   );
 
   useEffect(
@@ -215,11 +217,13 @@ export default function ServerStatusCard({
   );
 
   useEffect(
-    () =>
-      getWsV2().subscribeToEvent("slots", String(modelIndex), (data) => {
+    () => {
+      if (!serverId) return;
+      return getWsV2().subscribeToEvent("slots", serverId, (data) => {
         setSlots((data.slots as SlotInfo[]) ?? []);
-      }),
-    [modelIndex],
+      });
+    },
+    [serverId],
   );
 
   // Fetch slots immediately when server becomes running.
