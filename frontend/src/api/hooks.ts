@@ -198,14 +198,20 @@ export function useLogs(type: "proxy" | "server", serverId?: string) {
 export function useRemotes(pollMs = 3000) {
   const [remotes, setRemotes] = useState<RemoteManagerStatus[]>([]);
 
+  const handleMessage = useCallback((msg: Record<string, unknown>) => {
+    setRemotes((msg.remotes ?? []) as RemoteManagerStatus[]);
+  }, []);
+
+  const refresh = useCallback(() => getWsV2().send({ msg: "remotes" }), []);
+
   useEffect(() => {
-    const fetch = () => {
-      api.getRemotes().then(setRemotes).catch(() => {});
+    const unsub = getWsV2().subscribe("remotes_response", handleMessage, refresh);
+    const id = setInterval(refresh, pollMs);
+    return () => {
+      unsub();
+      clearInterval(id);
     };
-    fetch();
-    const id = setInterval(fetch, pollMs);
-    return () => clearInterval(id);
-  }, [pollMs]);
+  }, [handleMessage, refresh, pollMs]);
 
   return remotes;
 }
@@ -396,14 +402,20 @@ export function useServerStatusWS(serverId: string | undefined) {
 export function useUplinkStatus(pollMs = 3000) {
   const [uplink, setUplink] = useState<UplinkStatus | null>(null);
 
+  const handleMessage = useCallback((msg: Record<string, unknown>) => {
+    setUplink(msg as unknown as UplinkStatus);
+  }, []);
+
+  const refresh = useCallback(() => getWsV2().send({ msg: "uplink_status" }), []);
+
   useEffect(() => {
-    const fetch = () => {
-      api.getUplinkStatus().then(setUplink).catch(() => {});
+    const unsub = getWsV2().subscribe("uplink_status_response", handleMessage, refresh);
+    const id = setInterval(refresh, pollMs);
+    return () => {
+      unsub();
+      clearInterval(id);
     };
-    fetch();
-    const id = setInterval(fetch, pollMs);
-    return () => clearInterval(id);
-  }, [pollMs]);
+  }, [handleMessage, refresh, pollMs]);
 
   return uplink;
 }

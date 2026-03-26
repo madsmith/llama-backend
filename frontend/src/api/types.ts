@@ -79,7 +79,6 @@ export interface ServerConfig {
 
 export interface RemoteModelInfo {
   remote_model_index: number;
-  local_index: number;
   name: string | null;
   state: string;
   server_id: string;

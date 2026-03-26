@@ -103,6 +103,14 @@ class LoadLogRequest(BaseModel):
     id: str | None = None  # server_id when type="server"
 
 
+class RemotesRequest(BaseModel):
+    msg: Literal["remotes"] = "remotes"
+
+
+class UplinkStatusRequest(BaseModel):
+    msg: Literal["uplink_status"] = "uplink_status"
+
+
 IncomingMessage = Annotated[
     Union[
         ProxyStatusRequest,
@@ -116,6 +124,8 @@ IncomingMessage = Annotated[
         PutConfigRequest,
         GenerateTokenRequest,
         LoadLogRequest,
+        RemotesRequest,
+        UplinkStatusRequest,
     ],
     Field(discriminator="msg"),
 ]
@@ -206,3 +216,29 @@ class LoadLogResponse(BaseModel):
     type: str
     id: str | None = None
     lines: list[LogLine]
+
+
+class RemoteModelInfo(BaseModel):
+    remote_model_index: int
+    name: str | None
+    state: str
+    server_id: str
+
+
+class RemoteManagerInfo(BaseModel):
+    index: int
+    name: str | None
+    url: str
+    connection_state: str
+    models: list[RemoteModelInfo]
+
+
+class RemotesResponse(BaseModel):
+    msg: Literal["remotes_response"] = "remotes_response"
+    remotes: list[RemoteManagerInfo]
+
+
+class UplinkStatusResponse(BaseModel):
+    msg: Literal["uplink_status_response"] = "uplink_status_response"
+    enabled: bool
+    connected_clients: int

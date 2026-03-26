@@ -24,12 +24,16 @@ class LlamaManager:
         self.event_bus = EventBus()
         self.process_managers: list[ProcessManager | None] = []
         self.remote_manager_clients: list[RemoteManagerClient] = []
+        self.uplink_client_count: int = 0
         self.app: FastAPI | None = None
         self.slot_status = SlotStatusService(self, self.event_bus)
         self.proxy = ProxyServer(self)
 
     def get_process_managers(self) -> list[ProcessManager | None]:
         return self.process_managers
+
+    def get_remote_models(self) -> list:
+        return [m for c in self.remote_manager_clients for m in c.models]
 
     async def data_publisher(self) -> None:
         """Publish health events for running local models to the event bus."""
@@ -63,6 +67,7 @@ class LlamaManager:
             config.manager_uplink.token = self.generate_token()
 
         save_config(config)
+        self.config = config
 
         pms = self.process_managers
         while len(pms) < len(config.models):
@@ -101,7 +106,7 @@ class LlamaManager:
                         or existing.config.token != remote_config.token):
                     await existing.stop()
                     if remote_config.enabled and remote_config.host:
-                        client = RemoteManagerClient(i, remote_config, config, self.event_bus, self.app)
+                        client = RemoteManagerClient(i, remote_config, config, self.event_bus)
                         await client.start()
                         new_clients.append(client)
                     else:
@@ -111,7 +116,7 @@ class LlamaManager:
                     new_clients.append(existing)
             else:
                 if remote_config.enabled and remote_config.host:
-                    client = RemoteManagerClient(i, remote_config, config, self.event_bus, self.app)
+                    client = RemoteManagerClient(i, remote_config, config, self.event_bus)
                     await client.start()
                     new_clients.append(client)
 
@@ -133,7 +138,6 @@ class LlamaManager:
             app.state.process_managers = self.process_managers
             self.remote_manager_clients = []
             app.state.remote_manager_clients = self.remote_manager_clients
-            app.state.uplink_client_count = 0
             set_process_managers(self.process_managers)
 
             if vite is not None:
@@ -149,7 +153,7 @@ class LlamaManager:
 
             for i, remote_config in enumerate(self.config.remote_managers):
                 if remote_config.enabled and remote_config.host:
-                    client = RemoteManagerClient(i, remote_config, self.config, self.event_bus, app)
+                    client = RemoteManagerClient(i, remote_config, self.config, self.event_bus)
                     self.remote_manager_clients.append(client)
                     await client.start()
 

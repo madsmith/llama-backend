@@ -32,14 +32,32 @@ const isOffline = (s: ServerInfo) =>
 
 export default function HealthCard({ proxyStatus, servers, uplink }: Props) {
   const proxyOk = proxyStatus.state === "running";
-  const serverUnknown = (s: ServerInfo) => s.status === null || s.status.state === "unknown";
+  const serverUnknown = (s: ServerInfo) => s.status === null || s.status.state === "unknown" || s.health === null;
   const serverOk = (s: ServerInfo) => {
-    if (s.status === null) return false;
-    if (isOffline(s)) return true;
+    const debug = s.name === "Qwen 3.5";
+    if (s.status === null) {
+      if (debug) {
+        console.log("MiniMax M2.5 - Server", s.name, "status is null");
+      }
+      return false;
+    }
+    if (isOffline(s)) {
+      if (debug) {
+        console.log("MiniMax M2.5 - Server", s.name, "is offline");
+      }
+      return true;
+    }
+    if (debug) {
+      console.log("MiniMax M2.5 - Health OK Check", s.health?.status);
+    }
     const healthOk =
       s.health?.status === "ok" || s.health?.status === "no slot available";
-    if (s.status.state === "remote")
+    if (s.status.state === "remote") {
+      if (debug) {
+        console.log("MiniMax M2.5 - Server", s.name, "is remote", s.health?.status);
+      }
       return healthOk || s.health?.status === "unknown";
+    }
     return s.status.state === "running" && healthOk;
   };
   const allServersOk = servers.every(serverOk);
@@ -76,6 +94,9 @@ export default function HealthCard({ proxyStatus, servers, uplink }: Props) {
           const ok = serverOk(s);
           const offline = isOffline(s);
           const isRemote = s.status?.state === "remote";
+          if (s.name === "MiniMax M2.5") {
+            console.log("Server", s.name, "unknown", unknown, "ok", ok, "offline", offline, "isRemote", isRemote, s.status);
+          }
           const displayState = unknown
             ? "unknown"
             : offline

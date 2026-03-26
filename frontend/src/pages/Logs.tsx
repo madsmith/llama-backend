@@ -9,7 +9,14 @@ import ProxyControls from "../components/ProxyControls";
 import LogViewer from "../components/LogViewer";
 import { useProxyStatus, useServerStatusWS, useLogs, useRemotes, pollRatesFromConfig } from "../api/hooks";
 
-function ModelLogCard({ modelIndex, serverId, name, source, navigate }: { modelIndex: number; serverId: string | undefined; name: string; source: string; navigate: (path: string) => void }) {
+function ModelLogCard({ modelIndex, serverId, name, selected, path, navigate }: {
+  modelIndex: number;
+  serverId: string | undefined;
+  name: string;
+  selected: boolean;
+  path: string;
+  navigate: (path: string) => void;
+}) {
   const { status, refresh } = useServerStatusWS(serverId);
   const statusOrUnknown = status ?? { state: "unknown" as const, pid: null, host: null, port: null, uptime: null };
 
@@ -19,15 +26,15 @@ function ModelLogCard({ modelIndex, serverId, name, source, navigate }: { modelI
         name={name}
         modelIndex={modelIndex}
         status={statusOrUnknown}
-        onClick={() => navigate(`/logs/${modelIndex}`)}
-        selected={source === String(modelIndex)}
+        onClick={() => navigate(path)}
+        selected={selected}
       />
       <ServerControls status={statusOrUnknown} modelIndex={modelIndex} onAction={refresh} />
     </div>
   );
 }
 
-function ScrollStrip({ children, source }: { children: React.ReactNode; source: string }) {
+function ScrollStrip({ children, sourceKey }: { children: React.ReactNode; sourceKey: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -51,11 +58,11 @@ function ScrollStrip({ children, source }: { children: React.ReactNode; source: 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const selected = el.querySelector(`[data-source="${source}"]`);
+    const selected = el.querySelector(`[data-source="${sourceKey}"]`);
     if (selected) {
       selected.scrollIntoView({ inline: "nearest", behavior: "smooth", block: "nearest" });
     }
-  }, [source]);
+  }, [sourceKey]);
 
   const scroll = (dir: number) => {
     ref.current?.scrollBy({ left: dir * 408, behavior: "smooth" });
@@ -90,17 +97,39 @@ function ScrollStrip({ children, source }: { children: React.ReactNode; source: 
   );
 }
 
+type LogMode =
+  | { type: "proxy" }
+  | { type: "local"; index: number }
+  | { type: "remote"; serverId: string; remoteIndex: number };
+
 export default function Logs() {
-  const { source = "proxy" } = useParams<{ source: string }>();
+  const { modelIndex, serverId, remoteIndex } = useParams<{
+    modelIndex?: string;
+    serverId?: string;
+    remoteIndex?: string;
+  }>();
   const navigate = useNavigate();
   const [config, setConfig] = useState<ServerConfig | null>(null);
   const poll = pollRatesFromConfig(config);
   const { status: proxyStatus, refresh: refreshProxy } = useProxyStatus(poll.proxyStatus);
-  const logServerId = source !== "proxy" && config?.manager_id
-    ? `${config.manager_id}:model-${source}`
+
+  const logMode: LogMode = serverId != null && remoteIndex != null
+    ? { type: "remote", serverId, remoteIndex: Number(remoteIndex) }
+    : modelIndex != null && modelIndex !== "proxy"
+    ? { type: "local", index: Number(modelIndex) }
+    : { type: "proxy" };
+
+  const sourceKey = logMode.type === "proxy" ? "proxy"
+    : logMode.type === "local" ? String(logMode.index)
+    : `${logMode.serverId}/${logMode.remoteIndex}`;
+
+  const logServerId = logMode.type === "local" && config?.manager_id
+    ? `${config.manager_id}:model-${logMode.index}`
+    : logMode.type === "remote" ? logMode.serverId
     : undefined;
+
   const { lines, connected, clear } = useLogs(
-    source === "proxy" ? "proxy" : "server",
+    logMode.type === "proxy" ? "proxy" : "server",
     logServerId,
   );
 
@@ -112,36 +141,26 @@ export default function Logs() {
 
   const remotes = useRemotes();
 
-  // Build a map from local_index -> display name for remote-manager-proxied models
-  const remoteModelNames = new Map<number, string>();
-  for (const rm of remotes) {
-    for (const m of rm.models) {
-      remoteModelNames.set(
-        m.local_index,
-        m.name ?? `Remote Model ${m.remote_model_index + 1}`,
-      );
-    }
-  }
-
   const models = config?.models ?? [];
-  const modelIndex = source === "proxy" ? null : Number(source);
 
-  const logHeader = source === "proxy"
+  const logHeader = logMode.type === "proxy"
     ? "Proxy Server"
-    : remoteModelNames.get(modelIndex!) ??
-      models[modelIndex!]?.name ??
-      `Llama Server ${(modelIndex ?? 0) + 1}`;
+    : logMode.type === "local"
+    ? models[logMode.index]?.name ?? `Llama Server ${logMode.index + 1}`
+    : remotes.flatMap(rm => rm.models).find(
+        m => m.server_id === logMode.serverId && m.remote_model_index === logMode.remoteIndex
+      )?.name ?? `Remote Model ${logMode.remoteIndex + 1}`;
 
   // Redirect to proxy logs if current source is a config-level remote model (type="remote")
   useEffect(() => {
-    if (modelIndex != null && models.length > 0 && modelIndex < models.length) {
-      if ((models[modelIndex].type ?? "local") === "remote") {
+    if (logMode.type === "local" && models.length > 0 && logMode.index < models.length) {
+      if ((models[logMode.index].type ?? "local") === "remote") {
         navigate("/logs/proxy", { replace: true });
       }
     }
-  }, [modelIndex, models, navigate]);
+  }, [logMode, models, navigate]);
 
-  // Only show local models and remote-manager-proxied models in the card list
+  // Only show local models in the card list (not config-level remote models)
   const localModels = models
     .map((m, i) => ({ model: m, index: i }))
     .filter(({ model }) => (model.type ?? "local") !== "remote");
@@ -149,12 +168,12 @@ export default function Logs() {
   return (
     <div className="flex flex-col h-full">
       <h1 className="text-2xl font-bold mb-4">Logs</h1>
-      <ScrollStrip source={source}>
+      <ScrollStrip sourceKey={sourceKey}>
         <div data-source="proxy" className="space-y-4">
           <ProxyStatusCard
             status={proxyStatus}
             onClick={() => navigate("/logs/proxy")}
-            selected={source === "proxy"}
+            selected={logMode.type === "proxy"}
           />
           <ProxyControls status={proxyStatus} onAction={refreshProxy} />
         </div>
@@ -164,28 +183,33 @@ export default function Logs() {
               modelIndex={i}
               serverId={config?.manager_id ? `${config.manager_id}:model-${i}` : undefined}
               name={m.name ?? `Llama Server ${i + 1}`}
-              source={source}
+              selected={logMode.type === "local" && logMode.index === i}
+              path={`/logs/${i}`}
               navigate={navigate}
             />
           </div>
         ))}
         {remotes.flatMap((rm) =>
-          rm.models.map((m) => (
-            <div key={m.local_index} data-source={String(m.local_index)}>
-              <ModelLogCard
-                modelIndex={m.local_index}
-                serverId={m.server_id}
-                name={m.name ?? `Remote Model ${m.remote_model_index + 1}`}
-                source={source}
-                navigate={navigate}
-              />
-            </div>
-          )),
+          rm.models.map((m) => {
+            const remoteSourceKey = `${m.server_id}/${m.remote_model_index}`;
+            return (
+              <div key={remoteSourceKey} data-source={remoteSourceKey}>
+                <ModelLogCard
+                  modelIndex={m.remote_model_index}
+                  serverId={m.server_id}
+                  name={m.name ?? `Remote Model ${m.remote_model_index + 1}`}
+                  selected={logMode.type === "remote" && logMode.serverId === m.server_id && logMode.remoteIndex === m.remote_model_index}
+                  path={`/logs/${m.server_id}/${m.remote_model_index}`}
+                  navigate={navigate}
+                />
+              </div>
+            );
+          })
         )}
       </ScrollStrip>
       <h2 className="text-lg font-semibold mb-2">{logHeader} Logs</h2>
       <div className="flex-1 min-h-0">
-        <LogViewer lines={lines} connected={connected} onClear={clear} source={source} />
+        <LogViewer lines={lines} connected={connected} onClear={clear} source={sourceKey} />
       </div>
     </div>
   );

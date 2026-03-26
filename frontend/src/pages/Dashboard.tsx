@@ -136,8 +136,8 @@ function RemoteManagerSection({
         <div className="flex gap-6 flex-wrap ml-3">
           {rm.models.map((m) => (
             <RemoteModelPanel
-              key={m.local_index}
-              modelIndex={m.local_index}
+              key={`${m.server_id}-${m.remote_model_index}`}
+              modelIndex={m.remote_model_index}
               serverId={m.server_id}
               name={m.name ?? `Remote Model ${m.remote_model_index + 1}`}
               onSnapshot={onSnapshot}

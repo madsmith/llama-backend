@@ -6,8 +6,6 @@ import type {
   SlotInfo,
   ModelProps,
   RequestLogEntry,
-  RemoteManagerStatus,
-  UplinkStatus,
 } from "./types";
 import { getWsV2 } from "./wsv2";
 
@@ -66,8 +64,6 @@ export const api = {
     request<ModelProps>(`/api/status/props?model=${model}`),
   getRequestLog: (requestId: string) =>
     request<RequestLogEntry>(`/api/status/requests/${requestId}`),
-  getRemotes: () => request<RemoteManagerStatus[]>("/api/remotes"),
-  getUplinkStatus: () => request<UplinkStatus>("/api/remotes/uplink"),
   generateUplinkToken: () =>
     getWsV2()
       .sendRequest<{ token: string }>({ msg: "generate_token" }, "generate_token_response"),

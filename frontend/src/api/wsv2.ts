@@ -68,7 +68,6 @@ class WsV2ClientImpl implements WsV2Client {
     handler: MessageHandler,
     onConnect?: ConnectHandler,
   ): () => void {
-    console.log("Subscribe:", msgType);
     const subscription = new Subscription(msgType, handler, onConnect);
 
     let bucket = this.handlers.get(msgType);
@@ -113,6 +112,7 @@ class WsV2ClientImpl implements WsV2Client {
         resolve(msg as T);
       };
       const onConnect = () => {
+        console.log("Sending request:", requestMsg);
         this.send(requestMsg);
       };
       const unsub = this.subscribe(responseType, onResponse, onConnect);
@@ -160,7 +160,6 @@ class WsV2ClientImpl implements WsV2Client {
     if (!bucket) return;
 
     for (const sub of bucket) {
-      console.log("Dispatch message:", sub, msg);
       sub.handler(msg);
     }
   };
@@ -190,6 +189,7 @@ class WsV2ClientImpl implements WsV2Client {
       const sendMsg: JsonMessage = { msg: "subscribe_event", type };
       if (id !== null) sendMsg.id = id;
       if (subType !== undefined) sendMsg.sub_type = subType;
+      console.log("Sending subscribe_event:", sendMsg);
       this.send(sendMsg);
     };
 

@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import TYPE_CHECKING
 
 import websockets
 
@@ -13,9 +12,6 @@ from .log_buffer import LogBuffer
 from .model import ModelIdentifier
 from .process_manager import ServerState
 
-if TYPE_CHECKING:
-    from fastapi import FastAPI
-
 log = logging.getLogger(__name__)
 
 
@@ -24,7 +20,6 @@ class RemoteModelProxy:
 
     def __init__(
         self,
-        local_index: int,
         remote_index: int,
         remote_model_index: int,
         name: str | None,
@@ -36,7 +31,6 @@ class RemoteModelProxy:
         event_bus: EventBus,
         log_buffer_size: int = 10_000,
     ) -> None:
-        self.local_index = local_index
         self.remote_index = remote_index
         self.remote_model_index = remote_model_index
         self.name = name
@@ -130,13 +124,11 @@ class RemoteManagerClient:
         config: RemoteManagerConfig,
         app_config: AppConfig,
         event_bus: EventBus,
-        app: FastAPI,
     ) -> None:
         self.remote_index = remote_index
         self.config = config
         self._app_config = app_config
         self._event_bus = event_bus
-        self.app = app
         self.models: list[RemoteModelProxy] = []
         self.connection_state: str = "disconnected"
         self._ws: websockets.WebSocketClientProtocol | None = None
@@ -161,15 +153,8 @@ class RemoteManagerClient:
         self._remove_proxied_models()
 
     def _remove_proxied_models(self) -> None:
-        pms: list = getattr(self.app.state, "process_managers", [])
         for proxy in self.models:
             proxy.shutdown_subscribers()
-            if proxy.local_index < len(pms) and pms[proxy.local_index] is proxy:
-                pms[proxy.local_index] = None
-        # Trim trailing Nones that are past the local models zone
-        local_count = len(self._app_config.models)
-        while len(pms) > local_count and pms[-1] is None:
-            pms.pop()
         self.models.clear()
 
     def _ws_url(self) -> str:
@@ -267,7 +252,6 @@ class RemoteManagerClient:
         return None
 
     async def _reconcile_models(self, model_descriptors: list[dict], proxy_port: int = 1234, remote_manager_id: str = "") -> None:
-        pms: list = self.app.state.process_managers
         log_buffer_size = self._app_config.web_ui.log_buffer_size
         proxy_url = f"http://{self.config.host}:{proxy_port}"
 
@@ -306,15 +290,7 @@ class RemoteManagerClient:
                 proxy.server_id = server_id
                 proxy.model_identifier = model_identifier
             else:
-                # Find a free slot at or beyond the local models zone
-                local_count = len(self._app_config.models)
-                local_index = len(pms)
-                for i in range(local_count, len(pms)):
-                    if pms[i] is None:
-                        local_index = i
-                        break
                 proxy = RemoteModelProxy(
-                    local_index=local_index,
                     remote_index=self.remote_index,
                     remote_model_index=rmi,
                     name=name,
@@ -326,10 +302,6 @@ class RemoteManagerClient:
                     event_bus=self._event_bus,
                     log_buffer_size=log_buffer_size,
                 )
-                if local_index < len(pms):
-                    pms[local_index] = proxy
-                else:
-                    pms.append(proxy)
 
             proxy.llama_server_port = llama_port
 
@@ -341,11 +313,9 @@ class RemoteManagerClient:
 
             new_models.append(proxy)
 
-        # Remove models that disappeared from the remote
+        # Shut down subscribers for models that disappeared from the remote
         for old_proxy in existing.values():
             old_proxy.shutdown_subscribers()
-            if old_proxy.local_index < len(pms) and pms[old_proxy.local_index] is old_proxy:
-                pms[old_proxy.local_index] = None
 
         self.models = new_models
 

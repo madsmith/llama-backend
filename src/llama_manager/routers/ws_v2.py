@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Callable, ClassVar
+from typing import Callable
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, TypeAdapter, ValidationError
@@ -27,6 +27,10 @@ from llama_manager.protocol.ws_messages import (
     ProxyStatusResponse,
     PutConfigRequest,
     PutConfigResponse,
+    RemoteManagerInfo,
+    RemoteModelInfo,
+    RemotesRequest,
+    RemotesResponse,
     ServerStatusRequest,
     ServerStatusResponse,
     SlotStatusRequest,
@@ -38,25 +42,22 @@ from llama_manager.protocol.ws_messages import (
     SubscribeSlotStatusResponse,
     UnsubscribeEventRequest,
     UnsubscribeSlotStatusRequest,
+    UplinkStatusRequest,
+    UplinkStatusResponse,
 )
+
+_handler_map: dict[type, str] = {}
+
+
+def request_handler(msg_type: type) -> Callable:
+    def deco(fn: Callable) -> Callable:
+        _handler_map[msg_type] = fn.__name__
+        return fn
+    return deco
 
 
 class WsV2Connection:
     """Handles a single /v2/ws/manager WebSocket connection."""
-
-    _HANDLERS: ClassVar[dict[type, str]] = {
-        ProxyStatusRequest: "_on_proxy_status",
-        ServerStatusRequest: "_on_server_status",
-        SlotStatusRequest: "_on_slot_status",
-        SubscribeSlotStatusRequest: "_on_subscribe_slot_status",
-        UnsubscribeSlotStatusRequest: "_on_unsubscribe_slot_status",
-        SubscribeEventRequest: "_on_subscribe_event",
-        UnsubscribeEventRequest: "_on_unsubscribe_event",
-        GetConfigRequest: "_on_get_config",
-        PutConfigRequest: "_on_put_config",
-        GenerateTokenRequest: "_on_generate_token",
-        LoadLogRequest: "_on_load_log",
-    }
 
     def __init__(self, manager: LlamaManager, ws: WebSocket) -> None:
         self.manager = manager
@@ -106,14 +107,14 @@ class WsV2Connection:
     # ------------------------------------------------------------------
 
     async def _handle(self, msg: IncomingMessage) -> None:
-        method_name = self._HANDLERS.get(type(msg))
+        method_name = _handler_map.get(type(msg))
         if method_name is None:
             return
         handler = getattr(self, method_name, None)
         if handler is None:
             raise NotImplementedError(
-                f"{type(self).__name__}._HANDLERS maps {type(msg).__name__!r} "
-                f"to {method_name!r} but no such method exists"
+                f"{type(self).__name__} has no method {method_name!r} "
+                f"for {type(msg).__name__!r}"
             )
         response = await handler(msg)
         if response is not None:
@@ -123,9 +124,11 @@ class WsV2Connection:
     # Handlers
     # ------------------------------------------------------------------
 
+    @request_handler(ProxyStatusRequest)
     async def _on_proxy_status(self, _msg: ProxyStatusRequest) -> BaseModel:
         return ProxyStatusResponse(**self.manager.proxy.status())
 
+    @request_handler(ServerStatusRequest)
     async def _on_server_status(self, msg: ServerStatusRequest) -> BaseModel | None:
         for pm in self.manager.get_process_managers():
             server_id = (
@@ -137,6 +140,7 @@ class WsV2Connection:
                 return ServerStatusResponse(id=msg.id, **pm.get_status())
         return None
 
+    @request_handler(SlotStatusRequest)
     async def _on_slot_status(self, msg: SlotStatusRequest) -> BaseModel | None:
         pms = self.manager.get_process_managers()
         if msg.model < 0 or msg.model >= len(pms):
@@ -160,6 +164,7 @@ class WsV2Connection:
 
         return SlotStatusResponse(model=msg.model, slots=slots)
 
+    @request_handler(SubscribeSlotStatusRequest)
     async def _on_subscribe_slot_status(self, msg: SubscribeSlotStatusRequest) -> BaseModel:
         pms = self.manager.get_process_managers()
         server_id: str | None = None
@@ -193,11 +198,13 @@ class WsV2Connection:
             slots=slots,
         )
 
+    @request_handler(UnsubscribeSlotStatusRequest)
     async def _on_unsubscribe_slot_status(self, msg: UnsubscribeSlotStatusRequest) -> None:
         teardown = self._subscriptions.pop(msg.subscription_id, None)
         if teardown is not None:
             teardown()
 
+    @request_handler(SubscribeEventRequest)
     async def _on_subscribe_event(self, msg: SubscribeEventRequest) -> BaseModel:
         if msg.type == "slots":
             return await self._on_subscribe_event_slots(msg)
@@ -305,6 +312,7 @@ class WsV2Connection:
         self._subscriptions[subscription_id] = task.cancel
         return SubscribeEventResponse(subscription_id=subscription_id)
 
+    @request_handler(LoadLogRequest)
     async def _on_load_log(self, msg: LoadLogRequest) -> BaseModel:
         if msg.type == "proxy":
             lines = self.manager.proxy.log_buffer.snapshot()
@@ -328,22 +336,55 @@ class WsV2Connection:
                 )
         return LoadLogResponse(type="server", id=msg.id, lines=[])
 
+    @request_handler(UnsubscribeEventRequest)
     async def _on_unsubscribe_event(self, msg: UnsubscribeEventRequest) -> None:
         teardown = self._subscriptions.pop(msg.subscription_id, None)
         if teardown is not None:
             teardown()
 
+    @request_handler(GenerateTokenRequest)
     async def _on_generate_token(self, _msg: GenerateTokenRequest) -> BaseModel:
         return GenerateTokenResponse(token=self.manager.generate_token())
 
+    @request_handler(GetConfigRequest)
     async def _on_get_config(self, _msg: GetConfigRequest) -> BaseModel:
         from llama_manager.config import load_config
         return GetConfigResponse(config=load_config().model_dump())
 
+    @request_handler(PutConfigRequest)
     async def _on_put_config(self, msg: PutConfigRequest) -> BaseModel:
         config = AppConfig.model_validate(msg.config)
         updated = await self.manager.apply_config(config)
         return PutConfigResponse(config=updated.model_dump())
+
+    @request_handler(RemotesRequest)
+    async def _on_remotes(self, _msg: RemotesRequest) -> BaseModel:
+        remotes = [
+            RemoteManagerInfo(
+                index=client.remote_index,
+                name=client.config.name,
+                url=f"{client.config.host}:{client.config.port}",
+                connection_state=client.connection_state,
+                models=[
+                    RemoteModelInfo(
+                        remote_model_index=m.remote_model_index,
+                        name=m.name,
+                        state=m.state.value,
+                        server_id=m.server_id,
+                    )
+                    for m in client.models
+                ],
+            )
+            for client in self.manager.remote_manager_clients
+        ]
+        return RemotesResponse(remotes=remotes)
+
+    @request_handler(UplinkStatusRequest)
+    async def _on_uplink_status(self, _msg: UplinkStatusRequest) -> BaseModel:
+        return UplinkStatusResponse(
+            enabled=self.manager.config.manager_uplink.enabled,
+            connected_clients=self.manager.uplink_client_count,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -400,8 +441,7 @@ class UplinkConnection:
                     "lines": [{"id": ln.id, "text": ln.text} for ln in lines],
                 })
 
-        if self.manager.app is not None:
-            self.manager.app.state.uplink_client_count += 1
+        self.manager.uplink_client_count += 1
 
         sender_task = asyncio.create_task(self._sender())
         listener_tasks = [
@@ -434,8 +474,7 @@ class UplinkConnection:
                 task.cancel()
             for handle in slot_handles:
                 self.manager.slot_status.unsubscribe(handle)
-            if self.manager.app is not None:
-                self.manager.app.state.uplink_client_count -= 1
+            self.manager.uplink_client_count -= 1
 
     async def _sender(self) -> None:
         try:
