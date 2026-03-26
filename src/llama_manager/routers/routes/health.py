@@ -25,8 +25,8 @@ async def get_health(request: Request, model: int = Query(default=0)):
                     return data
         except Exception:
             pass
-        cached = pm.get_cached_health()
-        return cached if cached is not None else {"status": "unknown"}
+        health = await pm.get_health()
+        return health if health is not None else {"status": "unknown"}
 
     client = LlamaClient(model)
     data = await client.get_health()

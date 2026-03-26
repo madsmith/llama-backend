@@ -119,7 +119,7 @@ class SlotStatusService:
                     if slots is not None:
                         self._cache[server_id] = slots
                         return slots
-                return proxy.get_cached_slots()
+                return await proxy.get_slots()
 
         return None
 

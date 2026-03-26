@@ -26,7 +26,7 @@ async def get_slots(request: Request, model: int = Query(default=0)):
                     return data
         except Exception:
             pass
-        return pm.get_cached_slots()
+        return await pm.get_slots()
 
     client = LlamaClient(model)
     data = await client.get_slots()

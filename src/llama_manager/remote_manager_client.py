@@ -45,29 +45,11 @@ class RemoteModelProxy:
         self._started_at: float | None = None
         self.log_buffer = LogBuffer(maxlen=log_buffer_size)
         self._subscribers: list[asyncio.Queue[dict]] = []
-        self._cached_slots: list[dict] = []
+        self._cached_slots: list[dict] | None = None
         self._cached_health: dict | None = None
         self.llama_server_port: int | None = None
 
     # --- ProcessManager duck-type interface ---
-
-    def subscribe(self) -> asyncio.Queue[dict]:
-        q: asyncio.Queue[dict] = asyncio.Queue(maxsize=256)
-        self._subscribers.append(q)
-        return q
-
-    def unsubscribe(self, q: asyncio.Queue[dict]) -> None:
-        try:
-            self._subscribers.remove(q)
-        except ValueError:
-            pass
-
-    def shutdown_subscribers(self) -> None:
-        for q in list(self._subscribers):
-            try:
-                q.put_nowait({})
-            except asyncio.QueueFull:
-                pass
 
     def get_status(self) -> dict:
         is_running = self.state == ServerState.running
@@ -83,11 +65,21 @@ class RemoteModelProxy:
     def get_prompt_progress(self) -> dict:
         return {}
 
-    def get_cached_slots(self) -> list[dict]:
-        return self._cached_slots
+    async def get_slots(self) -> list[dict]:
+        if self._cached_slots is not None:
+            return self._cached_slots
+        slots = await self._client.request_slots(self.remote_model_index)
+        if slots:
+            self._cached_slots = slots
+        return slots
 
-    def get_cached_health(self) -> dict | None:
-        return self._cached_health
+    async def get_health(self) -> dict | None:
+        if self._cached_health is not None:
+            return self._cached_health
+        health = await self._client.request_health(self.remote_model_index)
+        if health is not None:
+            self._cached_health = health
+        return health
 
     # --- Push interface called by RemoteManagerClient ---
 
@@ -115,6 +107,7 @@ class RemoteModelProxy:
         self._event_bus.publish({"type": "server_log", "id": self.server_id, "data": {"line_id": line.id, "text": line.text}})
 
     def set_slots(self, slots: list) -> None:
+        print("RemoteModelProxy.set_slots", slots)
         self._cached_slots = slots
 
     def set_health(self, health: dict) -> None:
@@ -144,6 +137,8 @@ class RemoteManagerClient:
         self._task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
         self.server_id: str | None = None
+        self._pending_requests: dict[str, asyncio.Future[list[dict]]] = {}
+        self._request_counter: int = 0
 
     async def start(self) -> None:
         self._stop_event.clear()
@@ -159,12 +154,6 @@ class RemoteManagerClient:
                 await self._task
             except (asyncio.CancelledError, Exception):
                 pass
-        self._remove_proxied_models()
-
-    def _remove_proxied_models(self) -> None:
-        for proxy in self.models:
-            proxy.shutdown_subscribers()
-        self.models.clear()
 
     def _ws_url(self) -> str:
         return f"{self.config.ws_url}?token={self.config.token}"
@@ -212,6 +201,11 @@ class RemoteManagerClient:
                     continue
                 await self._handle_message(msg)
         self._ws = None
+        # Cancel any in-flight request-response calls.
+        for fut in list(self._pending_requests.values()):
+            if not fut.done():
+                fut.cancel()
+        self._pending_requests.clear()
         self.connection_state = "disconnected"
 
     async def _handle_message(self, msg: dict) -> None:
@@ -253,6 +247,18 @@ class RemoteManagerClient:
                 if health is not None:
                     proxy.set_health(health)
                     self._event_bus.publish({"type": "health", "server_id": proxy.server_id, "health": health})
+
+        elif t == "slots_response":
+            request_id = msg.get("request_id", "")
+            future = self._pending_requests.get(request_id)
+            if future is not None and not future.done():
+                future.set_result(msg.get("slots", []))
+
+        elif t == "health_response":
+            request_id = msg.get("request_id", "")
+            future = self._pending_requests.get(request_id)
+            if future is not None and not future.done():
+                future.set_result(msg.get("health"))
 
     def _get_proxy(self, remote_model_index: int) -> RemoteModelProxy | None:
         for p in self.models:
@@ -316,10 +322,6 @@ class RemoteManagerClient:
             proxy.set_state(state_str)
             new_models.append(proxy)
 
-        # Shut down subscribers for models that disappeared from the remote
-        for old_proxy in existing.values():
-            old_proxy.shutdown_subscribers()
-
         self.models = new_models
 
     async def send_command(self, remote_model_index: int, cmd: str) -> None:
@@ -329,3 +331,43 @@ class RemoteManagerClient:
             await self._ws.send(json.dumps({"type": cmd, "model": remote_model_index}))
         except Exception as exc:
             log.debug("Failed to send command to remote manager [%d]: %r", self.remote_index, exc)
+
+    async def request_health(self, remote_model_index: int) -> dict | None:
+        """Send a get_health request and await the response, returning None on timeout or error."""
+        if self._ws is None:
+            return None
+        self._request_counter += 1
+        request_id = str(self._request_counter)
+        future: asyncio.Future = asyncio.get_running_loop().create_future()
+        self._pending_requests[request_id] = future
+        try:
+            await self._ws.send(json.dumps({
+                "type": "get_health",
+                "model": remote_model_index,
+                "request_id": request_id,
+            }))
+            return await asyncio.wait_for(future, timeout=5.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+            return None
+        finally:
+            self._pending_requests.pop(request_id, None)
+
+    async def request_slots(self, remote_model_index: int) -> list[dict]:
+        """Send a get_slots request and await the response, returning [] on timeout or error."""
+        if self._ws is None:
+            return []
+        self._request_counter += 1
+        request_id = str(self._request_counter)
+        future: asyncio.Future[list[dict]] = asyncio.get_running_loop().create_future()
+        self._pending_requests[request_id] = future
+        try:
+            await self._ws.send(json.dumps({
+                "type": "get_slots",
+                "model": remote_model_index,
+                "request_id": request_id,
+            }))
+            return await asyncio.wait_for(future, timeout=5.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+            return []
+        finally:
+            self._pending_requests.pop(request_id, None)

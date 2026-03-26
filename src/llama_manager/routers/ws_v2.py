@@ -8,6 +8,7 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from llama_manager.config import load_config
+from llama_manager.llama_client import LlamaClient
 from llama_manager.llama_manager import LlamaManager
 from llama_manager.process_manager import ProcessManager
 from llama_manager.remote_manager_client import RemoteModelProxy
@@ -141,13 +142,14 @@ class WsV2Connection:
 
     @request_handler(SlotStatusRequest)
     async def _on_slot_status(self, msg: SlotStatusRequest) -> BaseModel | None:
-        # Remote model proxy: return cached slots directly (updated via uplink event stream).
+        # Remote model proxy: use cached slots or request from remote manager.
         for proxy in self.manager.get_remote_models():
             if proxy.server_id == msg.server_id:
-                print("Remote slots", proxy.get_cached_slots())
+                slots = await proxy.get_slots()
+                print("Remote slots", slots)
                 return SlotStatusResponse(
                     server_id=msg.server_id,
-                    slots=[dict(s) for s in proxy.get_cached_slots()],
+                    slots=[dict(s) for s in slots],
                 )
 
         # Find the local ProcessManager for this server_id.
@@ -544,6 +546,23 @@ class UplinkConnection:
             asyncio.create_task(pm.stop())
         elif t == "restart":
             asyncio.create_task(pm.restart())
+        elif t == "get_slots":
+            server_id = pm.get_server_identifier()
+            slots = await self.manager.slot_status.get_slots(server_id) or []
+            self._push_json({
+                "type": "slots_response",
+                "model": model_idx,
+                "request_id": cmd.get("request_id", ""),
+                "slots": slots,
+            })
+        elif t == "get_health":
+            health = await LlamaClient(model_idx).get_health()
+            self._push_json({
+                "type": "health_response",
+                "model": model_idx,
+                "request_id": cmd.get("request_id", ""),
+                "health": health,
+            })
 
 
 # ---------------------------------------------------------------------------
