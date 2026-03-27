@@ -136,7 +136,6 @@ class WsV2Connection:
                 return ServerStatusResponse(id=msg.id, **pm.get_status())
         for proxy in self.manager.get_remote_models():
             if proxy.server_id == msg.id:
-                print("Remote proxy status:", proxy.get_status())
                 return ServerStatusResponse(id=msg.id, **proxy.get_status())
         return None
 
@@ -146,7 +145,6 @@ class WsV2Connection:
         for proxy in self.manager.get_remote_models():
             if proxy.server_id == msg.server_id:
                 slots = await proxy.get_slots()
-                print("Remote slots", slots)
                 return SlotStatusResponse(
                     server_id=msg.server_id,
                     slots=[dict(s) for s in slots],
