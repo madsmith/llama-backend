@@ -34,7 +34,7 @@ export default function ServerControls({ status, serverId, modelSuid, onAction }
             reject(new Error((msg.error as string | undefined) ?? "Operation failed"));
           }
         });
-        ws.send({ msg: "server_control", operation, server_id: serverId, model_id: modelSuid });
+        ws.send({ msg: "server_control", operation, server_id: serverId, model_suid: modelSuid });
       });
       onAction();
     } catch (e) {

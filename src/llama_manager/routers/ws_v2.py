@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from typing import Callable
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
@@ -49,6 +50,8 @@ from llama_manager.protocol.ws_messages import (
     UplinkStatusResponse,
 )
 
+logger = logging.getLogger(__name__)
+
 _handler_map: dict[type, str] = {}
 
 
@@ -85,6 +88,7 @@ class WsV2Connection:
                 try:
                     msg = adapter.validate_python(json.loads(data))
                 except (json.JSONDecodeError, ValidationError):
+                    logger.warning(f"Invalid message: {data}")
                     continue
                 await self._handle(msg)
         except (WebSocketDisconnect, asyncio.CancelledError):
@@ -110,8 +114,10 @@ class WsV2Connection:
     # ------------------------------------------------------------------
 
     async def _handle(self, msg: IncomingMessage) -> None:
+        print(f"Receiving Message: {type(msg).__name__}")
         method_name = _handler_map.get(type(msg))
         if method_name is None:
+            logger.warning(f"No handler for message type: {type(msg).__name__}")
             return
         handler = getattr(self, method_name, None)
         if handler is None:
