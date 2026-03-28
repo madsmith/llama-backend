@@ -12,6 +12,7 @@ dist/
 # Config
 server_config.json
 llama-test.log
+TODO.md
 uv.lock
 
 # IDE
