@@ -2,30 +2,13 @@ from __future__ import annotations
 
 import httpx
 
-from .config import load_config
-
 
 class LlamaClient:
-    def __init__(self, model_index: int, *, base_url: str | None = None):
-        self.model_index = model_index
-        self._base_url_override = base_url
-
-    def _base_url(self) -> str | None:
-        if self._base_url_override is not None:
-            return self._base_url_override
-        cfg = load_config()
-        if self.model_index < 0 or self.model_index >= len(cfg.models):
-            return None
-        m = cfg.models[self.model_index]
-        if m.type == "remote":
-            return m.remote_address.rstrip("/") if m.remote_address else None
-        return f"http://127.0.0.1:{cfg.api_server.llama_server_starting_port + self.model_index}"
+    def __init__(self, base_url: str):
+        self._base_url = base_url
 
     async def _get(self, path: str) -> dict | list | None:
-        base = self._base_url()
-        if base is None:
-            return None
-        url = f"{base}{path}"
+        url = f"{self._base_url}{path}"
         try:
             async with httpx.AsyncClient(timeout=5) as client:
                 resp = await client.get(url)
@@ -35,10 +18,7 @@ class LlamaClient:
             return None
 
     async def get_health(self) -> dict | None:
-        base = self._base_url()
-        if base is None:
-            return None
-        url = f"{base}/health"
+        url = f"{self._base_url}/health"
         try:
             async with httpx.AsyncClient(timeout=5) as client:
                 resp = await client.get(url)

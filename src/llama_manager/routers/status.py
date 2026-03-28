@@ -2,13 +2,21 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from .routes import health, props, requests, slots
+from llama_manager.llama_manager import LlamaManager
 
-router = APIRouter(prefix="/api/status", tags=["status"])
+from .routes import requests
+from .routes.status import StatusRoutes
 
-router.get("/health")(health.get_health)
-router.get("/slots")(slots.get_slots)
-router.post("/slots/cancel")(slots.cancel_slot)
-router.get("/props")(props.get_props)
-router.get("/requests")(requests.list_requests)
-router.get("/requests/{request_id}")(requests.get_request)
+
+def make_router(manager: LlamaManager) -> APIRouter:
+    router = APIRouter(prefix="/api/status", tags=["status"])
+    status_routes = StatusRoutes(manager)
+
+    router.get("/health")(status_routes.get_health)
+    router.get("/slots")(status_routes.get_slots)
+    router.post("/slots/cancel")(StatusRoutes.cancel_slot)
+    router.get("/props")(status_routes.get_props)
+    router.get("/requests")(requests.list_requests)
+    router.get("/requests/{request_id}")(requests.get_request)
+
+    return router

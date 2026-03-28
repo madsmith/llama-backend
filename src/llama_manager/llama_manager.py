@@ -5,13 +5,17 @@ import logging
 import httpx
 import secrets
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 
 from .config import AppConfig, save_config
 from .dev import DevViteService
 from .event_bus import EventBus
-from .process_manager import ProcessManager
+from .kv_cache import resolve_slot_save_path
+from .llama_client import LlamaClient
+from .local_managed_model import LocalManagedModel
+from .model import ModelIdentifier
 from .proxy import ProxyServer, set_llama_manager
 from .proxy.slots import SlotStatusService
 from .remote_manager_client import RemoteManagerClient, RemoteModelProxy
@@ -21,11 +25,12 @@ log = logging.getLogger(__name__)
 
 type LocalModelIdentifier = str
 
+
 class LlamaManager:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
         self.event_bus = EventBus()
-        self._process_managers: dict[LocalModelIdentifier, ProcessManager] = {}
+        self._local_models: dict[LocalModelIdentifier, LocalManagedModel] = {}
         self._remote_unmanaged: dict[LocalModelIdentifier, RemoteUnmanagedModel] = {}
         self.remote_manager_clients: list[RemoteManagerClient] = []
         self.uplink_client_count: int = 0
@@ -37,8 +42,8 @@ class LlamaManager:
     # Public accessors
     # ------------------------------------------------------------------
 
-    def get_process_managers(self) -> dict[LocalModelIdentifier, ProcessManager]:
-        return self._process_managers
+    def get_local_models(self) -> dict[LocalModelIdentifier, LocalManagedModel]:
+        return self._local_models
 
     def get_remote_models(self) -> list[RemoteModelProxy]:
         return [model for client in self.remote_manager_clients for model in client.models]
@@ -46,26 +51,64 @@ class LlamaManager:
     def get_remote_unmanaged(self) -> dict[LocalModelIdentifier, RemoteUnmanagedModel]:
         return self._remote_unmanaged
 
+    def get_client(self, model_suid: str) -> LlamaClient | None:
+        local_model = self._local_models.get(model_suid)
+        if local_model is None:
+            return None
+        return LlamaClient(local_model.get_server_address())
+
+    def get_client_at(self, base_url: str) -> LlamaClient:
+        return LlamaClient(base_url)
+
+    # ------------------------------------------------------------------
+    # Model construction helpers
+    # ------------------------------------------------------------------
+
+    def _make_local_model(self, idx: int, config: AppConfig) -> LocalManagedModel:
+        """Construct a LocalManagedModel with all config pre-resolved."""
+        model_config = config.models[idx]
+        server_id = str(ModelIdentifier(
+            manager_id=config.manager_id,
+            process_identifier=f"model-{idx}",
+        ))
+        port = config.api_server.llama_server_starting_port + idx
+        raw_path = model_config.advanced.llama_server_path or config.api_server.llama_server_path
+        llama_server_path = Path(raw_path).expanduser() if raw_path else None
+        slot_save_path = resolve_slot_save_path(config, idx)
+        return LocalManagedModel(
+            server_id=server_id,
+            model_config=model_config,
+            port=port,
+            event_bus=self.event_bus,
+            log_buffer_size=config.web_ui.log_buffer_size,
+            llama_server_path=llama_server_path,
+            slot_save_path=slot_save_path,
+        )
+
+    def _update_local_model(self, local_model: LocalManagedModel, idx: int, config: AppConfig) -> None:
+        """Push refreshed config to an existing LocalManagedModel."""
+        model_config = config.models[idx]
+        raw_path = model_config.advanced.llama_server_path or config.api_server.llama_server_path
+        llama_server_path = Path(raw_path).expanduser() if raw_path else None
+        slot_save_path = resolve_slot_save_path(config, idx)
+        local_model.update_config(model_config, llama_server_path, slot_save_path)
+
     # ------------------------------------------------------------------
     # Model initialisation
     # ------------------------------------------------------------------
 
     def _initialize_models(self, config: AppConfig) -> None:
-        """Build process_managers and _remote_unmanaged fresh from config.
-
-        This is the single point where ProcessManager and RemoteUnmanagedModel
-        instances are constructed for a clean (re)start.  apply_config handles
-        the incremental update case separately but defers to this for new slots.
-        """
-        pms: dict[LocalModelIdentifier, ProcessManager] = {}
+        """Build _local_models and _remote_unmanaged fresh from config."""
+        local_models: dict[LocalModelIdentifier, LocalManagedModel] = {}
         unmanaged: dict[LocalModelIdentifier, RemoteUnmanagedModel] = {}
-        for idx, model in enumerate(config.models):
+        for idx, model_config in enumerate(config.models):
             key = str(idx)
-            if model.type == "remote":
-                unmanaged[key] = RemoteUnmanagedModel(idx, config.manager_id, model)
+            if model_config.type == "remote":
+                server_id = str(ModelIdentifier(manager_id=config.manager_id, process_identifier=f"model-{idx}"))
+                unmanaged[key] = RemoteUnmanagedModel(server_id, model_config)
             else:
-                pms[key] = ProcessManager(idx, config, self.event_bus)
-        self._process_managers = pms
+                local_models[key] = self._make_local_model(idx, config)
+        self._local_models = local_models
         self._remote_unmanaged = unmanaged
 
     # ------------------------------------------------------------------
@@ -82,11 +125,11 @@ class LlamaManager:
 
         await self.proxy.start()
 
-        for i, m in enumerate(self.config.models):
-            pm = self._process_managers.get(str(i))
-            if m.auto_start and pm is not None:
-                log.info("Auto-starting model %s", m.name or i)
-                await pm.start()
+        for idx, model_config in enumerate(self.config.models):
+            local_model = self._local_models.get(str(idx))
+            if model_config.auto_start and local_model is not None:
+                log.info("Auto-starting model %s", model_config.name or idx)
+                await local_model.start()
 
         # _sync_remote_managers works for initial startup (empty list) and
         # incremental apply_config updates — no separate connect path needed.
@@ -107,8 +150,8 @@ class LlamaManager:
 
         await self.proxy.stop()
 
-        for pm in self._process_managers.values():
-            await pm.stop()
+        for local_model in self._local_models.values():
+            await local_model.stop()
 
         if vite is not None:
             await vite.stop()
@@ -129,39 +172,43 @@ class LlamaManager:
     # ------------------------------------------------------------------
 
     async def apply_config(self, config: AppConfig) -> AppConfig:
-        """Save config and incrementally sync process managers and remote clients."""
+        """Save config and incrementally sync local models and remote clients."""
         if config.manager_uplink.enabled and not config.manager_uplink.token:
             config.manager_uplink.token = self.generate_token()
 
         save_config(config)
         self.config = config
 
-        process_managers = self._process_managers
+        local_models = self._local_models
         unmanaged = self._remote_unmanaged
 
-        # Sync all configured models (handles new additions and type changes)
-        for idx, model in enumerate(config.models):
+        # Sync all configured models (handles new additions, type changes, config updates)
+        for idx, model_config in enumerate(config.models):
             key = str(idx)
-            if model.type == "remote":
-                unmanaged[key] = RemoteUnmanagedModel(idx, config.manager_id, model)
-                process_manager = process_managers.get(key)
-                if process_manager is not None and process_manager.state.value == "stopped":
-                    del process_managers[key]
+            if model_config.type == "remote":
+                server_id = str(ModelIdentifier(manager_id=config.manager_id, process_identifier=f"model-{idx}"))
+                unmanaged[key] = RemoteUnmanagedModel(server_id, model_config)
+                existing = local_models.get(key)
+                if existing is not None and existing.state.value == "stopped":
+                    del local_models[key]
             else:
                 unmanaged.pop(key, None)
-                if key not in process_managers:
-                    process_managers[key] = ProcessManager(idx, config, self.event_bus)
+                if key in local_models:
+                    self._update_local_model(local_models[key], idx, config)
+                else:
+                    local_models[key] = self._make_local_model(idx, config)
 
-        # Shrink: remove stopped entries for slots no longer configured
+        # Shrink: stop and remove entries for slots no longer configured
         orphaned_keys = sorted(
-            (k for k in process_managers if int(k) >= len(config.models)),
+            (k for k in local_models if int(k) >= len(config.models)),
             key=int,
             reverse=True,
         )
         for key in orphaned_keys:
-            if process_managers[key].state.value != "stopped":
-                break
-            del process_managers[key]
+            local_model = local_models[key]
+            if local_model.state.value not in ("stopped", "error"):
+                await local_model.stop()
+            del local_models[key]
             unmanaged.pop(key, None)
 
         set_llama_manager(self)
@@ -208,20 +255,18 @@ class LlamaManager:
 
     async def data_publisher(self) -> None:
         """Publish health events for running local models to the event bus."""
-
         while True:
             try:
-                for pm in self._process_managers.values():
-                    if pm.state.value != "running":
+                for local_model in self._local_models.values():
+                    if local_model.state.value != "running":
                         continue
-                    base = pm.get_server_address()
                     try:
                         async with httpx.AsyncClient(timeout=2) as client:
-                            resp = await client.get(f"{base}/health")
+                            resp = await client.get(f"{local_model.get_server_address()}/health")
                             if resp.status_code in (200, 503):
                                 self.event_bus.publish({
                                     "type": "health",
-                                    "server_id": pm.get_server_identifier(),
+                                    "server_id": local_model.get_server_identifier(),
                                     "health": resp.json(),
                                 })
                     except Exception:

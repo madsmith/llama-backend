@@ -19,9 +19,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import load_config
 from .dev import DevViteService
 from .llama_manager import LlamaManager
-from .routers import status
 from .routers.events import make_router as make_events_router
 from .routers.server import make_router as make_server_router
+from .routers.status import make_router as make_status_router
 from .routers.ws_v2 import make_router as make_ws_v2_router
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -45,7 +45,7 @@ app.add_middleware(
 
 app.include_router(make_server_router(manager))
 app.include_router(make_ws_v2_router(manager))
-app.include_router(status.router)
+app.include_router(make_status_router(manager))
 app.include_router(make_events_router(manager.event_bus))
 
 # In prod mode, serve the built frontend as static files

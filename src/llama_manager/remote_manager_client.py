@@ -11,13 +11,13 @@ from .config import AppConfig, RemoteManagerConfig
 from .event_bus import EventBus
 from .log_buffer import LogBuffer
 from .model import ModelIdentifier
-from .process_manager import ServerState
+from .local_managed_model import ServerState
 
 logger = logging.getLogger(__name__)
 
 
 class RemoteModelProxy:
-    """Mirrors the ProcessManager interface for a model on a remote manager."""
+    """Mirrors the LocalManagedModel interface for a model on a remote manager."""
 
     def __init__(
         self,
@@ -49,7 +49,7 @@ class RemoteModelProxy:
         self._cached_health: dict | None = None
         self.llama_server_port: int | None = None
 
-    # --- ProcessManager duck-type interface ---
+    # --- LocalManagedModel duck-type interface ---
 
     def get_status(self) -> dict:
         is_running = self.state == ServerState.running

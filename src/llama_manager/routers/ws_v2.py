@@ -9,9 +9,8 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from llama_manager.config import load_config
-from llama_manager.llama_client import LlamaClient
 from llama_manager.llama_manager import LlamaManager
-from llama_manager.process_manager import ProcessManager
+from llama_manager.local_managed_model import LocalManagedModel
 from llama_manager.proxy.active_requests import ActiveRequestManager
 from llama_manager.config import AppConfig
 from llama_manager.protocol.ws_messages import (
@@ -153,9 +152,9 @@ class WsV2Connection:
 
     @request_handler(ServerStatusRequest)
     async def _on_server_status(self, msg: ServerStatusRequest) -> BaseModel | None:
-        for pm in self.manager.get_process_managers().values():
-            if pm.get_server_identifier() == msg.id:
-                return ServerStatusResponse(id=msg.id, **pm.get_status())
+        for local_model in self.manager.get_local_models().values():
+            if local_model.get_server_identifier() == msg.id:
+                return ServerStatusResponse(id=msg.id, **local_model.get_status())
         for proxy in self.manager.get_remote_models():
             if proxy.server_id == msg.id:
                 return ServerStatusResponse(id=msg.id, **proxy.get_status())
@@ -172,20 +171,20 @@ class WsV2Connection:
                     slots=[dict(s) for s in slots],
                 )
 
-        # Find the local ProcessManager for this server_id.
-        pm: ProcessManager | None = None
+        # Find the local model for this server_id.
+        local_model: LocalManagedModel | None = None
         model_index: int | None = None
-        for i_str, p in self.manager.get_process_managers().items():
-            if p.get_server_identifier() == msg.server_id:
-                pm = p
+        for i_str, candidate in self.manager.get_local_models().items():
+            if candidate.get_server_identifier() == msg.server_id:
+                local_model = candidate
                 model_index = int(i_str)
                 break
 
         slots = [dict(s) for s in (await self.manager.slot_status.get_slots(msg.server_id) or [])]
 
-        if pm is not None and model_index is not None:
+        if local_model is not None and model_index is not None:
             cancellable = set(ActiveRequestManager.list_cancellable(model_index))
-            progress = pm.get_prompt_progress()
+            progress = local_model.get_prompt_progress()
             if progress:
                 for slot in slots:
                     info = progress.get(slot.get("id"))
@@ -346,9 +345,9 @@ class WsV2Connection:
                 lines=[LogLine(id=l.id, text=l.text, request_id=l.request_id) for l in lines],
             )
         # type == "server"
-        for pm in self.manager.get_process_managers().values():
-            if pm.get_server_identifier() == msg.id:
-                lines = pm.log_buffer.snapshot()
+        for local_model in self.manager.get_local_models().values():
+            if local_model.get_server_identifier() == msg.id:
+                lines = local_model.log_buffer.snapshot()
                 return LoadLogResponse(
                     type="server",
                     id=msg.id,
@@ -402,15 +401,15 @@ class WsV2Connection:
 
     @request_handler(ServerControlRequest)
     async def _on_server_control(self, msg: ServerControlRequest) -> BaseModel:
-        for i_str, pm in self.manager.get_process_managers().items():
-            if pm.get_server_identifier() == msg.server_id and int(i_str) == msg.model_suid:
+        for i_str, local_model in self.manager.get_local_models().items():
+            if local_model.get_server_identifier() == msg.server_id and int(i_str) == msg.model_suid:
                 try:
                     if msg.operation == "start":
-                        asyncio.create_task(pm.start())
+                        asyncio.create_task(local_model.start())
                     elif msg.operation == "stop":
-                        asyncio.create_task(pm.stop())
+                        asyncio.create_task(local_model.stop())
                     elif msg.operation == "restart":
-                        asyncio.create_task(pm.restart())
+                        asyncio.create_task(local_model.restart())
                 except Exception as exc:
                     return ServerControlResponse(operation=msg.operation, server_id=msg.server_id, success=False, error=str(exc))
                 return ServerControlResponse(operation=msg.operation, server_id=msg.server_id, success=True)
@@ -445,13 +444,11 @@ class UplinkConnection:
 
     async def run(self) -> None:
         cfg = load_config()
-        pms = self.manager.get_process_managers()
-        local_pms = [
-            (int(i_str), pm)
-            for i_str, pm in pms.items()
-            if int(i_str) < len(cfg.models)
+        local_models = [
+            (int(key), local_model)
+            for key, local_model in self.manager.get_local_models().items()
         ]
-        server_id_to_index = {pm.get_server_identifier(): i for i, pm in local_pms}
+        server_id_to_index = {local_model.get_server_identifier(): i for i, local_model in local_models}
 
         # Snapshot
         await self.ws.send_json({
@@ -463,18 +460,18 @@ class UplinkConnection:
                     "index": i,
                     "name": cfg.models[i].name,
                     "model_id": cfg.models[i].effective_id,
-                    "process_identifier": pm.process_manager_id,
-                    "server_id": pm.get_server_identifier(),
-                    "state": pm.get_status()["state"],
-                    "llama_port": pm.port,
+                    "process_identifier": f"model-{i}",
+                    "server_id": local_model.get_server_identifier(),
+                    "state": local_model.get_status()["state"],
+                    "llama_port": local_model.port,
                 }
-                for i, pm in local_pms
+                for i, local_model in local_models
             ],
         })
 
         # Log history
-        for i, pm in local_pms:
-            lines = pm.log_buffer.snapshot()
+        for i, local_model in local_models:
+            lines = local_model.log_buffer.snapshot()
             if lines:
                 await self.ws.send_json({
                     "type": "log_history",
@@ -491,8 +488,8 @@ class UplinkConnection:
             asyncio.create_task(self._listen_health(server_id_to_index)),
         ]
         slot_handles: list[int] = []
-        for i, pm in local_pms:
-            server_id = pm.get_server_identifier()
+        for i, local_model in local_models:
+            server_id = local_model.get_server_identifier()
 
             def _on_slots(slots: list[dict], _i: int = i, _sid: str = server_id) -> None:
                 self._push_json({"type": "slots", "model": _i, "server_id": _sid, "slots": slots})
@@ -506,7 +503,7 @@ class UplinkConnection:
                 except WebSocketDisconnect:
                     break
                 try:
-                    await self._handle_command(json.loads(data), local_pms)
+                    await self._handle_command(json.loads(data), local_models)
                 except Exception:
                     pass
         finally:
@@ -578,21 +575,20 @@ class UplinkConnection:
         finally:
             self.manager.event_bus.unsubscribe(q)
 
-    async def _handle_command(self, cmd: dict, local_pms: list[tuple[int, ProcessManager]]) -> None:
+    async def _handle_command(self, cmd: dict, local_models: list[tuple[int, LocalManagedModel]]) -> None:
         t = cmd.get("type")
         model_idx = cmd.get("model", 0)
-        pm_map = {i: pm for i, pm in local_pms}
-        pm = pm_map.get(model_idx)
-        if pm is None:
+        local_model = {i: m for i, m in local_models}.get(model_idx)
+        if local_model is None:
             return
         if t == "start":
-            asyncio.create_task(pm.start())
+            asyncio.create_task(local_model.start())
         elif t == "stop":
-            asyncio.create_task(pm.stop())
+            asyncio.create_task(local_model.stop())
         elif t == "restart":
-            asyncio.create_task(pm.restart())
+            asyncio.create_task(local_model.restart())
         elif t == "get_slots":
-            server_id = pm.get_server_identifier()
+            server_id = local_model.get_server_identifier()
             slots = await self.manager.slot_status.get_slots(server_id) or []
             self._push_json({
                 "type": "slots_response",
@@ -601,7 +597,8 @@ class UplinkConnection:
                 "slots": slots,
             })
         elif t == "get_health":
-            health = await LlamaClient(model_idx).get_health()
+            client = self.manager.get_client(str(model_idx))
+            health = await client.get_health() if client is not None else None
             self._push_json({
                 "type": "health_response",
                 "model": model_idx,

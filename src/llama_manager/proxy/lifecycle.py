@@ -5,7 +5,7 @@ import time
 from typing import TYPE_CHECKING
 
 from llama_manager.config import AppConfig
-from llama_manager.process_manager import ProcessManager
+from llama_manager.local_managed_model import LocalManagedModel
 
 from .subscription import proxy_log
 
@@ -41,13 +41,13 @@ async def task_ttl_checker(config: AppConfig) -> None:
     while True:
         await asyncio.sleep(30)
         try:
-            pms = get_llama_manager().get_process_managers()
+            local_models = get_llama_manager().get_local_models()
             now = time.monotonic()
             for i, m in enumerate(config.models):
                 if m.model_ttl is None or m.type == "remote":
                     continue
-                pm = pms.get(str(i))
-                if pm is None or pm.state.value != "running":
+                local_model = local_models.get(str(i))
+                if local_model is None or local_model.state.value != "running":
                     continue
                 last = _model_last_activity.get(i)
                 if last is None:
@@ -55,7 +55,7 @@ async def task_ttl_checker(config: AppConfig) -> None:
                 if now - last > m.model_ttl * 60:
                     name = m.name or f"model-{i}"
                     proxy_log(f"TTL expired for [{name}], stopping server")
-                    await pm.stop()
+                    await local_model.stop()
         except Exception:
             pass  # don't crash the background task
 
@@ -75,21 +75,21 @@ async def ensure_model_server(model_index: int, config: AppConfig) -> None:
     has_ttl = model is not None and model.model_ttl is not None
     if not config.api_server.jit_model_server and not has_ttl:
         return
-    pm = get_llama_manager().get_process_managers().get(str(model_index))
-    if pm is None:
+    local_model = get_llama_manager().get_local_models().get(str(model_index))
+    if local_model is None:
         return  # remote model or out of range — no local process to start
-    if pm.state.value == "running":
+    if local_model.state.value == "running":
         return
-    if pm.state.value not in ("stopped", "error"):
+    if local_model.state.value not in ("stopped", "error"):
         return
 
     timeout = config.api_server.jit_timeout or 80
-    proxy_log(f"JIT: model server [{model_index}] is {pm.state.value}, starting...")
-    await pm.start()
+    proxy_log(f"JIT: model server [{model_index}] is {local_model.state.value}, starting...")
+    await local_model.start()
 
     elapsed = 0.0
     while elapsed < timeout:
-        state = pm.state.value
+        state = local_model.state.value
         if state == "running":
             proxy_log(f"JIT: model server [{model_index}] ready ({elapsed:.1f}s)")
             return

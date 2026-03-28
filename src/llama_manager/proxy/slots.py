@@ -9,24 +9,28 @@ import httpx
 
 from llama_manager.event_bus import EventBus
 from llama_manager.llama_client import LlamaClient
-from llama_manager.process_manager import ProcessManager
+from llama_manager.local_managed_model import LocalManagedModel
 from llama_manager.remote_manager_client import RemoteModelProxy
 from llama_manager.proxy.subscription import proxy_log
+
+
 
 logger = logging.getLogger(__name__)
 
 SubscriptionHandle = int
 
 
-class ProcessManagerProvider(Protocol):
-    def get_process_managers(self) -> dict[str, ProcessManager]: ...
+class LocalModelProvider(Protocol):
+    def get_local_models(self) -> dict[str, LocalManagedModel]: ...
     def get_remote_models(self) -> list[RemoteModelProxy]: ...
+    def get_client(self, model_suid: str) -> LlamaClient | None: ...
+    def get_client_at(self, base_url: str) -> LlamaClient: ...
 
 
 class SlotStatusService:
     """Owns slot state for all models: live-fetch, cache, and background polling."""
 
-    def __init__(self, provider: ProcessManagerProvider, event_bus: EventBus) -> None:
+    def __init__(self, provider: LocalModelProvider, event_bus: EventBus) -> None:
         self._active_until: dict[int, float] = {}
         self._provider = provider
         self._event_bus = event_bus
@@ -99,9 +103,10 @@ class SlotStatusService:
     # ------------------------------------------------------------------
 
     async def _fetch(self, server_id: str) -> list[dict] | None:
-        for pm in self._provider.get_process_managers().values():
-            if pm.get_server_identifier() == server_id:
-                slots = await LlamaClient(pm.model_index).get_slots()
+        for key, local_model in self._provider.get_local_models().items():
+            if local_model.get_server_identifier() == server_id:
+                client = self._provider.get_client(key)
+                slots = await client.get_slots() if client is not None else None
                 if slots is not None:
                     self._cache[server_id] = slots
                 return slots
@@ -115,7 +120,7 @@ class SlotStatusService:
                     return self._cache[server_id]
                 if proxy.llama_server_port is not None:
                     base_url = f"http://{proxy._client.config.host}:{proxy.llama_server_port}"
-                    slots = await LlamaClient(0, base_url=base_url).get_slots()
+                    slots = await self._provider.get_client_at(base_url).get_slots()
                     if slots is not None:
                         self._cache[server_id] = slots
                         return slots
@@ -153,26 +158,27 @@ class SlotStatusService:
 
         while True:
             now = time.monotonic()
-            pms = self._provider.get_process_managers()
+            local_models = self._provider.get_local_models()
 
             # Initialise scheduling state for newly-seen managers
-            for i_str in pms:
+            for i_str in local_models:
                 i = int(i_str)
                 if i not in next_poll:
                     next_poll[i] = now
                     last_slots[i] = None
 
             # Poll every server that is due
-            for i_str, pm in pms.items():
+            for i_str, local_model in local_models.items():
                 i = int(i_str)
-                if pm.state.value != "running":
+                if local_model.state.value != "running":
                     continue
                 if now < next_poll.get(i, 0):
                     continue
 
-                server_id = pm.get_server_identifier()
+                server_id = local_model.get_server_identifier()
                 try:
-                    slots = await LlamaClient(i).get_slots()
+                    client = self._provider.get_client(i_str)
+                    slots = await client.get_slots() if client is not None else None
                 except Exception:
                     next_poll[i] = time.monotonic() + 3.0
                     continue
@@ -199,8 +205,8 @@ class SlotStatusService:
             # Promote models flagged active via mark_active() to fast polling so
             # a newly-arrived request is picked up without waiting out a slow cycle.
             running = {
-                int(i_str) for i_str, pm in pms.items()
-                if pm.state.value == "running"
+                int(i_str) for i_str, local_model in local_models.items()
+                if local_model.state.value == "running"
             }
             for i in running:
                 if self.is_active(i):
