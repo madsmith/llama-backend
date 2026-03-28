@@ -11,7 +11,7 @@ import { useProxyStatus, useServerStatusWS, useLogs, useRemotes, pollRatesFromCo
 
 function ModelLogCard({ modelIndex, serverId, name, selected, path, navigate }: {
   modelIndex: number;
-  serverId: string | undefined;
+  serverId: string;
   name: string;
   selected: boolean;
   path: string;
@@ -29,7 +29,7 @@ function ModelLogCard({ modelIndex, serverId, name, selected, path, navigate }: 
         onClick={() => navigate(path)}
         selected={selected}
       />
-      <ServerControls status={statusOrUnknown} modelIndex={modelIndex} onAction={refresh} />
+      <ServerControls status={statusOrUnknown} serverId={serverId} modelSuid={modelIndex} onAction={refresh} />
     </div>
   );
 }
@@ -181,7 +181,7 @@ export default function Logs() {
           <div key={i} data-source={String(i)}>
             <ModelLogCard
               modelIndex={i}
-              serverId={config?.manager_id ? `${config.manager_id}:model-${i}` : undefined}
+              serverId={config?.manager_id ?? ""}
               name={m.name ?? `Llama Server ${i + 1}`}
               selected={logMode.type === "local" && logMode.index === i}
               path={`/logs/${i}`}
