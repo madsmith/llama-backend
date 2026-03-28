@@ -24,7 +24,7 @@ class RemoteModelProxy:
         remote_index: int,
         remote_model_index: int,
         name: str | None,
-        model_id: str | None,
+        model_id: str,
         proxy_url: str,
         server_id: str,
         model_identifier: ModelIdentifier,
@@ -35,7 +35,7 @@ class RemoteModelProxy:
         self.remote_index = remote_index
         self.remote_model_index = remote_model_index
         self.name = name
-        self.model_id = model_id
+        self.model_id: str = model_id
         self.proxy_url = proxy_url
         self.server_id = server_id
         self.model_identifier = model_identifier
@@ -284,6 +284,15 @@ class RemoteManagerClient:
             state_str = desc.get("state", "stopped")
             llama_port: int | None = desc.get("llama_port")
             key = name or f"__idx_{rmi}"
+            # TODO: add pydantic validation for model descriptors
+
+            if name is None:
+                logger.warning(f"Model descriptor missing name: {desc}")
+                name = f'Model {rmi}'
+
+            if model_id is None:
+                logger.error(f"Model descriptor missing model_id [skipping]: {desc}")
+                continue
 
             # Construct ModelIdentifier: prefer parsing server_id, fall back to remote_manager_id
             if remote_manager_id:
@@ -307,8 +316,8 @@ class RemoteManagerClient:
                 proxy = RemoteModelProxy(
                     remote_index=self.remote_index,
                     remote_model_index=rmi,
-                    name=name,
-                    model_id=model_id,
+                    name=str(name),
+                    model_id=str(model_id),
                     proxy_url=proxy_url,
                     server_id=server_id,
                     model_identifier=model_identifier,

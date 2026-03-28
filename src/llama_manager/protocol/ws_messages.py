@@ -111,6 +111,13 @@ class UplinkStatusRequest(BaseModel):
     msg: Literal["uplink_status"] = "uplink_status"
 
 
+class ServerControlRequest(BaseModel):
+    msg: Literal["server_control"] = "server_control"
+    operation: Literal["start", "stop", "restart"]
+    server_id: str
+    model_suid: int
+
+
 IncomingMessage = Annotated[
     Union[
         ProxyStatusRequest,
@@ -126,6 +133,7 @@ IncomingMessage = Annotated[
         LoadLogRequest,
         RemotesRequest,
         UplinkStatusRequest,
+        ServerControlRequest,
     ],
     Field(discriminator="msg"),
 ]
@@ -221,6 +229,7 @@ class LoadLogResponse(BaseModel):
 class RemoteModelInfo(BaseModel):
     remote_model_index: int
     name: str | None
+    model_id: str
     state: str
     server_id: str
 
@@ -242,3 +251,11 @@ class UplinkStatusResponse(BaseModel):
     msg: Literal["uplink_status_response"] = "uplink_status_response"
     enabled: bool
     connected_clients: int
+
+
+class ServerControlResponse(BaseModel):
+    msg: Literal["server_control_response"] = "server_control_response"
+    operation: str
+    server_id: str
+    success: bool
+    error: str | None = None

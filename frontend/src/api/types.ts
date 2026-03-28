@@ -80,6 +80,7 @@ export interface ServerConfig {
 export interface RemoteModelInfo {
   remote_model_index: number;
   name: string | null;
+  model_id: string;
   state: string;
   server_id: string;
 }

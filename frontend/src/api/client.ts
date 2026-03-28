@@ -24,18 +24,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   getStatus: (model = 0) =>
     request<ServerStatus>(`/api/server/status?model=${model}`),
-  start: (model = 0) =>
-    request<ServerStatus>(`/api/server/start?model=${model}`, {
-      method: "POST",
-    }),
-  stop: (model = 0) =>
-    request<ServerStatus>(`/api/server/stop?model=${model}`, {
-      method: "POST",
-    }),
-  restart: (model = 0) =>
-    request<ServerStatus>(`/api/server/restart?model=${model}`, {
-      method: "POST",
-    }),
+  start: (serverId: string, modelSuid: number) =>
+    request<ServerStatus>(
+      `/api/server/start?server_id=${encodeURIComponent(serverId)}&model_suid=${modelSuid}`,
+      { method: "POST" },
+    ),
+  stop: (serverId: string, modelSuid: number) =>
+    request<ServerStatus>(
+      `/api/server/stop?server_id=${encodeURIComponent(serverId)}&model_suid=${modelSuid}`,
+      { method: "POST" },
+    ),
+  restart: (serverId: string, modelSuid: number) =>
+    request<ServerStatus>(
+      `/api/server/restart?server_id=${encodeURIComponent(serverId)}&model_suid=${modelSuid}`,
+      { method: "POST" },
+    ),
   getProxyStatus: () => request<ProxyStatus>("/api/server/proxy-status"),
   proxyStart: () =>
     request<ProxyStatus>("/api/server/proxy-start", { method: "POST" }),

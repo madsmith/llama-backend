@@ -32,6 +32,8 @@ from llama_manager.protocol.ws_messages import (
     RemoteModelInfo,
     RemotesRequest,
     RemotesResponse,
+    ServerControlRequest,
+    ServerControlResponse,
     ServerStatusRequest,
     ServerStatusResponse,
     SlotStatusRequest,
@@ -363,6 +365,7 @@ class WsV2Connection:
                     RemoteModelInfo(
                         remote_model_index=m.remote_model_index,
                         name=m.name,
+                        model_id=m.model_id,
                         state=m.state.value,
                         server_id=m.server_id,
                     )
@@ -372,6 +375,26 @@ class WsV2Connection:
             for client in self.manager.remote_manager_clients
         ]
         return RemotesResponse(remotes=remotes)
+
+    @request_handler(ServerControlRequest)
+    async def _on_server_control(self, msg: ServerControlRequest) -> BaseModel:
+        for i, pm in enumerate(self.manager.get_process_managers()):
+            if isinstance(pm, ProcessManager) and pm.get_server_identifier() == msg.server_id and i == msg.model_suid:
+                try:
+                    if msg.operation == "start":
+                        asyncio.create_task(pm.start())
+                    elif msg.operation == "stop":
+                        asyncio.create_task(pm.stop())
+                    elif msg.operation == "restart":
+                        asyncio.create_task(pm.restart())
+                except Exception as exc:
+                    return ServerControlResponse(operation=msg.operation, server_id=msg.server_id, success=False, error=str(exc))
+                return ServerControlResponse(operation=msg.operation, server_id=msg.server_id, success=True)
+        for proxy in self.manager.get_remote_models():
+            if proxy.server_id == msg.server_id and proxy.remote_model_index == msg.model_suid:
+                await proxy.send_command(msg.operation)
+                return ServerControlResponse(operation=msg.operation, server_id=msg.server_id, success=True)
+        return ServerControlResponse(operation=msg.operation, server_id=msg.server_id, success=False, error="Server not found")
 
     @request_handler(UplinkStatusRequest)
     async def _on_uplink_status(self, _msg: UplinkStatusRequest) -> BaseModel:
