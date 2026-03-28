@@ -82,8 +82,8 @@ class ServerRoutes:
 
 
     def _find(self, request: Request, server_id: str, model_suid: int) -> ProcessManager | RemoteModelProxy | None:
-        for i, pm in enumerate(self.manager.get_process_managers()):
-            if isinstance(pm, ProcessManager) and pm.get_server_identifier() == server_id and i == model_suid:
+        for i_str, pm in self.manager.get_process_managers().items():
+            if pm.get_server_identifier() == server_id and int(i_str) == model_suid:
                 return pm
         for model in self.manager.get_remote_models():
             if model.server_id == server_id and model.remote_model_index == model_suid:

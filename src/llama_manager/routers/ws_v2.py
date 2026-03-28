@@ -12,7 +12,6 @@ from llama_manager.config import load_config
 from llama_manager.llama_client import LlamaClient
 from llama_manager.llama_manager import LlamaManager
 from llama_manager.process_manager import ProcessManager
-from llama_manager.remote_manager_client import RemoteModelProxy
 from llama_manager.proxy.active_requests import ActiveRequestManager
 from llama_manager.config import AppConfig
 from llama_manager.protocol.ws_messages import (
@@ -154,8 +153,8 @@ class WsV2Connection:
 
     @request_handler(ServerStatusRequest)
     async def _on_server_status(self, msg: ServerStatusRequest) -> BaseModel | None:
-        for pm in self.manager.get_process_managers():
-            if isinstance(pm, ProcessManager) and pm.get_server_identifier() == msg.id:
+        for pm in self.manager.get_process_managers().values():
+            if pm.get_server_identifier() == msg.id:
                 return ServerStatusResponse(id=msg.id, **pm.get_status())
         for proxy in self.manager.get_remote_models():
             if proxy.server_id == msg.id:
@@ -176,10 +175,10 @@ class WsV2Connection:
         # Find the local ProcessManager for this server_id.
         pm: ProcessManager | None = None
         model_index: int | None = None
-        for i, p in enumerate(self.manager.get_process_managers()):
-            if isinstance(p, ProcessManager) and p.get_server_identifier() == msg.server_id:
+        for i_str, p in self.manager.get_process_managers().items():
+            if p.get_server_identifier() == msg.server_id:
                 pm = p
-                model_index = i
+                model_index = int(i_str)
                 break
 
         slots = [dict(s) for s in (await self.manager.slot_status.get_slots(msg.server_id) or [])]
@@ -347,13 +346,8 @@ class WsV2Connection:
                 lines=[LogLine(id=l.id, text=l.text, request_id=l.request_id) for l in lines],
             )
         # type == "server"
-        for pm in self.manager.get_process_managers():
-            server_id = (
-                pm.get_server_identifier() if isinstance(pm, ProcessManager)
-                else pm.server_id if isinstance(pm, RemoteModelProxy)
-                else None
-            )
-            if server_id == msg.id and isinstance(pm, ProcessManager):
+        for pm in self.manager.get_process_managers().values():
+            if pm.get_server_identifier() == msg.id:
                 lines = pm.log_buffer.snapshot()
                 return LoadLogResponse(
                     type="server",
@@ -408,8 +402,8 @@ class WsV2Connection:
 
     @request_handler(ServerControlRequest)
     async def _on_server_control(self, msg: ServerControlRequest) -> BaseModel:
-        for i, pm in enumerate(self.manager.get_process_managers()):
-            if isinstance(pm, ProcessManager) and pm.get_server_identifier() == msg.server_id and i == msg.model_suid:
+        for i_str, pm in self.manager.get_process_managers().items():
+            if pm.get_server_identifier() == msg.server_id and int(i_str) == msg.model_suid:
                 try:
                     if msg.operation == "start":
                         asyncio.create_task(pm.start())
@@ -453,9 +447,9 @@ class UplinkConnection:
         cfg = load_config()
         pms = self.manager.get_process_managers()
         local_pms = [
-            (i, pms[i])
-            for i in range(len(cfg.models))
-            if i < len(pms) and isinstance(pms[i], ProcessManager)
+            (int(i_str), pm)
+            for i_str, pm in pms.items()
+            if int(i_str) < len(cfg.models)
         ]
         server_id_to_index = {pm.get_server_identifier(): i for i, pm in local_pms}
 

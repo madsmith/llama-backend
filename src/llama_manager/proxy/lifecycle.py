@@ -46,9 +46,7 @@ async def task_ttl_checker(config: AppConfig) -> None:
             for i, m in enumerate(config.models):
                 if m.model_ttl is None or m.type == "remote":
                     continue
-                if i >= len(pms):
-                    continue
-                pm = pms[i]
+                pm = pms.get(str(i))
                 if pm is None or pm.state.value != "running":
                     continue
                 last = _model_last_activity.get(i)
@@ -77,12 +75,9 @@ async def ensure_model_server(model_index: int, config: AppConfig) -> None:
     has_ttl = model is not None and model.model_ttl is not None
     if not config.api_server.jit_model_server and not has_ttl:
         return
-    pms = get_llama_manager().get_process_managers()
-    if model_index < 0 or model_index >= len(pms):
-        return
-    pm = pms[model_index]
+    pm = get_llama_manager().get_process_managers().get(str(model_index))
     if pm is None:
-        return  # remote model — no local process to start
+        return  # remote model or out of range — no local process to start
     if pm.state.value == "running":
         return
     if pm.state.value not in ("stopped", "error"):

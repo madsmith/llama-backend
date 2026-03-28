@@ -19,7 +19,7 @@ SubscriptionHandle = int
 
 
 class ProcessManagerProvider(Protocol):
-    def get_process_managers(self) -> list[ProcessManager | None]: ...
+    def get_process_managers(self) -> dict[str, ProcessManager]: ...
     def get_remote_models(self) -> list[RemoteModelProxy]: ...
 
 
@@ -99,8 +99,8 @@ class SlotStatusService:
     # ------------------------------------------------------------------
 
     async def _fetch(self, server_id: str) -> list[dict] | None:
-        for pm in self._provider.get_process_managers():
-            if isinstance(pm, ProcessManager) and pm.get_server_identifier() == server_id:
+        for pm in self._provider.get_process_managers().values():
+            if pm.get_server_identifier() == server_id:
                 slots = await LlamaClient(pm.model_index).get_slots()
                 if slots is not None:
                     self._cache[server_id] = slots
@@ -156,15 +156,15 @@ class SlotStatusService:
             pms = self._provider.get_process_managers()
 
             # Initialise scheduling state for newly-seen managers
-            for i in range(len(pms)):
+            for i_str in pms:
+                i = int(i_str)
                 if i not in next_poll:
                     next_poll[i] = now
                     last_slots[i] = None
 
             # Poll every server that is due
-            for i, pm in enumerate(pms):
-                if not isinstance(pm, ProcessManager):
-                    continue
+            for i_str, pm in pms.items():
+                i = int(i_str)
                 if pm.state.value != "running":
                     continue
                 if now < next_poll.get(i, 0):
@@ -199,8 +199,8 @@ class SlotStatusService:
             # Promote models flagged active via mark_active() to fast polling so
             # a newly-arrived request is picked up without waiting out a slow cycle.
             running = {
-                i for i, pm in enumerate(pms)
-                if isinstance(pm, ProcessManager) and pm.state.value == "running"
+                int(i_str) for i_str, pm in pms.items()
+                if pm.state.value == "running"
             }
             for i in running:
                 if self.is_active(i):

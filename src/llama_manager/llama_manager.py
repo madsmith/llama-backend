@@ -25,7 +25,7 @@ class LlamaManager:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
         self.event_bus = EventBus()
-        self.process_managers: list[ProcessManager | None] = []
+        self._process_managers: dict[LocalModelIdentifier, ProcessManager] = {}
         self._remote_unmanaged: dict[LocalModelIdentifier, RemoteUnmanagedModel] = {}
         self.remote_manager_clients: list[RemoteManagerClient] = []
         self.uplink_client_count: int = 0
@@ -37,8 +37,8 @@ class LlamaManager:
     # Public accessors
     # ------------------------------------------------------------------
 
-    def get_process_managers(self) -> list[ProcessManager | None]:
-        return self.process_managers
+    def get_process_managers(self) -> dict[LocalModelIdentifier, ProcessManager]:
+        return self._process_managers
 
     def get_remote_models(self) -> list[RemoteModelProxy]:
         return [model for client in self.remote_manager_clients for model in client.models]
@@ -57,15 +57,15 @@ class LlamaManager:
         instances are constructed for a clean (re)start.  apply_config handles
         the incremental update case separately but defers to this for new slots.
         """
-        pms: list[ProcessManager | None] = []
+        pms: dict[LocalModelIdentifier, ProcessManager] = {}
         unmanaged: dict[LocalModelIdentifier, RemoteUnmanagedModel] = {}
         for idx, model in enumerate(config.models):
+            key = str(idx)
             if model.type == "remote":
-                pms.append(None)
-                unmanaged[str(idx)] = RemoteUnmanagedModel(idx, config.manager_id, model)
+                unmanaged[key] = RemoteUnmanagedModel(idx, config.manager_id, model)
             else:
-                pms.append(ProcessManager(idx, config, self.event_bus))
-        self.process_managers = pms
+                pms[key] = ProcessManager(idx, config, self.event_bus)
+        self._process_managers = pms
         self._remote_unmanaged = unmanaged
 
     # ------------------------------------------------------------------
@@ -83,7 +83,7 @@ class LlamaManager:
         await self.proxy.start()
 
         for i, m in enumerate(self.config.models):
-            pm = self.process_managers[i]
+            pm = self._process_managers.get(str(i))
             if m.auto_start and pm is not None:
                 log.info("Auto-starting model %s", m.name or i)
                 await pm.start()
@@ -107,9 +107,8 @@ class LlamaManager:
 
         await self.proxy.stop()
 
-        for pm in self.process_managers:
-            if pm is not None:
-                await pm.stop()
+        for pm in self._process_managers.values():
+            await pm.stop()
 
         if vite is not None:
             await vite.stop()
@@ -137,40 +136,33 @@ class LlamaManager:
         save_config(config)
         self.config = config
 
-        pms = self.process_managers
+        process_managers = self._process_managers
         unmanaged = self._remote_unmanaged
 
-        # Grow: add slots for newly configured models
-        while len(pms) < len(config.models):
-            idx = len(pms)
-            model = config.models[idx]
+        # Sync all configured models (handles new additions and type changes)
+        for idx, model in enumerate(config.models):
+            key = str(idx)
             if model.type == "remote":
-                pms.append(None)
-                unmanaged[idx] = RemoteUnmanagedModel(idx, config.manager_id, model)
+                unmanaged[key] = RemoteUnmanagedModel(idx, config.manager_id, model)
+                process_manager = process_managers.get(key)
+                if process_manager is not None and process_manager.state.value == "stopped":
+                    del process_managers[key]
             else:
-                pms.append(ProcessManager(idx, config, self.event_bus))
+                unmanaged.pop(key, None)
+                if key not in process_managers:
+                    process_managers[key] = ProcessManager(idx, config, self.event_bus)
 
-        # Sync existing slots when type changes
-        for i, model in enumerate(config.models):
-            if i >= len(pms):
+        # Shrink: remove stopped entries for slots no longer configured
+        orphaned_keys = sorted(
+            (k for k in process_managers if int(k) >= len(config.models)),
+            key=int,
+            reverse=True,
+        )
+        for key in orphaned_keys:
+            if process_managers[key].state.value != "stopped":
                 break
-            if model.type == "remote":
-                unmanaged[i] = RemoteUnmanagedModel(i, config.manager_id, model)
-                pm = pms[i]
-                if pm is not None and pm.state.value == "stopped":
-                    pms[i] = None
-            else:
-                unmanaged.pop(i, None)
-                if pms[i] is None:
-                    pms[i] = ProcessManager(i, config, self.event_bus)
-
-        # Shrink: remove trailing stopped slots that are no longer configured
-        while len(pms) > len(config.models):
-            pm = pms[-1]
-            if pm is not None and pm.state.value != "stopped":
-                break
-            pms.pop()
-            unmanaged.pop(len(pms), None)
+            del process_managers[key]
+            unmanaged.pop(key, None)
 
         set_llama_manager(self)
         await self._sync_remote_managers(config)
@@ -219,9 +211,7 @@ class LlamaManager:
 
         while True:
             try:
-                for pm in self.process_managers:
-                    if not isinstance(pm, ProcessManager):
-                        continue
+                for pm in self._process_managers.values():
                     if pm.state.value != "running":
                         continue
                     base = pm.get_server_address()
