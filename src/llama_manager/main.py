@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import load_config
 from .dev import DevViteService
-from .llama_manager import LlamaManager
+from .manager.llama_manager import LlamaManager
 from .routers.events import make_router as make_events_router
 from .routers.server import make_router as make_server_router
 from .routers.status import make_router as make_status_router

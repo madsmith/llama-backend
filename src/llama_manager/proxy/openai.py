@@ -10,7 +10,7 @@ from fastapi import Request
 from starlette.responses import JSONResponse, StreamingResponse
 
 if TYPE_CHECKING:
-    from llama_manager.llama_manager import LlamaManager
+    from llama_manager.manager.llama_manager import LlamaManager
 from llama_manager.config import AppConfig
 from llama_manager.kv_cache import (
     CacheHit,

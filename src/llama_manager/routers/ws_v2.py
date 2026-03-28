@@ -9,8 +9,8 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from llama_manager.config import load_config
-from llama_manager.llama_manager import LlamaManager
-from llama_manager.local_managed_model import LocalManagedModel
+from llama_manager.manager.llama_manager import LlamaManager
+from llama_manager.manager.local_managed_model import LocalManagedModel
 from llama_manager.proxy.active_requests import ActiveRequestManager
 from llama_manager.config import AppConfig
 from llama_manager.protocol.ws_messages import (

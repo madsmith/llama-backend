@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from llama_manager.llama_manager import LlamaManager
+from llama_manager.manager.llama_manager import LlamaManager
 
 from .routes import requests
 from .routes.status import StatusRoutes

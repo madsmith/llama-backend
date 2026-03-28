@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .config import ModelConfig
+from ..config import ModelConfig
 
 
 class RemoteUnmanagedModel:

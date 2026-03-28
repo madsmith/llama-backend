@@ -3,9 +3,9 @@ from __future__ import annotations
 from fastapi import Query, Request
 from fastapi.responses import JSONResponse
 
-from llama_manager.llama_manager import LlamaManager
-from llama_manager.local_managed_model import LocalManagedModel
-from llama_manager.remote_manager_client import RemoteModelProxy
+from llama_manager.manager.llama_manager import LlamaManager
+from llama_manager.manager.local_managed_model import LocalManagedModel
+from llama_manager.manager.remote_manager_client import RemoteModelProxy
 
 
 class ServerRoutes:

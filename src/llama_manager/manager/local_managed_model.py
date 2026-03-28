@@ -10,8 +10,8 @@ from pathlib import Path
 
 from llama_manager.event_bus import EventBus
 
-from .config import ModelConfig
-from .log_buffer import LogBuffer
+from ..config import ModelConfig
+from ..log_buffer import LogBuffer
 
 # Regexes for parsing prompt processing progress from llama-server logs
 _RE_NEW_PROMPT = re.compile(

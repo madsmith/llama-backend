@@ -19,7 +19,7 @@ from llama_manager.config import AppConfig
 from llama_manager.log_buffer import LogBuffer
 
 if TYPE_CHECKING:
-    from llama_manager.llama_manager import LlamaManager
+    from llama_manager.manager.llama_manager import LlamaManager
 from .lifecycle import task_ttl_checker, get_ttl_task, set_ttl_task
 from .openai import OpenAIProxy
 from .request_log import RequestLog

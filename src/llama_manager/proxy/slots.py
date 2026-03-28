@@ -9,8 +9,8 @@ import httpx
 
 from llama_manager.event_bus import EventBus
 from llama_manager.llama_client import LlamaClient
-from llama_manager.local_managed_model import LocalManagedModel
-from llama_manager.remote_manager_client import RemoteModelProxy
+from llama_manager.manager.local_managed_model import LocalManagedModel
+from llama_manager.manager.remote_manager_client import RemoteModelProxy
 from llama_manager.proxy.subscription import proxy_log
 
 

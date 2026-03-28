@@ -7,10 +7,10 @@ import time
 
 import websockets
 
-from .config import AppConfig, RemoteManagerConfig
-from .event_bus import EventBus
-from .log_buffer import LogBuffer
-from .model import ModelIdentifier
+from ..config import AppConfig, RemoteManagerConfig
+from ..event_bus import EventBus
+from ..log_buffer import LogBuffer
+from ..model import ModelIdentifier
 from .local_managed_model import ServerState
 
 logger = logging.getLogger(__name__)

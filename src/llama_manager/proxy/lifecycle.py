@@ -5,12 +5,12 @@ import time
 from typing import TYPE_CHECKING
 
 from llama_manager.config import AppConfig
-from llama_manager.local_managed_model import LocalManagedModel
+from llama_manager.manager.local_managed_model import LocalManagedModel
 
 from .subscription import proxy_log
 
 if TYPE_CHECKING:
-    from llama_manager.llama_manager import LlamaManager
+    from llama_manager.manager.llama_manager import LlamaManager
 
 # ---------------------------------------------------------------------------
 # JIT model server start + TTL tracking
