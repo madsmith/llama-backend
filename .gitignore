@@ -11,6 +11,7 @@ dist/
 
 # Config
 server_config.json
+llama-test.log
 uv.lock
 
 # IDE

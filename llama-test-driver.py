@@ -8,10 +8,12 @@ import asyncio
 import json
 import random
 import time
+from typing import IO
 
 from pathlib import Path
 
 import httpx
+
 
 def parse_token_count(value: str) -> int:
     """Parse a token count like '16k', '4K', '2048'."""
@@ -19,6 +21,56 @@ def parse_token_count(value: str) -> int:
     if v.endswith("k"):
         return int(float(v[:-1]) * 1024)
     return int(v)
+
+
+# ~4 chars per token is a reasonable estimate for English text
+_CHARS_PER_TOKEN = 4
+
+_CONTEXT_FRAGMENTS = [
+    "You are a helpful, harmless, and honest AI assistant. Always respond clearly and concisely.",
+    "Before answering, break the problem into smaller sub-tasks and reason through each one step by step.",
+    "If you are unsure about a fact, say so explicitly rather than guessing or hallucinating details.",
+    "Prioritize user safety. Never provide advice that could cause harm to the user or others.",
+    "Cite your reasoning when drawing conclusions, especially for complex or ambiguous questions.",
+    "When writing code, include comments explaining the intent behind non-obvious logic.",
+    "Prefer simple, readable solutions over clever or overly optimized ones unless performance is critical.",
+    "If the user's request is ambiguous, ask a clarifying question before proceeding.",
+    "Always verify that your outputs satisfy the constraints stated in the prompt.",
+    "Decompose multi-step tasks into an explicit plan before executing any individual step.",
+    "When summarizing documents, preserve key details and avoid introducing new information.",
+    "Maintain a neutral, professional tone unless the user explicitly requests a different style.",
+    "For mathematical problems, show all intermediate steps rather than jumping to the final answer.",
+    "When comparing options, evaluate trade-offs explicitly across relevant dimensions.",
+    "If you detect a logical inconsistency in the user's premises, point it out respectfully.",
+    "Avoid repeating verbatim what the user already said; paraphrase or advance the conversation instead.",
+    "Use bullet points or numbered lists when presenting multiple independent items for clarity.",
+    "For long tasks, periodically summarize progress so the user can follow your reasoning.",
+    "Do not make assumptions about the user's background knowledge; explain technical terms when introduced.",
+    "When asked to critique or review work, be specific and constructive rather than vague or dismissive.",
+    "Validate edge cases and boundary conditions when writing or reviewing algorithms.",
+    "When given conflicting instructions, follow the most recent one and note the conflict to the user.",
+    "Structure longer responses with headings or clear section breaks to aid readability.",
+    "If a task is outside your capabilities, explain clearly what you cannot do and why.",
+    "When generating creative content, stay within the themes and constraints specified by the user.",
+    "For debugging tasks, hypothesize the most likely root cause before proposing a fix.",
+    "Always double-check units, dimensions, and data types when working with numerical problems.",
+    "Prefer reversible actions and flag any steps that cannot be undone before taking them.",
+    "When translating between languages, preserve the tone and intent of the original text.",
+    "If a response would be very long, offer a concise summary and ask if the user wants more detail.",
+]
+
+
+def make_long_context(target_tokens: int, seed: int | None = None) -> str:
+    """Return a block of pseudo-random agent instructions approximating target_tokens tokens."""
+    rng = random.Random(seed)
+    target_chars = target_tokens * _CHARS_PER_TOKEN
+    parts: list[str] = []
+    total = 0
+    while total < target_chars:
+        frag = rng.choice(_CONTEXT_FRAGMENTS)
+        parts.append(frag)
+        total += len(frag) + 1  # +1 for newline
+    return "\n".join(parts)
 
 
 TOPICS = [
@@ -57,10 +109,13 @@ async def run_completion(
     model: str | None,
     output_dir: Path | None,
     max_tokens: int = 16384,
+    long_context: str | None = None,
+    log_file: IO[str] | None = None,
 ) -> None:
     stream = output_dir is not None
+    content = f"{long_context}\n\n{prompt}" if long_context else prompt
     body: dict = {
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": [{"role": "user", "content": content}],
         "max_tokens": max_tokens,
         "stream": stream,
     }
@@ -73,9 +128,9 @@ async def run_completion(
 
     try:
         if stream:
-            await _run_streaming(client, base, body, index, tag, t0, output_dir)
+            await _run_streaming(client, base, body, index, tag, t0, output_dir, log_file)
         else:
-            await _run_blocking(client, base, body, tag, t0)
+            await _run_blocking(client, base, body, tag, t0, log_file)
     except httpx.ConnectError:
         print(f"{tag} ERROR: could not connect to {base}")
     except Exception as exc:
@@ -88,6 +143,7 @@ async def _run_blocking(
     body: dict,
     tag: str,
     t0: float,
+    log_file: IO[str] | None = None,
 ) -> None:
     resp = await client.post(f"{base}/v1/chat/completions", json=body, timeout=None)
     elapsed = time.monotonic() - t0
@@ -99,12 +155,15 @@ async def _run_blocking(
     text = choice.get("message", {}).get("content", "")
     usage = data.get("usage", {})
     words = len(text.split())
-    print(
+    stats = (
         f"{tag} done in {elapsed:.1f}s  "
         f"words={words}  "
         f"prompt_tokens={usage.get('prompt_tokens', '?')}  "
         f"completion_tokens={usage.get('completion_tokens', '?')}"
     )
+    print(stats)
+    if log_file:
+        log_file.write(f"{stats}\n{tag} completion:\n{text}\n")
 
 
 async def _run_streaming(
@@ -115,9 +174,11 @@ async def _run_streaming(
     tag: str,
     t0: float,
     output_dir: Path,
+    log_file: IO[str] | None = None,
 ) -> None:
     out_path = output_dir / f"prompt_{index}.txt"
     total_tokens = 0
+    parts: list[str] = []
     async with client.stream("POST", f"{base}/v1/chat/completions", json=body, timeout=None) as resp:
         if resp.status_code != 200:
             await resp.aread()
@@ -136,10 +197,16 @@ async def _run_streaming(
                 if content:
                     f.write(content)
                     f.flush()
+                    parts.append(content)
                     total_tokens += 1
     elapsed = time.monotonic() - t0
     size = out_path.stat().st_size
-    print(f"{tag} done in {elapsed:.1f}s  chunks={total_tokens}  written={out_path} ({size} bytes)")
+    text = "".join(parts)
+    stats = f"{tag} done in {elapsed:.1f}s  chunks={total_tokens}  written={out_path} ({size} bytes)"
+    print(stats)
+    print(f"{tag} completion:\n{text}")
+    if log_file:
+        log_file.write(f"{stats}\n{tag} completion:\n{text}\n")
 
 
 def print_slots(slots: list) -> None:
@@ -241,8 +308,24 @@ async def main() -> None:
     parser.add_argument("--show-delay", type=float, default=None, help="wait N seconds before displaying (once)")
     parser.add_argument("--show-interval", type=float, default=None, help="repeat display every N seconds")
     parser.add_argument("--raw", action="store_true", help="pretty-print full JSON for --show-* commands")
+    parser.add_argument("--long-context", "--lc", action="store_true", help="prepend a large synthetic context to each prompt")
+    parser.add_argument("--long-context-size", "--lcs", type=parse_token_count, default=4096, metavar="TOKENS",
+                        help="approximate token count for the long context (default: 4k, e.g. 8k, 16384)")
+    parser.add_argument("--log", action="store_true", help="write stats and completions to ./llama-test.log")
     args = parser.parse_args()
 
+    log_file: IO[str] | None = None
+    if args.log:
+        log_file = open("llama-test.log", "w", buffering=1)
+
+    try:
+        await _run(args, log_file)
+    finally:
+        if log_file is not None:
+            log_file.close()
+
+
+async def _run(args: argparse.Namespace, log_file: IO[str] | None = None) -> None:
     base = args.server.rstrip("/")
 
     # Determine how many inference requests to run
@@ -272,11 +355,18 @@ async def main() -> None:
         output_dir = Path(args.output)
         output_dir.mkdir(parents=True, exist_ok=True)
 
+    long_context: str | None = None
+    if args.long_context:
+        long_context = make_long_context(args.long_context_size)
+
     print(f"Target: {base}")
     if n > 0:
         print(f"Concurrent requests: {n}")
     if args.model:
         print(f"Models: {', '.join(args.model)}")
+    if long_context:
+        actual_tokens = len(long_context) // _CHARS_PER_TOKEN
+        print(f"Long context: ~{actual_tokens} tokens prepended to each prompt")
     if output_dir:
         print(f"Output: {output_dir}/")
     print()
@@ -284,7 +374,7 @@ async def main() -> None:
     async with httpx.AsyncClient() as client:
         # Launch inference requests
         tasks = [
-            asyncio.create_task(run_completion(client, base, prompts[i], i, models[i], output_dir, args.max_tokens))
+            asyncio.create_task(run_completion(client, base, prompts[i], i, models[i], output_dir, args.max_tokens, long_context, log_file))
             for i in range(n)
         ]
 
