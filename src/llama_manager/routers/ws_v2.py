@@ -53,11 +53,19 @@ from llama_manager.protocol.ws_messages import (
 logger = logging.getLogger(__name__)
 
 _handler_map: dict[type, str] = {}
+_event_handler_map: dict[str, str] = {}
 
 
 def request_handler(msg_type: type) -> Callable:
     def deco(fn: Callable) -> Callable:
         _handler_map[msg_type] = fn.__name__
+        return fn
+    return deco
+
+
+def event_handler(event_type: str) -> Callable:
+    def deco(fn: Callable) -> Callable:
+        _event_handler_map[event_type] = fn.__name__
         return fn
     return deco
 
@@ -114,18 +122,25 @@ class WsV2Connection:
     # ------------------------------------------------------------------
 
     async def _handle(self, msg: IncomingMessage) -> None:
-        print(f"Receiving Message: {type(msg).__name__}")
+        logger.debug(f"Receiving Message: {type(msg).__name__}")
         method_name = _handler_map.get(type(msg))
         if method_name is None:
             logger.warning(f"No handler for message type: {type(msg).__name__}")
             return
+
         handler = getattr(self, method_name, None)
         if handler is None:
             raise NotImplementedError(
                 f"{type(self).__name__} has no method {method_name!r} "
                 f"for {type(msg).__name__!r}"
             )
-        response = await handler(msg)
+
+        try:
+            response = await handler(msg)
+        except Exception:
+            logger.exception("Handler %r raised an exception", method_name)
+            return
+
         if response is not None:
             self._push(response)
 
@@ -216,14 +231,21 @@ class WsV2Connection:
 
     @request_handler(SubscribeEventRequest)
     async def _on_subscribe_event(self, msg: SubscribeEventRequest) -> BaseModel:
-        if msg.type == "slots":
-            return await self._on_subscribe_event_slots(msg)
-        if msg.type == "server_status":
-            return await self._on_subscribe_event_server_status(msg)
-        if msg.type == "log":
-            return await self._on_subscribe_event_log(msg)
-        return SubscribeEventResponse(subscription_id=-1)
+        method_name = _event_handler_map.get(msg.type)
+        if method_name is None:
+            return SubscribeEventResponse(subscription_id=-1)
 
+        handler = getattr(self, method_name, None)
+        if handler is None:
+            return SubscribeEventResponse(subscription_id=-1)
+
+        try:
+            return await handler(msg)
+        except Exception:
+            logger.exception("Handler %r raised an exception", method_name)
+            return SubscribeEventResponse(subscription_id=-1)
+
+    @event_handler("slots")
     async def _on_subscribe_event_slots(self, msg: SubscribeEventRequest) -> BaseModel:
         server_id = msg.id  # client sends the server_id directly as the event id
 
@@ -241,6 +263,7 @@ class WsV2Connection:
 
         return SubscribeEventResponse(subscription_id=subscription_id)
 
+    @event_handler("server_status")
     async def _on_subscribe_event_server_status(self, msg: SubscribeEventRequest) -> BaseModel:
         server_id = msg.id
         q = self.manager.event_bus.subscribe("server_status")
@@ -266,6 +289,7 @@ class WsV2Connection:
         self._subscriptions[subscription_id] = task.cancel
         return SubscribeEventResponse(subscription_id=subscription_id)
 
+    @event_handler("log")
     async def _on_subscribe_event_log(self, msg: SubscribeEventRequest) -> BaseModel:
         if msg.sub_type == "proxy":
             event_type = "proxy_log"
