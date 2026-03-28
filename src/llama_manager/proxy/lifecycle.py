@@ -2,19 +2,33 @@ from __future__ import annotations
 
 import asyncio
 import time
+from typing import TYPE_CHECKING
 
 from llama_manager.config import AppConfig
 from llama_manager.process_manager import ProcessManager
 
 from .subscription import proxy_log
 
+if TYPE_CHECKING:
+    from llama_manager.llama_manager import LlamaManager
+
 # ---------------------------------------------------------------------------
 # JIT model server start + TTL tracking
 # ---------------------------------------------------------------------------
 
-_process_managers: list[ProcessManager | None] = []
+_llama_manager: LlamaManager | None = None
 _model_last_activity: dict[int, float] = {}
 _ttl_task: asyncio.Task | None = None
+
+
+def set_llama_manager(manager: LlamaManager) -> None:
+    global _llama_manager
+    _llama_manager = manager
+
+
+def get_llama_manager() -> LlamaManager:
+    assert _llama_manager is not None
+    return _llama_manager
 
 
 def touch_model(model_index: int) -> None:
@@ -27,13 +41,14 @@ async def task_ttl_checker(config: AppConfig) -> None:
     while True:
         await asyncio.sleep(30)
         try:
+            pms = get_llama_manager().get_process_managers()
             now = time.monotonic()
             for i, m in enumerate(config.models):
                 if m.model_ttl is None or m.type == "remote":
                     continue
-                if i >= len(_process_managers):
+                if i >= len(pms):
                     continue
-                pm = _process_managers[i]
+                pm = pms[i]
                 if pm is None or pm.state.value != "running":
                     continue
                 last = _model_last_activity.get(i)
@@ -45,15 +60,6 @@ async def task_ttl_checker(config: AppConfig) -> None:
                     await pm.stop()
         except Exception:
             pass  # don't crash the background task
-
-
-def set_process_managers(pms: list[ProcessManager | None]) -> None:
-    global _process_managers
-    _process_managers = pms
-
-
-def get_process_managers() -> list:
-    return _process_managers
 
 
 def get_ttl_task() -> asyncio.Task | None:
@@ -71,9 +77,10 @@ async def ensure_model_server(model_index: int, config: AppConfig) -> None:
     has_ttl = model is not None and model.model_ttl is not None
     if not config.api_server.jit_model_server and not has_ttl:
         return
-    if model_index < 0 or model_index >= len(_process_managers):
+    pms = get_llama_manager().get_process_managers()
+    if model_index < 0 or model_index >= len(pms):
         return
-    pm = _process_managers[model_index]
+    pm = pms[model_index]
     if pm is None:
         return  # remote model — no local process to start
     if pm.state.value == "running":

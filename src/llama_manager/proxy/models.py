@@ -3,9 +3,8 @@ from __future__ import annotations
 import httpx
 
 from llama_manager.config import AppConfig
-from llama_manager.remote_manager_client import RemoteModelProxy
 
-from .lifecycle import get_process_managers
+from .lifecycle import get_llama_manager
 
 # ---------------------------------------------------------------------------
 # Backend error helpers
@@ -27,28 +26,25 @@ def backend_error_msg(exc: Exception) -> str:
 
 
 def resolve_model_index(model_id: str | None, config: AppConfig) -> int | None:
-    """Resolve a model ID to a model index. Returns None if not found."""
+    """Resolve a model ID to a local config index. Returns None if not found."""
     if not model_id:
         return 0
     for i, m in enumerate(config.models):
         if m.effective_id == model_id:
             return i
-    # Fall through to federated remote models
-    for pm in get_process_managers():
-        if isinstance(pm, RemoteModelProxy) and pm.model_id == model_id:
-            return pm.local_index
     return None
 
 
 def resolve_backend(model_id: str | None, config: AppConfig) -> str | None:
     """Resolve a model ID to a backend URL. Returns None if not found."""
+    # Check federated remote models (uplink proxies) first
+    for proxy in get_llama_manager().get_remote_models():
+        if proxy.model_id == model_id:
+            return proxy.proxy_url or None
+
     idx = resolve_model_index(model_id, config)
     if idx is None:
         return None
-    # Check for a federated remote model first
-    pms = get_process_managers()
-    if idx < len(pms) and isinstance(pms[idx], RemoteModelProxy):
-        return pms[idx].proxy_url or None
     m = config.models[idx]
     if m.type == "remote":
         return m.remote_address.rstrip("/") if m.remote_address else None
@@ -61,15 +57,13 @@ def default_backend(config: AppConfig) -> str:
 
 def rewrite_model_field(body: dict, model_id: str | None, config: AppConfig) -> dict:
     """Rewrite the model field when forwarding to a remote backend."""
+    # Federated remote model: forward using its known model_id
+    for proxy in get_llama_manager().get_remote_models():
+        if proxy.model_id == model_id and proxy.model_id:
+            return {**body, "model": proxy.model_id}
+
     idx = resolve_model_index(model_id, config)
     if idx is None:
-        return body
-    # Federated remote model: forward using its known model_id
-    pms = get_process_managers()
-    if idx < len(pms) and isinstance(pms[idx], RemoteModelProxy):
-        remote_id = pms[idx].model_id
-        if remote_id:
-            return {**body, "model": remote_id}
         return body
     # Config-defined remote model with an explicit remote_model_id
     m = config.models[idx]

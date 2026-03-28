@@ -1,7 +1,7 @@
-from .lifecycle import set_process_managers
+from .lifecycle import set_llama_manager
 from .proxy import ProxyServer
 
 __all__ = [
     "ProxyServer",
-    "set_process_managers",
+    "set_llama_manager",
 ]
