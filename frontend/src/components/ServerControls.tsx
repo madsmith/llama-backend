@@ -4,12 +4,13 @@ import type { ServerStatus } from "../api/types";
 
 interface Props {
   status: ServerStatus | null;
-  serverId: string;
+  managerId: string;
   modelSuid: string;
   onAction: () => void;
 }
 
-export default function ServerControls({ status, serverId, modelSuid, onAction }: Props) {
+export default function ServerControls({ status, managerId, modelSuid, onAction }: Props) {
+  const serverId = `${managerId}:${modelSuid}`;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

@@ -25,7 +25,7 @@ interface ServerSnapshot {
 
 function ModelPanel({
   modelIndex,
-  serverId,
+  managerId,
   modelSuid,
   name,
   isRemote,
@@ -35,7 +35,7 @@ function ModelPanel({
   onSnapshot,
 }: {
   modelIndex: number;
-  serverId: string | undefined;
+  managerId: string | undefined;
   modelSuid: string;
   name: string;
   isRemote: boolean;
@@ -45,6 +45,7 @@ function ModelPanel({
   onSnapshot: (index: number, snap: ServerSnapshot) => void;
 }) {
   const navigate = useNavigate();
+  const serverId = managerId && modelSuid ? `${managerId}:${modelSuid}` : undefined;
   const { status, refresh } = useServerStatusWS(serverId);
   const health = useHealthStream(serverId);
   const statusOrUnknown = status ?? { state: "unknown" as const, pid: null, host: null, port: null, uptime: null };
@@ -57,16 +58,17 @@ function ModelPanel({
     <div className="space-y-4">
       <ServerStatusCard
         name={name}
-        serverId={serverId}
+        managerId={managerId}
+        modelSuid={modelSuid}
         status={statusOrUnknown}
         onClick={isRemote ? undefined : () => navigate(`/logs/${modelSuid}`)}
         remoteAddress={remoteAddress}
         health={isRemote ? health : undefined}
       />
-      {!isRemote && serverId != null && (
+      {!isRemote && managerId != null && (
         <ServerControls
           status={statusOrUnknown}
-          serverId={serverId}
+          managerId={managerId}
           modelSuid={modelSuid}
           onAction={refresh}
         />
@@ -77,16 +79,17 @@ function ModelPanel({
 
 function RemoteModelPanel({
   modelIndex,
-  serverId,
+  managerId,
   modelSuid,
   name,
 }: {
   modelIndex: number;
-  serverId: string;
+  managerId: string;
   modelSuid: string;
   name: string;
 }) {
   const navigate = useNavigate();
+  const serverId = `${managerId}:${modelSuid}`;
   const { status, refresh } = useServerStatusWS(serverId);
   const statusOrUnknown = status ?? { state: "unknown" as const, pid: null, host: null, port: null, uptime: null };
 
@@ -94,11 +97,12 @@ function RemoteModelPanel({
     <div className="space-y-4">
       <ServerStatusCard
         name={name}
-        serverId={serverId}
+        managerId={managerId}
+        modelSuid={modelSuid}
         status={statusOrUnknown}
         onClick={() => navigate(`/logs/${serverId}/${modelIndex}`)}
       />
-      <ServerControls status={status} serverId={serverId} modelSuid={modelSuid} onAction={refresh} />
+      <ServerControls status={status} managerId={managerId} modelSuid={modelSuid} onAction={refresh} />
     </div>
   );
 }
@@ -128,10 +132,10 @@ function RemoteManagerSection({ rm }: { rm: RemoteManagerStatus }) {
         <div className="flex gap-6 flex-wrap ml-3">
           {rm.models.map((m) => (
             <RemoteModelPanel
-              key={`${m.server_id}-${m.remote_model_index}`}
+              key={m.server_id}
               modelIndex={m.remote_model_index}
-              serverId={m.server_id}
-              modelSuid={String(m.remote_model_index)}
+              managerId={m.server_id.split(":")[0]}
+              modelSuid={m.server_id.split(":")[1] ?? ""}
               name={m.name ?? `Remote Model ${m.remote_model_index + 1}`}
             />
           ))}
@@ -184,7 +188,7 @@ export default function Dashboard() {
           <ModelPanel
             key={i}
             modelIndex={i}
-            serverId={config?.manager_id && m.suid ? `${config.manager_id}:${m.suid}` : undefined}
+            managerId={config?.manager_id}
             modelSuid={m.suid}
             name={m.name ?? `Llama Server ${i + 1}`}
             isRemote={(m.type ?? "local") === "remote"}

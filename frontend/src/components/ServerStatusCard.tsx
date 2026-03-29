@@ -175,7 +175,8 @@ function remoteDisplay(health: HealthStatus | null): {
 
 interface Props {
   name: string;
-  serverId?: string;
+  managerId?: string;
+  modelSuid?: string;
   status: ServerStatus;
   onClick?: () => void;
   selected?: boolean;
@@ -185,7 +186,8 @@ interface Props {
 
 export default function ServerStatusCard({
   name,
-  serverId,
+  managerId,
+  modelSuid,
   status,
   onClick,
   selected,
@@ -193,7 +195,7 @@ export default function ServerStatusCard({
   health,
 }: Props) {
   const navigate = useNavigate();
-  const modelSuid = serverId?.split(":")[1] ?? "";
+  const serverId = managerId && modelSuid ? `${managerId}:${modelSuid}` : undefined;
   const [slots, setSlots] = useState<SlotInfo[]>([]);
 
   // Initial slot fetch + push updates.
@@ -304,7 +306,7 @@ export default function ServerStatusCard({
       {slots.length > 0 && (
         <div className="mt-4 ml-5 space-y-1.5">
           {slots.map((s) => (
-            <SlotRow key={s.id} slot={s} modelSuid={modelSuid} />
+            <SlotRow key={s.id} slot={s} modelSuid={modelSuid ?? ""} />
           ))}
         </div>
       )}

@@ -9,27 +9,28 @@ import ProxyControls from "../components/ProxyControls";
 import LogViewer from "../components/LogViewer";
 import { useProxyStatus, useServerStatusWS, useLogs, useRemotes, pollRatesFromConfig } from "../api/hooks";
 
-function ModelLogCard({ serverId, modelSuid, name, selected, path, navigate }: {
-  serverId: string;
+function ModelLogCard({ managerId, modelSuid, name, selected, path, navigate }: {
+  managerId: string;
   modelSuid: string;
   name: string;
   selected: boolean;
   path: string;
   navigate: (path: string) => void;
 }) {
-  const { status, refresh } = useServerStatusWS(serverId);
+  const { status, refresh } = useServerStatusWS(`${managerId}:${modelSuid}`);
   const statusOrUnknown = status ?? { state: "unknown" as const, pid: null, host: null, port: null, uptime: null };
 
   return (
     <div className="space-y-4">
       <ServerStatusCard
         name={name}
-        serverId={serverId}
+        managerId={managerId}
+        modelSuid={modelSuid}
         status={statusOrUnknown}
         onClick={() => navigate(path)}
         selected={selected}
       />
-      <ServerControls status={statusOrUnknown} serverId={serverId} modelSuid={modelSuid} onAction={refresh} />
+      <ServerControls status={statusOrUnknown} managerId={managerId} modelSuid={modelSuid} onAction={refresh} />
     </div>
   );
 }
@@ -182,7 +183,7 @@ export default function Logs() {
         {localModels.map(({ model: m, index: i }) => (
           <div key={m.suid} data-source={m.suid}>
             <ModelLogCard
-              serverId={config?.manager_id && m.suid ? `${config.manager_id}:${m.suid}` : ""}
+              managerId={config?.manager_id ?? ""}
               modelSuid={m.suid}
               name={m.name ?? `Llama Server ${i + 1}`}
               selected={logMode.type === "local" && logMode.suid === m.suid}
@@ -197,8 +198,8 @@ export default function Logs() {
             return (
               <div key={remoteSourceKey} data-source={remoteSourceKey}>
                 <ModelLogCard
-                  serverId={m.server_id}
-                  modelSuid={String(m.remote_model_index)}
+                  managerId={m.server_id.split(":")[0]}
+                  modelSuid={m.server_id.split(":")[1] ?? ""}
                   name={m.name ?? `Remote Model ${m.remote_model_index + 1}`}
                   selected={logMode.type === "remote" && logMode.serverId === m.server_id && logMode.remoteIndex === m.remote_model_index}
                   path={`/logs/${m.server_id}/${m.remote_model_index}`}
