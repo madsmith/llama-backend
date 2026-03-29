@@ -9,28 +9,26 @@ import ProxyControls from "../components/ProxyControls";
 import LogViewer from "../components/LogViewer";
 import { useProxyStatus, useServerStatusWS, useLogs, useRemotes, pollRatesFromConfig } from "../api/hooks";
 
-function ModelLogCard({ managerId, modelSuid, name, selected, path, navigate }: {
-  managerId: string;
+function ModelLogCard({ modelSuid, name, selected, path, navigate }: {
   modelSuid: string;
   name: string;
   selected: boolean;
   path: string;
   navigate: (path: string) => void;
 }) {
-  const { status, refresh } = useServerStatusWS(`${managerId}:${modelSuid}`);
+  const { status, refresh } = useServerStatusWS(modelSuid);
   const statusOrUnknown = status ?? { state: "unknown" as const, pid: null, host: null, port: null, uptime: null };
 
   return (
     <div className="space-y-4">
       <ServerStatusCard
         name={name}
-        managerId={managerId}
         modelSuid={modelSuid}
         status={statusOrUnknown}
         onClick={() => navigate(path)}
         selected={selected}
       />
-      <ServerControls status={statusOrUnknown} managerId={managerId} modelSuid={modelSuid} onAction={refresh} />
+      <ServerControls status={statusOrUnknown} modelSuid={modelSuid} onAction={refresh} />
     </div>
   );
 }
@@ -98,40 +96,19 @@ function ScrollStrip({ children, sourceKey }: { children: React.ReactNode; sourc
   );
 }
 
-type LogMode =
-  | { type: "proxy" }
-  | { type: "local"; suid: string }
-  | { type: "remote"; serverId: string; remoteIndex: number };
-
 export default function Logs() {
-  const { modelSuid, serverId, remoteIndex } = useParams<{
-    modelSuid?: string;
-    serverId?: string;
-    remoteIndex?: string;
-  }>();
+  const { modelSuid } = useParams<{ modelSuid?: string }>();
   const navigate = useNavigate();
   const [config, setConfig] = useState<ServerConfig | null>(null);
   const poll = pollRatesFromConfig(config);
   const { status: proxyStatus, refresh: refreshProxy } = useProxyStatus(poll.proxyStatus);
 
-  const logMode: LogMode = serverId != null && remoteIndex != null
-    ? { type: "remote", serverId, remoteIndex: Number(remoteIndex) }
-    : modelSuid != null && modelSuid !== "proxy"
-    ? { type: "local", suid: modelSuid }
-    : { type: "proxy" };
-
-  const sourceKey = logMode.type === "proxy" ? "proxy"
-    : logMode.type === "local" ? logMode.suid
-    : `${logMode.serverId}/${logMode.remoteIndex}`;
-
-  const logServerId = logMode.type === "local" && config?.manager_id
-    ? `${config.manager_id}:${logMode.suid}`
-    : logMode.type === "remote" ? logMode.serverId
-    : undefined;
+  const isProxy = !modelSuid || modelSuid === "proxy";
+  const logSuid = isProxy ? undefined : modelSuid;
 
   const { lines, connected, clear } = useLogs(
-    logMode.type === "proxy" ? "proxy" : "server",
-    logServerId,
+    isProxy ? "proxy" : "server",
+    logSuid,
   );
 
   useEffect(() => { document.title = "Llama Manager - Logs"; }, []);
@@ -141,32 +118,30 @@ export default function Logs() {
   }, []);
 
   const remotes = useRemotes();
-
   const models = config?.models ?? [];
-
-  const localModel = logMode.type === "local" ? models.find(m => m.suid === logMode.suid) : undefined;
-
-  const logHeader = logMode.type === "proxy"
-    ? "Proxy Server"
-    : logMode.type === "local"
-    ? localModel?.name ?? "Server"
-    : remotes.flatMap(rm => rm.models).find(
-        m => m.server_id === logMode.serverId && m.remote_model_index === logMode.remoteIndex
-      )?.name ?? `Remote Model ${logMode.remoteIndex + 1}`;
-
-  // Redirect to proxy logs if current source is a config-level remote model (type="remote")
-  useEffect(() => {
-    if (logMode.type === "local" && localModel != null) {
-      if ((localModel.type ?? "local") === "remote") {
-        navigate("/logs/proxy", { replace: true });
-      }
-    }
-  }, [logMode, localModel, navigate]);
-
-  // Only show local models in the card list (not config-level remote models)
   const localModels = models
     .map((m, i) => ({ model: m, index: i }))
     .filter(({ model }) => (model.type ?? "local") !== "remote");
+
+  const allRemoteModels = remotes.flatMap(rm => rm.models);
+
+  const logHeader = isProxy
+    ? "Proxy Server"
+    : localModels.find(({ model: m }) => m.suid === modelSuid)?.model.name
+      ?? allRemoteModels.find(m => m.suid === modelSuid)?.name
+      ?? "Server";
+
+  // Redirect to proxy logs if current source is a config-level remote model (type="remote")
+  useEffect(() => {
+    if (!isProxy && modelSuid) {
+      const localModel = models.find(m => m.suid === modelSuid);
+      if (localModel && (localModel.type ?? "local") === "remote") {
+        navigate("/logs/proxy", { replace: true });
+      }
+    }
+  }, [isProxy, modelSuid, models, navigate]);
+
+  const sourceKey = logSuid ?? "proxy";
 
   return (
     <div className="flex flex-col h-full">
@@ -176,38 +151,33 @@ export default function Logs() {
           <ProxyStatusCard
             status={proxyStatus}
             onClick={() => navigate("/logs/proxy")}
-            selected={logMode.type === "proxy"}
+            selected={isProxy}
           />
           <ProxyControls status={proxyStatus} onAction={refreshProxy} />
         </div>
         {localModels.map(({ model: m, index: i }) => (
           <div key={m.suid} data-source={m.suid}>
             <ModelLogCard
-              managerId={config?.manager_id ?? ""}
               modelSuid={m.suid}
               name={m.name ?? `Llama Server ${i + 1}`}
-              selected={logMode.type === "local" && logMode.suid === m.suid}
+              selected={!isProxy && modelSuid === m.suid}
               path={`/logs/${m.suid}`}
               navigate={navigate}
             />
           </div>
         ))}
         {remotes.flatMap((rm) =>
-          rm.models.map((m) => {
-            const remoteSourceKey = `${m.server_id}/${m.remote_model_index}`;
-            return (
-              <div key={remoteSourceKey} data-source={remoteSourceKey}>
-                <ModelLogCard
-                  managerId={m.server_id.split(":")[0]}
-                  modelSuid={m.server_id.split(":")[1] ?? ""}
-                  name={m.name ?? `Remote Model ${m.remote_model_index + 1}`}
-                  selected={logMode.type === "remote" && logMode.serverId === m.server_id && logMode.remoteIndex === m.remote_model_index}
-                  path={`/logs/${m.server_id}/${m.remote_model_index}`}
-                  navigate={navigate}
-                />
-              </div>
-            );
-          })
+          rm.models.map((m) => (
+            <div key={m.suid} data-source={m.suid}>
+              <ModelLogCard
+                modelSuid={m.suid}
+                name={m.name ?? "Remote Model"}
+                selected={!isProxy && modelSuid === m.suid}
+                path={`/logs/${m.suid}`}
+                navigate={navigate}
+              />
+            </div>
+          ))
         )}
       </ScrollStrip>
       <h2 className="text-lg font-semibold mb-2">{logHeader} Logs</h2>

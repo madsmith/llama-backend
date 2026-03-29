@@ -175,7 +175,6 @@ function remoteDisplay(health: HealthStatus | null): {
 
 interface Props {
   name: string;
-  managerId?: string;
   modelSuid?: string;
   status: ServerStatus;
   onClick?: () => void;
@@ -186,7 +185,6 @@ interface Props {
 
 export default function ServerStatusCard({
   name,
-  managerId,
   modelSuid,
   status,
   onClick,
@@ -195,21 +193,20 @@ export default function ServerStatusCard({
   health,
 }: Props) {
   const navigate = useNavigate();
-  const serverId = managerId && modelSuid ? `${managerId}:${modelSuid}` : undefined;
   const [slots, setSlots] = useState<SlotInfo[]>([]);
 
   // Initial slot fetch + push updates.
   const handleSlotResponse = useCallback(
     (msg: Record<string, unknown>) => {
-      if (msg.server_id !== serverId) return;
+      if (msg.suid !== modelSuid) return;
       setSlots((msg.slots as SlotInfo[]) ?? []);
     },
-    [serverId],
+    [modelSuid],
   );
 
   const requestSlots = useCallback(
-    () => serverId && getWsV2().send({ msg: "slot_status", server_id: serverId }),
-    [serverId],
+    () => modelSuid && getWsV2().send({ msg: "slot_status", suid: modelSuid }),
+    [modelSuid],
   );
 
   useEffect(
@@ -219,12 +216,12 @@ export default function ServerStatusCard({
 
   useEffect(
     () => {
-      if (!serverId) return;
-      return getWsV2().subscribeToEvent("slots", serverId, (data) => {
+      if (!modelSuid) return;
+      return getWsV2().subscribeToEvent("slots", modelSuid, (data) => {
         setSlots((data.slots as SlotInfo[]) ?? []);
       });
     },
-    [serverId],
+    [modelSuid],
   );
 
   // Fetch slots immediately when server becomes running or remote.

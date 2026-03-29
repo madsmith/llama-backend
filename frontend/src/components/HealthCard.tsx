@@ -151,10 +151,10 @@ export default function HealthCard({ proxyStatus, servers, remotes, uplink }: Pr
               : m.state === "starting" ? "text-yellow-400"
               : "text-red-400";
             return (
-              <Fragment key={m.server_id}>
+              <Fragment key={m.suid}>
                 {unknown ? <Question /> : stopped ? <Dot /> : ok ? <Check /> : <Cross />}
                 <span className="text-sm text-gray-300">
-                  {m.name ?? `Remote Model ${m.remote_model_index + 1}`}
+                  {m.name ?? "Remote Model"}
                   <span className="ml-2 text-xs text-gray-600">{rm.name ?? rm.url}</span>
                 </span>
                 <span className={`text-sm ${stateColor}`}>{m.state}</span>

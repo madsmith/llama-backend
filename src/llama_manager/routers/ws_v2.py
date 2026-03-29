@@ -281,6 +281,53 @@ class WsV2Connection:
         self._subscriptions[subscription_id] = task.cancel
         return SubscribeEventResponse(subscription_id=subscription_id)
 
+    @event_handler("health")
+    async def _on_subscribe_event_health(self, msg: SubscribeEventRequest) -> BaseModel:
+        suid = msg.id
+        q = self.manager.event_bus.subscribe("health")
+
+        async def _listen() -> None:
+            try:
+                while True:
+                    event = await q.get()
+                    if event.get("id") != suid:
+                        continue
+                    self._push(EventResponse(
+                        type="health",
+                        id=suid,
+                        data=event.get("data", {}),
+                    ))
+            except asyncio.CancelledError:
+                pass
+            finally:
+                self.manager.event_bus.unsubscribe(q)
+
+        task = asyncio.create_task(_listen())
+        subscription_id = id(task)
+        self._subscriptions[subscription_id] = task.cancel
+
+        # Immediately push current health so the client doesn't have to wait
+        # for the next data_publisher poll cycle.
+        if suid is not None:
+            backend = (
+                self.manager.get_local_models().get(suid)
+                or self.manager.get_remote_unmanaged().get(suid)
+                or next((p for p in self.manager.get_remote_models() if p.get_suid() == suid), None)
+            )
+            if backend is not None:
+                try:
+                    health = await backend.get_health()
+                    if health:
+                        self._push(EventResponse(
+                            type="health",
+                            id=suid,
+                            data={"health": health},
+                        ))
+                except Exception:
+                    pass
+
+        return SubscribeEventResponse(subscription_id=subscription_id)
+
     @event_handler("log")
     async def _on_subscribe_event_log(self, msg: SubscribeEventRequest) -> BaseModel:
         if msg.subtype == "proxy":

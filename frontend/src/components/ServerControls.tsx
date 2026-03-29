@@ -4,13 +4,11 @@ import type { ServerStatus } from "../api/types";
 
 interface Props {
   status: ServerStatus | null;
-  managerId: string;
   modelSuid: string;
   onAction: () => void;
 }
 
-export default function ServerControls({ status, managerId, modelSuid, onAction }: Props) {
-  const serverId = `${managerId}:${modelSuid}`;
+export default function ServerControls({ status, modelSuid, onAction }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,7 +24,7 @@ export default function ServerControls({ status, managerId, modelSuid, onAction 
         }, 10000);
         let unsub: () => void;
         unsub = ws.subscribe("server_control_response", (msg) => {
-          if (msg.server_id !== serverId) return;
+          if (msg.suid !== modelSuid) return;
           clearTimeout(timeout);
           unsub();
           if (msg.success) {
@@ -35,7 +33,7 @@ export default function ServerControls({ status, managerId, modelSuid, onAction 
             reject(new Error((msg.error as string | undefined) ?? "Operation failed"));
           }
         });
-        ws.send({ msg: "server_control", operation, server_id: serverId, model_suid: modelSuid });
+        ws.send({ msg: "server_control", operation, suid: modelSuid });
       });
       onAction();
     } catch (e) {

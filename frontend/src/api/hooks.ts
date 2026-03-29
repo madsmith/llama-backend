@@ -64,12 +64,12 @@ export function useLogs(type: "proxy" | "server", serverId?: string) {
       setConnected(true);
       setLines([]);
       maxIdRef.current = 0;
-      wsv2.send({ msg: "load_log", type, ...(serverId ? { id: serverId } : {}) });
+      wsv2.send({ msg: "load_log", type, ...(serverId ? { suid: serverId } : {}) });
     };
 
     const handleLoad = (msg: Record<string, unknown>) => {
       if (msg.type !== type) return;
-      if (type === "server" && msg.id !== serverId) return;
+      if (type === "server" && msg.suid !== serverId) return;
       const loaded = ((msg.lines as Array<{ id: number; text: string; request_id?: string }>) ?? []).map((l) => {
         const line: LogLine = { id: l.id, text: l.text };
         if (l.request_id) line.request_id = l.request_id;
@@ -126,86 +126,42 @@ export function useRemotes(pollMs = 3000) {
 }
 
 // ---------------------------------------------------------------------------
-// Event stream — singleton WebSocket to /ws/events
+// Health and slot streams via ws_v2 subscribeToEvent
 // ---------------------------------------------------------------------------
 
-type SlotEventHandler = (serverId: string, slots: SlotInfo[]) => void;
-type HealthEventHandler = (serverId: string, health: HealthStatus) => void;
-
-let _eventWs: WebSocket | null = null;
-let _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-const _slotHandlers = new Set<SlotEventHandler>();
-const _healthHandlers = new Set<HealthEventHandler>();
-
-function _hasListeners() {
-  return _slotHandlers.size > 0 || _healthHandlers.size > 0;
-}
-
-function _connectEventStream() {
-  if (_eventWs?.readyState === WebSocket.OPEN || _eventWs?.readyState === WebSocket.CONNECTING) return;
-  if (_reconnectTimer) return;
-  const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  _eventWs = new WebSocket(`${proto}//${location.host}/ws/events`);
-  _eventWs.onmessage = (e) => {
-    try {
-      const msg = JSON.parse(e.data);
-      if (msg.type === "slots" && msg.server_id) {
-        _slotHandlers.forEach((h) => h(msg.server_id, msg.slots ?? []));
-      } else if (msg.type === "health" && msg.server_id) {
-        _healthHandlers.forEach((h) => h(msg.server_id, msg.health));
-      }
-    } catch {}
-  };
-  _eventWs.onclose = () => {
-    _eventWs = null;
-    if (_hasListeners()) {
-      _reconnectTimer = setTimeout(() => {
-        _reconnectTimer = null;
-        _connectEventStream();
-      }, 2000);
-    }
-  };
-}
-
-export function useSlotStream(serverId: string | undefined): SlotInfo[] {
+export function useSlotStream(suid: string | undefined): SlotInfo[] {
   const [slots, setSlots] = useState<SlotInfo[]>([]);
 
   useEffect(() => {
-    if (!serverId) return;
-    const handler: SlotEventHandler = (id, data) => {
-      if (id === serverId) setSlots(data);
-    };
-    _slotHandlers.add(handler);
-    _connectEventStream();
-    return () => {
-      _slotHandlers.delete(handler);
-    };
-  }, [serverId]);
+    if (!suid) return;
+    return getWsV2().subscribeToEvent("slots", suid, (data) => {
+      setSlots((data.slots as SlotInfo[]) ?? []);
+    });
+  }, [suid]);
 
   return slots;
 }
 
 const HEALTH_STALE_MS = 10_000;
 
-export function useHealthStream(serverId: string | undefined): HealthStatus | null {
+export function useHealthStream(suid: string | undefined): HealthStatus | null {
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const staleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (!serverId) return;
-    const handler: HealthEventHandler = (id, data) => {
-      if (id !== serverId) return;
-      setHealth(data);
+    if (!suid) return;
+    const unsub = getWsV2().subscribeToEvent("health", suid, (data) => {
+      const h = data.health as HealthStatus | undefined;
+      if (!h) return;
+      setHealth(h);
       if (staleTimer.current) clearTimeout(staleTimer.current);
       staleTimer.current = setTimeout(() => setHealth(null), HEALTH_STALE_MS);
-    };
-    _healthHandlers.add(handler);
-    _connectEventStream();
+    });
     return () => {
-      _healthHandlers.delete(handler);
+      unsub();
       if (staleTimer.current) clearTimeout(staleTimer.current);
     };
-  }, [serverId]);
+  }, [suid]);
 
   return health;
 }
@@ -261,7 +217,7 @@ export function useServerStatusWS(serverId: string | undefined) {
 
   const handleStatusResponse = useCallback(
     (msg: Record<string, unknown>) => {
-      if (!serverId || msg.id !== serverId) return;
+      if (!serverId || msg.suid !== serverId) return;
       const s = msg as unknown as ServerStatus;
       setStatus(s);
       startedAtRef.current =
@@ -273,7 +229,7 @@ export function useServerStatusWS(serverId: string | undefined) {
   );
 
   const refresh = useCallback(() => {
-    if (serverId) getWsV2().send({ msg: "server_status", id: serverId });
+    if (serverId) getWsV2().send({ msg: "server_status", suid: serverId });
   }, [serverId]);
 
   useEffect(

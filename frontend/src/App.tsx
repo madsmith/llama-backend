@@ -16,7 +16,6 @@ export default function App() {
           <Route path=":modelSuid/slots" element={<Slots />} />
           <Route path="logs" element={<Logs />} />
           <Route path="logs/:modelSuid" element={<Logs />} />
-          <Route path="logs/:serverId/:remoteIndex" element={<Logs />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>
