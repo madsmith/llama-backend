@@ -5,7 +5,7 @@ import json
 import logging
 from typing import Callable
 
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from llama_manager.manager.llama_manager import LlamaManager
@@ -151,43 +151,33 @@ class WsV2Connection:
 
     @request_handler(ServerStatusRequest)
     async def _on_server_status(self, msg: ServerStatusRequest) -> BaseModel | None:
-        for local_model in self.manager.get_local_models().values():
-            if local_model.get_server_identifier() == msg.id:
-                return ServerStatusResponse(id=msg.id, **local_model.get_status())
+        local_model = self.manager.get_local_models().get(msg.suid)
+        if local_model is not None:
+            return ServerStatusResponse(suid=msg.suid, **local_model.get_status())
         for proxy in self.manager.get_remote_models():
-            if proxy.server_id == msg.id:
-                return ServerStatusResponse(id=msg.id, **proxy.get_status())
-        for unmanaged in self.manager.get_remote_unmanaged().values():
-            if unmanaged.get_suid() == msg.id:
-                return ServerStatusResponse(id=msg.id, **unmanaged.get_status())
+            if proxy.get_suid() == msg.suid:
+                return ServerStatusResponse(suid=msg.suid, **proxy.get_status())
+        unmanaged = self.manager.get_remote_unmanaged().get(msg.suid)
+        if unmanaged is not None:
+            return ServerStatusResponse(suid=msg.suid, **unmanaged.get_status())
         return None
 
     @request_handler(SlotStatusRequest)
     async def _on_slot_status(self, msg: SlotStatusRequest) -> BaseModel | None:
+        suid = msg.suid
+
         # Remote model proxy: use cached slots or request from remote manager.
         for proxy in self.manager.get_remote_models():
-            if proxy.server_id == msg.server_id:
+            if proxy.get_suid() == suid:
                 slots = await proxy.get_slots()
-                return SlotStatusResponse(
-                    server_id=msg.server_id,
-                    slots=[dict(s) for s in slots],
-                )
+                return SlotStatusResponse(suid=suid, slots=[dict(s) for s in (slots or [])])
 
-        # Find the local model and its config index for this server_id.
-        local_model: LocalManagedModel | None = None
-        model_index: int | None = None
-        cfg = self.manager.config
-        for idx, m in enumerate(cfg.models):
-            candidate = self.manager.get_local_models().get(m.suid)
-            if candidate is not None and candidate.get_server_identifier() == msg.server_id:
-                local_model = candidate
-                model_index = idx
-                break
+        slots = [dict(s) for s in (await self.manager.slot_status.get_slots(suid) or [])]
 
-        slots = [dict(s) for s in (await self.manager.slot_status.get_slots(msg.server_id) or [])]
-
-        if local_model is not None and model_index is not None:
-            cancellable = set(ActiveRequestManager.list_cancellable(model_index))
+        # Annotate with prompt progress and cancellable info for local models.
+        local_model = self.manager.get_local_models().get(suid)
+        if local_model is not None:
+            cancellable = set(ActiveRequestManager.list_cancellable(suid))
             progress = local_model.get_prompt_progress()
             if progress:
                 for slot in slots:
@@ -199,29 +189,29 @@ class WsV2Connection:
             for slot in slots:
                 slot["cancellable"] = slot.get("id") in cancellable
 
-        return SlotStatusResponse(server_id=msg.server_id, slots=slots)
+        return SlotStatusResponse(suid=suid, slots=slots)
 
     @request_handler(SubscribeSlotStatusRequest)
     async def _on_subscribe_slot_status(self, msg: SubscribeSlotStatusRequest) -> BaseModel:
-        server_id = msg.server_id
-        slots = await self.manager.slot_status.get_slots(server_id) or []
+        suid = msg.suid
+        slots = await self.manager.slot_status.get_slots(suid) or []
 
         _handle_box: list[int] = []
 
         def _on_change(updated_slots: list[dict]) -> None:
             self._push(SlotStatusEvent(
                 subscription_id=_handle_box[0],
-                server_id=server_id,
+                suid=suid,
                 slots=updated_slots,
             ))
 
-        handle = self.manager.slot_status.subscribe(server_id, _on_change)
+        handle = self.manager.slot_status.subscribe(suid, _on_change)
         _handle_box.append(handle)
         self._subscriptions[handle] = lambda h=handle: self.manager.slot_status.unsubscribe(h)
 
         return SubscribeSlotStatusResponse(
             subscription_id=handle,
-            server_id=server_id,
+            suid=suid,
             slots=slots,
         )
 
@@ -249,37 +239,37 @@ class WsV2Connection:
 
     @event_handler("slots")
     async def _on_subscribe_event_slots(self, msg: SubscribeEventRequest) -> BaseModel:
-        server_id = msg.id  # client sends the server_id directly as the event id
+        suid = msg.id
 
         subscription_id = -1
-        if server_id is not None:
+        if suid is not None:
             def _on_change(updated_slots: list[dict]) -> None:
                 self._push(EventResponse(
                     type="slots",
-                    id=server_id,
-                    event_data={"server_id": server_id, "slots": updated_slots},
+                    id=suid,
+                    data={"suid": suid, "slots": updated_slots},
                 ))
 
-            subscription_id = self.manager.slot_status.subscribe(server_id, _on_change)
+            subscription_id = self.manager.slot_status.subscribe(suid, _on_change)
             self._subscriptions[subscription_id] = lambda h=subscription_id: self.manager.slot_status.unsubscribe(h)
 
         return SubscribeEventResponse(subscription_id=subscription_id)
 
     @event_handler("server_status")
     async def _on_subscribe_event_server_status(self, msg: SubscribeEventRequest) -> BaseModel:
-        server_id = msg.id
+        suid = msg.id
         q = self.manager.event_bus.subscribe("server_status")
 
         async def _listen() -> None:
             try:
                 while True:
                     event = await q.get()
-                    if event.get("id") != server_id:
+                    if event.get("id") != suid:
                         continue
                     self._push(EventResponse(
                         type="server_status",
-                        id=msg.id,
-                        event_data=event.get("data", {}),
+                        id=suid,
+                        data=event.get("data", {}),
                     ))
             except asyncio.CancelledError:
                 pass
@@ -293,7 +283,7 @@ class WsV2Connection:
 
     @event_handler("log")
     async def _on_subscribe_event_log(self, msg: SubscribeEventRequest) -> BaseModel:
-        if msg.sub_type == "proxy":
+        if msg.subtype == "proxy":
             event_type = "proxy_log"
 
             async def _listen() -> None:
@@ -303,29 +293,29 @@ class WsV2Connection:
                         event = await q.get()
                         self._push(EventResponse(
                             type="log",
-                            sub_type="proxy",
-                            event_data=event.get("data", {}),
+                            subtype="proxy",
+                            data=event.get("data", {}),
                         ))
                 except asyncio.CancelledError:
                     pass
                 finally:
                     self.manager.event_bus.unsubscribe(q)
 
-        elif msg.sub_type == "server":
-            server_id = msg.id
+        elif msg.subtype == "server":
+            suid = msg.id
 
             async def _listen() -> None:
                 q = self.manager.event_bus.subscribe("server_log")
                 try:
                     while True:
                         event = await q.get()
-                        if event.get("id") != server_id:
+                        if event.get("id") != suid:
                             continue
                         self._push(EventResponse(
                             type="log",
-                            sub_type="server",
-                            id=server_id,
-                            event_data=event.get("data", {}),
+                            subtype="server",
+                            id=suid,
+                            data=event.get("data", {}),
                         ))
                 except asyncio.CancelledError:
                     pass
@@ -349,23 +339,24 @@ class WsV2Connection:
                 lines=[LogLine(id=l.id, text=l.text, request_id=l.request_id) for l in lines],
             )
         # type == "server"
-        for local_model in self.manager.get_local_models().values():
-            if local_model.get_server_identifier() == msg.id:
-                lines = local_model.log_buffer.snapshot()
-                return LoadLogResponse(
-                    type="server",
-                    id=msg.id,
-                    lines=[LogLine(id=l.id, text=l.text, request_id=l.request_id) for l in lines],
-                )
+        suid = msg.suid
+        local_model = self.manager.get_local_models().get(suid) if suid else None
+        if local_model is not None:
+            lines = local_model.log_buffer.snapshot()
+            return LoadLogResponse(
+                type="server",
+                suid=suid,
+                lines=[LogLine(id=l.id, text=l.text, request_id=l.request_id) for l in lines],
+            )
         for proxy in self.manager.get_remote_models():
-            if proxy.server_id == msg.id:
+            if proxy.get_suid() == suid:
                 lines = proxy.log_buffer.snapshot()
                 return LoadLogResponse(
                     type="server",
-                    id=msg.id,
+                    suid=suid,
                     lines=[LogLine(id=l.id, text=l.text, request_id=l.request_id) for l in lines],
                 )
-        return LoadLogResponse(type="server", id=msg.id, lines=[])
+        return LoadLogResponse(type="server", suid=suid, lines=[])
 
     @request_handler(UnsubscribeEventRequest)
     async def _on_unsubscribe_event(self, msg: UnsubscribeEventRequest) -> None:
@@ -397,11 +388,10 @@ class WsV2Connection:
                 connection_state=client.connection_state,
                 models=[
                     RemoteModelInfo(
-                        remote_model_index=m.remote_model_index,
+                        suid=m.get_suid(),
                         name=m.name,
                         model_id=m.model_id,
                         state=m.state.value,
-                        server_id=m.server_id,
                     )
                     for m in client.models
                 ],
@@ -412,23 +402,24 @@ class WsV2Connection:
 
     @request_handler(ServerControlRequest)
     async def _on_server_control(self, msg: ServerControlRequest) -> BaseModel:
-        for local_model in self.manager.get_local_models().values():
-            if local_model.get_server_identifier() == msg.server_id:
-                try:
-                    if msg.operation == "start":
-                        asyncio.create_task(local_model.start())
-                    elif msg.operation == "stop":
-                        asyncio.create_task(local_model.stop())
-                    elif msg.operation == "restart":
-                        asyncio.create_task(local_model.restart())
-                except Exception as exc:
-                    return ServerControlResponse(operation=msg.operation, server_id=msg.server_id, success=False, error=str(exc))
-                return ServerControlResponse(operation=msg.operation, server_id=msg.server_id, success=True)
+        suid = msg.suid
+        local_model = self.manager.get_local_models().get(suid)
+        if local_model is not None:
+            try:
+                if msg.operation == "start":
+                    asyncio.create_task(local_model.start())
+                elif msg.operation == "stop":
+                    asyncio.create_task(local_model.stop())
+                elif msg.operation == "restart":
+                    asyncio.create_task(local_model.restart())
+            except Exception as exc:
+                return ServerControlResponse(operation=msg.operation, suid=suid, success=False, error=str(exc))
+            return ServerControlResponse(operation=msg.operation, suid=suid, success=True)
         for proxy in self.manager.get_remote_models():
-            if proxy.server_id == msg.server_id:
+            if proxy.get_suid() == suid:
                 await proxy.send_command(msg.operation)
-                return ServerControlResponse(operation=msg.operation, server_id=msg.server_id, success=True)
-        return ServerControlResponse(operation=msg.operation, server_id=msg.server_id, success=False, error="Server not found")
+                return ServerControlResponse(operation=msg.operation, suid=suid, success=True)
+        return ServerControlResponse(operation=msg.operation, suid=suid, success=False, error="Server not found")
 
     @request_handler(UplinkStatusRequest)
     async def _on_uplink_status(self, _msg: UplinkStatusRequest) -> BaseModel:
@@ -455,40 +446,63 @@ class UplinkConnection:
 
     async def run(self) -> None:
         config = self.manager.config
+
+        # Auth handshake — wait for authenticate message before sending anything
+        try:
+            raw = await asyncio.wait_for(self.ws.receive_text(), timeout=10.0)
+            auth_msg = json.loads(raw)
+        except Exception:
+            await self.ws.close(code=4400, reason="Auth timeout or invalid message")
+            return
+
+        if auth_msg.get("type") != "authenticate":
+            await self.ws.close(code=4400, reason="Expected authenticate message")
+            return
+
+        token = auth_msg.get("token", "")
+        if not config.manager_uplink.token or token != config.manager_uplink.token:
+            await self.ws.send_json({"type": "authenticate_response", "success": False, "reason": "Invalid token"})
+            await self.ws.close(code=4401, reason="Invalid token")
+            return
+
+        await self.ws.send_json({
+            "type": "authenticate_response",
+            "success": True,
+            "manager_id": config.manager_id,
+        })
+
         local_models_dict = self.manager.get_local_models()
-        local_models = [
-            (idx, local_models_dict[m.suid])
-            for idx, m in enumerate(config.models)
+        local_models: list[tuple[str, LocalManagedModel]] = [
+            (m.suid, local_models_dict[m.suid])
+            for m in config.models
             if m.suid in local_models_dict
         ]
-        server_id_to_index = {lm.get_server_identifier(): i for i, lm in local_models}
+        suid_to_model: dict[str, LocalManagedModel] = {suid: lm for suid, lm in local_models}
+        model_suids: set[str] = set(suid_to_model)
 
         # Snapshot
         await self.ws.send_json({
             "type": "snapshot",
             "proxy_port": config.api_server.port,
-            "manager_id": config.manager_id,
             "models": [
                 {
-                    "index": i,
-                    "name": config.models[i].name,
-                    "model_id": config.models[i].effective_id,
-                    "process_identifier": f"model-{i}",
-                    "server_id": local_model.get_server_identifier(),
-                    "state": local_model.get_status()["state"],
-                    "llama_port": local_model.port,
+                    "suid": suid,
+                    "name": lm.get_name(),
+                    "model_id": lm.get_model_ids()[0],
+                    "state": lm.get_status()["state"],
+                    "llama_port": lm.port,
                 }
-                for i, local_model in local_models
+                for suid, lm in local_models
             ],
         })
 
         # Log history
-        for i, local_model in local_models:
-            lines = local_model.log_buffer.snapshot()
+        for suid, lm in local_models:
+            lines = lm.log_buffer.snapshot()
             if lines:
                 await self.ws.send_json({
                     "type": "log_history",
-                    "model": i,
+                    "suid": suid,
                     "lines": [{"id": ln.id, "text": ln.text} for ln in lines],
                 })
 
@@ -496,18 +510,16 @@ class UplinkConnection:
 
         sender_task = asyncio.create_task(self._sender())
         listener_tasks = [
-            asyncio.create_task(self._listen_server_status(server_id_to_index)),
-            asyncio.create_task(self._listen_server_log(server_id_to_index)),
-            asyncio.create_task(self._listen_health(server_id_to_index)),
+            asyncio.create_task(self._listen_server_status(model_suids)),
+            asyncio.create_task(self._listen_server_log(model_suids)),
+            asyncio.create_task(self._listen_health(model_suids)),
         ]
         slot_handles: list[int] = []
-        for i, local_model in local_models:
-            server_id = local_model.get_server_identifier()
+        for suid in model_suids:
+            def _on_slots(slots: list[dict], _suid: str = suid) -> None:
+                self._push_json({"type": "slots", "suid": _suid, "slots": slots})
 
-            def _on_slots(slots: list[dict], _i: int = i, _sid: str = server_id) -> None:
-                self._push_json({"type": "slots", "model": _i, "server_id": _sid, "slots": slots})
-
-            slot_handles.append(self.manager.slot_status.subscribe(server_id, _on_slots))
+            slot_handles.append(self.manager.slot_status.subscribe(suid, _on_slots))
 
         try:
             while True:
@@ -516,7 +528,7 @@ class UplinkConnection:
                 except WebSocketDisconnect:
                     break
                 try:
-                    await self._handle_command(json.loads(data), local_models)
+                    await self._handle_command(json.loads(data), suid_to_model)
                 except Exception:
                     pass
         finally:
@@ -534,16 +546,16 @@ class UplinkConnection:
         except asyncio.CancelledError:
             pass
 
-    async def _listen_server_status(self, server_id_to_index: dict[str, int]) -> None:
+    async def _listen_server_status(self, model_suids: set[str]) -> None:
         q = self.manager.event_bus.subscribe("server_status")
         try:
             while True:
                 event = await q.get()
-                sid = event.get("id")
-                if sid in server_id_to_index:
+                suid = event.get("id")
+                if suid in model_suids:
                     self._push_json({
                         "type": "state",
-                        "model": server_id_to_index[sid],
+                        "suid": suid,
                         "state": event.get("data", {}).get("state"),
                     })
         except asyncio.CancelledError:
@@ -551,17 +563,17 @@ class UplinkConnection:
         finally:
             self.manager.event_bus.unsubscribe(q)
 
-    async def _listen_server_log(self, server_id_to_index: dict[str, int]) -> None:
+    async def _listen_server_log(self, model_suids: set[str]) -> None:
         q = self.manager.event_bus.subscribe("server_log")
         try:
             while True:
                 event = await q.get()
-                sid = event.get("id")
-                if sid in server_id_to_index:
+                suid = event.get("id")
+                if suid in model_suids:
                     data = event.get("data", {})
                     self._push_json({
                         "type": "log",
-                        "model": server_id_to_index[sid],
+                        "suid": suid,
                         "id": data.get("line_id"),
                         "text": data.get("text"),
                     })
@@ -570,28 +582,27 @@ class UplinkConnection:
         finally:
             self.manager.event_bus.unsubscribe(q)
 
-    async def _listen_health(self, server_id_to_index: dict[str, int]) -> None:
+    async def _listen_health(self, model_suids: set[str]) -> None:
         q = self.manager.event_bus.subscribe("health")
         try:
             while True:
                 event = await q.get()
-                sid = event.get("server_id")
-                if sid in server_id_to_index:
+                suid = event.get("id")
+                if suid in model_suids:
                     self._push_json({
                         "type": "health",
-                        "model": server_id_to_index[sid],
-                        "server_id": sid,
-                        "health": event.get("health"),
+                        "suid": suid,
+                        "health": event.get("data", {}).get("health"),
                     })
         except asyncio.CancelledError:
             pass
         finally:
             self.manager.event_bus.unsubscribe(q)
 
-    async def _handle_command(self, cmd: dict, local_models: list[tuple[int, LocalManagedModel]]) -> None:
+    async def _handle_command(self, cmd: dict, suid_to_model: dict[str, LocalManagedModel]) -> None:
         t = cmd.get("type")
-        model_idx = cmd.get("model", 0)
-        local_model = {i: m for i, m in local_models}.get(model_idx)
+        suid = cmd.get("suid", "")
+        local_model = suid_to_model.get(suid)
         if local_model is None:
             return
         if t == "start":
@@ -601,11 +612,10 @@ class UplinkConnection:
         elif t == "restart":
             asyncio.create_task(local_model.restart())
         elif t == "get_slots":
-            server_id = local_model.get_server_identifier()
-            slots = await self.manager.slot_status.get_slots(server_id) or []
+            slots = await self.manager.slot_status.get_slots(suid) or []
             self._push_json({
                 "type": "slots_response",
-                "model": model_idx,
+                "suid": suid,
                 "request_id": cmd.get("request_id", ""),
                 "slots": slots,
             })
@@ -614,7 +624,7 @@ class UplinkConnection:
             health = await client.get_health()
             self._push_json({
                 "type": "health_response",
-                "model": model_idx,
+                "suid": suid,
                 "request_id": cmd.get("request_id", ""),
                 "health": health,
             })
@@ -633,13 +643,10 @@ def make_router(manager: LlamaManager) -> APIRouter:
         await WsV2Connection(manager, ws).run()
 
     @router.websocket("/v2/ws/link")
-    async def _link(ws: WebSocket, token: str = Query(default="")) -> None:
+    async def _link(ws: WebSocket) -> None:
         config = manager.config
         if not config.manager_uplink.enabled:
             await ws.close(code=4403, reason="Uplink disabled")
-            return
-        if not config.manager_uplink.token or token != config.manager_uplink.token:
-            await ws.close(code=4401, reason="Invalid token")
             return
         await ws.accept()
         await UplinkConnection(manager, ws).run()

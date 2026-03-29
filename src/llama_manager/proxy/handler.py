@@ -11,26 +11,20 @@ from starlette.responses import JSONResponse, StreamingResponse
 
 if TYPE_CHECKING:
     from llama_manager.manager.llama_manager import LlamaManager
-from llama_manager.config import AppConfig
+    from llama_manager.protocol.backend import Backend
+from llama_manager.config import ModelConfig
 from llama_manager.kv_cache import (
     CacheHit,
     CacheMiss,
     KVCacheProvider,
     SlotAvailabilityProvider,
-    resolve_slot_save_path,
 )
 
 from .active_requests import ActiveRequestManager
-from .lifecycle import ensure_model_server, touch_model
 from .logging import log_request, log_response, log_stream_end
 from .models import (
     BACKEND_ERRORS,
     backend_error_msg,
-    default_backend,
-    resolve_backend,
-    resolve_model_index,
-    resolve_server_name,
-    rewrite_model_field,
 )
 from .request_log import RequestLog
 from .slots import slot_restore, slot_save
@@ -46,7 +40,7 @@ class ProtocolAdapter(Protocol):
     etc.) and the OAI-compatible format that llama-server speaks.
     """
 
-    def prepare_body(self, body: dict, config: AppConfig, model_index: int | None) -> dict:
+    def prepare_body(self, body: dict, model_config: ModelConfig | None) -> dict:
         """Translate/normalise incoming request body before forwarding."""
         ...
 
@@ -92,9 +86,9 @@ class ProxyHandler:
         self._manager = manager
         self._adapter = adapter
 
-    @property
-    def _config(self) -> AppConfig:
-        return self._manager.config
+    @staticmethod
+    def _rewrite_body(body: dict, model_id: str | None, backend: Backend) -> dict:
+        return {**body, "model": backend.map_model_id(model_id)}
 
     async def __call__(self, path: str, request: Request) -> JSONResponse | StreamingResponse:
         return await self.handle(path, request)
@@ -107,18 +101,14 @@ class ProxyHandler:
         server_name: str | None = None
         request_id: str | None = getattr(request.state, "request_id", None)
         adapter = self._adapter
-        config = self._config
 
         try:
             if method == "POST":
                 body = await request.json()
                 model_id = body.get("model")
 
-                model_index = resolve_model_index(model_id, config)
-                backend = resolve_backend(model_id, config)
-                if model_index is not None:
-                    self._manager.slot_status.mark_active(model_index)
-                if backend is None or model_index is None:
+                backend = self._manager.find_backend(model_id)
+                if backend is None:
                     log_request(None, method, f"/v1/{path}", http_ver, req_size, request_id=request_id)
                     log_response(None, 404, request_id=request_id)
                     resp_body = adapter.error_body(404, f"Model not found: {model_id}")
@@ -126,12 +116,16 @@ class ProxyHandler:
                         request_log.update(request_id, response_status=404, response_body=resp_body, elapsed=time.monotonic() - t0)
                     return JSONResponse(resp_body, status_code=404)
 
-                body = adapter.prepare_body(body, config, model_index)
-                server_name = resolve_server_name(model_id, config)
+                suid = backend.get_suid()
+                model_config = self._manager.get_model_config(suid)
+                self._manager.slot_status.mark_active(suid)
+
+                body = adapter.prepare_body(body, model_config)
+                server_name = backend.get_name() or model_id
                 log_request(server_name, method, f"/v1/{path}", http_ver, req_size, request_id=request_id)
 
                 try:
-                    await ensure_model_server(model_index, config)
+                    await self._manager.ensure_server(backend)
                 except RuntimeError as exc:
                     log_response(server_name, 503, elapsed=time.monotonic() - t0, request_id=request_id)
                     resp_body = adapter.error_body(503, str(exc))
@@ -139,22 +133,19 @@ class ProxyHandler:
                         request_log.update(request_id, response_status=503, response_body=resp_body, elapsed=time.monotonic() - t0)
                     return JSONResponse(resp_body, status_code=503)
 
-                touch_model(model_index)
-                body = rewrite_model_field(body, model_id, config)
+                self._manager.touch(suid)
+                body = self._rewrite_body(body, model_id, backend)
 
                 # ----- KV cache logic -----
-                slot_dir = resolve_slot_save_path(config, model_index)
+                slot_dir = self._manager.get_slot_save_path(suid)
                 kv = None
                 result = None  # CacheHit | CacheMiss | CacheInvalid
                 slot_id = None
                 slots = None
 
-                if slot_dir is not None:
+                if slot_dir is not None and model_config is not None:
                     kv = KVCacheProvider.get(slot_dir)
-                    slots = SlotAvailabilityProvider.get(
-                        model_index,
-                        config.models[model_index].parallel,
-                    )
+                    slots = SlotAvailabilityProvider.get(suid, model_config.parallel)
                     messages = body.get("messages", [])
                     result = kv.get(messages)
                     logger.warning("KV cache: %s", type(result).__name__)
@@ -165,7 +156,7 @@ class ProxyHandler:
                             logger.warning("KV cache: no slots available")
                         elif isinstance(result, CacheHit):
                             cache_id = result.get_cache_id()
-                            restored = await slot_restore(backend, slot_id, f"{cache_id}.bin")
+                            restored = await slot_restore(backend.get_base_url(), slot_id, f"{cache_id}.bin")
                             if restored:
                                 kv.record_restore(cache_id, slot_id)
                                 body = {**body, "id_slot": slot_id}
@@ -176,6 +167,8 @@ class ProxyHandler:
                             logger.warning("KV cache: miss, using slot %d", slot_id)
                             body = {**body, "id_slot": slot_id}
 
+                backend_url = backend.get_base_url()
+
                 # Streaming SSE
                 if body.get("stream"):
                     cs = None
@@ -185,20 +178,20 @@ class ProxyHandler:
                     elif slot_id is not None and slots is not None:
                         await slots.free(slot_id)
                     return await self._stream(
-                        backend, path, body, t0, server_name, request,
-                        model_index=model_index, cache_save=cs, request_id=request_id,
+                        backend_url, path, body, t0, server_name, request,
+                        suid=suid, cache_save=cs, request_id=request_id,
                     )
 
                 try:
                     async with httpx.AsyncClient() as client:
-                        resp = await client.request(method, f"{backend}/v1/{path}", json=body, timeout=None)
+                        resp = await client.request(method, f"{backend_url}/v1/{path}", json=body, timeout=None)
                     elapsed = time.monotonic() - t0
                     log_response(server_name, resp.status_code, elapsed=elapsed, size=len(resp.content), request_id=request_id)
 
                     if isinstance(result, CacheMiss) and slot_id is not None and resp.status_code == 200:
                         assert kv is not None
                         cache_id = result.get_cache_id()
-                        if await slot_save(backend, slot_id, f"{cache_id}.bin"):
+                        if await slot_save(backend_url, slot_id, f"{cache_id}.bin"):
                             kv.record_save(cache_id, slot_id)
 
                     resp_json = adapter.translate_response(resp.json())
@@ -211,12 +204,19 @@ class ProxyHandler:
                         await slots.free(slot_id, cache_id)
 
             else:
-                backend = default_backend(config)
-                server_name = resolve_server_name(None, config)
+                backend = self._manager.find_backend(None)
+                if backend is None:
+                    log_request(None, method, f"/v1/{path}", http_ver, request_id=request_id)
+                    log_response(None, 503, elapsed=0.0, request_id=request_id)
+                    resp_body = adapter.error_body(503, "No backend available")
+                    return JSONResponse(resp_body, status_code=503)
+
+                backend_url = backend.get_base_url()
+                server_name = backend.get_name()
                 log_request(server_name, method, f"/v1/{path}", http_ver, request_id=request_id)
 
                 try:
-                    await ensure_model_server(0, config)
+                    await self._manager.ensure_server(backend)
                 except RuntimeError as exc:
                     log_response(server_name, 503, elapsed=time.monotonic() - t0, request_id=request_id)
                     resp_body = adapter.error_body(503, str(exc))
@@ -224,9 +224,9 @@ class ProxyHandler:
                         request_log.update(request_id, response_status=503, response_body=resp_body, elapsed=time.monotonic() - t0)
                     return JSONResponse(resp_body, status_code=503)
 
-                touch_model(0)
+                self._manager.touch(backend.get_suid())
                 async with httpx.AsyncClient() as client:
-                    resp = await client.request(method, f"{backend}/v1/{path}", timeout=None)
+                    resp = await client.request(method, f"{backend_url}/v1/{path}", timeout=None)
                 elapsed = time.monotonic() - t0
                 log_response(server_name, resp.status_code, elapsed=elapsed, size=len(resp.content), request_id=request_id)
                 resp_json = resp.json()
@@ -246,26 +246,26 @@ class ProxyHandler:
 
     async def _stream(
         self,
-        backend: str,
+        backend_url: str,
         path: str,
         body: dict,
         t0: float,
         server_name: str,
         request: Request,
-        model_index: int | None = None,
+        suid: str | None = None,
         cache_save: tuple | None = None,
         request_id: str | None = None,
     ) -> StreamingResponse:
         adapter = self._adapter
         active_slot_id = body.get("id_slot")
         cancel_event = None
-        if model_index is not None and active_slot_id is not None:
-            cancel_event = ActiveRequestManager.register(model_index, active_slot_id)
+        if suid is not None and active_slot_id is not None:
+            cancel_event = ActiveRequestManager.register(suid, active_slot_id)
 
         async def _resolve_slot() -> int | None:
             try:
                 async with httpx.AsyncClient(timeout=2) as client:
-                    response = await client.get(f"{backend}/slots")
+                    response = await client.get(f"{backend_url}/slots")
                     if response.status_code == 200:
                         for slot in response.json():
                             if slot.get("is_processing"):
@@ -283,18 +283,18 @@ class ProxyHandler:
             try:
                 async with httpx.AsyncClient() as client:
                     async with client.stream(
-                        "POST", f"{backend}/v1/{path}", json=body, timeout=None,
+                        "POST", f"{backend_url}/v1/{path}", json=body, timeout=None,
                     ) as resp:
                         log_response(
                             server_name, resp.status_code, streaming=True,
                             elapsed=time.monotonic() - t0, request_id=request_id,
                         )
 
-                        if model_index is not None and active_slot_id is None and resp.status_code == 200:
+                        if suid is not None and active_slot_id is None and resp.status_code == 200:
                             resolved = await _resolve_slot()
                             if resolved is not None:
                                 active_slot_id = resolved
-                                cancel_event = ActiveRequestManager.register(model_index, active_slot_id)
+                                cancel_event = ActiveRequestManager.register(suid, active_slot_id)
 
                         def is_cancelled() -> bool:
                             return cancel_event is not None and cancel_event.is_set()
@@ -327,13 +327,13 @@ class ProxyHandler:
                 if request_id:
                     request_log.update(request_id, response_status=502, elapsed=time.monotonic() - t0)
             finally:
-                if model_index is not None and active_slot_id is not None:
-                    ActiveRequestManager.unregister(model_index, active_slot_id)
+                if suid is not None and active_slot_id is not None:
+                    ActiveRequestManager.unregister(suid, active_slot_id)
 
             if cache_save:
                 kv, cache_id, slot_id, slots = cache_save
                 if stream_ok:
-                    if await slot_save(backend, slot_id, f"{cache_id}.bin"):
+                    if await slot_save(backend_url, slot_id, f"{cache_id}.bin"):
                         kv.record_save(cache_id, slot_id)
                 await slots.free(slot_id, cache_id)
 

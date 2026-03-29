@@ -227,9 +227,9 @@ export default function ServerStatusCard({
     [serverId],
   );
 
-  // Fetch slots immediately when server becomes running.
+  // Fetch slots immediately when server becomes running or remote.
   useEffect(() => {
-    if (status.state === "running") {
+    if (status.state === "running" || status.state === "remote") {
       requestSlots();
     }
   }, [status.state, requestSlots]);

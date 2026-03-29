@@ -26,7 +26,7 @@ export interface WsV2Client {
    * Returns a React-compatible cleanup function.
    *
    * Pass `id: null` for events with no correlation id (e.g. proxy log events).
-   * Pass `subType` when the protocol requires a `sub_type` field (e.g. log events).
+   * Pass `subType` when the protocol requires a `subtype` field (e.g. log events).
    */
   subscribeToEvent(
     type: string,
@@ -176,8 +176,8 @@ class WsV2ClientImpl implements WsV2Client {
     const eventHandler = (msg: JsonMessage) => {
       if (msg.type !== type) return;
       if (id !== null && msg.id !== id) return;
-      if (subType !== undefined && msg.sub_type !== subType) return;
-      handler(msg.event_data as Record<string, unknown>);
+      if (subType !== undefined && msg.subtype !== subType) return;
+      handler(msg.data as Record<string, unknown>);
     };
 
     const onConnect = () => {
@@ -188,7 +188,7 @@ class WsV2ClientImpl implements WsV2Client {
       this._pendingEventSubs.push(pendingCallback);
       const sendMsg: JsonMessage = { msg: "subscribe_event", type };
       if (id !== null) sendMsg.id = id;
-      if (subType !== undefined) sendMsg.sub_type = subType;
+      if (subType !== undefined) sendMsg.subtype = subType;
       console.log("Sending subscribe_event:", sendMsg);
       this.send(sendMsg);
     };
@@ -203,7 +203,7 @@ class WsV2ClientImpl implements WsV2Client {
       }
       if (subscriptionId !== null) {
         const unsubMsg: JsonMessage = { msg: "unsubscribe_event", type, subscription_id: subscriptionId };
-        if (subType !== undefined) unsubMsg.sub_type = subType;
+        if (subType !== undefined) unsubMsg.subtype = subType;
         this.send(unsubMsg);
       }
     };

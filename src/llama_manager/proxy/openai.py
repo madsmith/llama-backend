@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, AsyncGenerator, AsyncIterator, Awaitable, Callable
 
-from llama_manager.config import AppConfig
+from llama_manager.config import ModelConfig
 
 if TYPE_CHECKING:
     from llama_manager.manager.llama_manager import LlamaManager
@@ -13,8 +13,8 @@ from .handler import ProxyHandler
 class OpenAIAdapter:
     """ProtocolAdapter for the OpenAI API — passes through OAI format as-is."""
 
-    def prepare_body(self, body: dict, config: AppConfig, model_index: int | None) -> dict:
-        return self._normalize_messages(body, config, model_index)
+    def prepare_body(self, body: dict, model_config: ModelConfig | None) -> dict:
+        return self._normalize_messages(body, model_config)
 
     @staticmethod
     def _remap_developer_role(messages: list[dict]) -> list[dict]:
@@ -23,7 +23,7 @@ class OpenAIAdapter:
             for msg in messages
         ]
 
-    def _normalize_messages(self, body: dict, config: AppConfig, model_index: int | None) -> dict:
+    def _normalize_messages(self, body: dict, model_config: ModelConfig | None) -> dict:
         """Rewrite messages so llama-server's Jinja template can handle them.
 
         1. Remap developer → system (if model lacks developer role support).
@@ -33,11 +33,7 @@ class OpenAIAdapter:
         if not messages:
             return body
 
-        supports_dev = (
-            model_index is not None
-            and model_index < len(config.models)
-            and config.models[model_index].advanced.supports_developer_role
-        )
+        supports_dev = model_config is not None and model_config.advanced.supports_developer_role
         if not supports_dev:
             messages = self._remap_developer_role(messages)
 

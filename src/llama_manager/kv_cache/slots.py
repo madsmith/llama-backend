@@ -7,15 +7,15 @@ logger = logging.getLogger(__name__)
 
 
 class SlotAvailabilityProvider:
-    """Returns a shared SlotAvailability per model index."""
+    """Returns a shared SlotAvailability per model suid."""
 
-    _instances: dict[int, SlotAvailability] = {}
+    _instances: dict[str, SlotAvailability] = {}
 
     @classmethod
-    def get(cls, model_index: int, num_slots: int) -> SlotAvailability:
-        if model_index not in cls._instances:
-            cls._instances[model_index] = SlotAvailability(num_slots)
-        return cls._instances[model_index]
+    def get(cls, suid: str, num_slots: int) -> SlotAvailability:
+        if suid not in cls._instances:
+            cls._instances[suid] = SlotAvailability(num_slots)
+        return cls._instances[suid]
 
 
 class SlotAvailability:

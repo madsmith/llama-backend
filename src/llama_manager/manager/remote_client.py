@@ -8,7 +8,6 @@ import websockets
 
 from llama_manager.config import AppConfig, RemoteManagerConfig
 from llama_manager.event_bus import EventBus
-from llama_manager.model import ModelIdentifier
 from llama_manager.manager.backends import RemoteModelProxy
 
 logger = logging.getLogger(__name__)
@@ -33,7 +32,7 @@ class RemoteManagerClient:
         self._ws: websockets.WebSocketClientProtocol | None = None
         self._task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
-        self.server_id: str | None = None
+        self._manager_id: str = ""
         self._pending_requests: dict[str, asyncio.Future[list[dict]]] = {}
         self._request_counter: int = 0
 
@@ -42,6 +41,10 @@ class RemoteManagerClient:
 
     def set_config(self, config: RemoteManagerConfig) -> None:
         self._config = config
+
+    def get_manager_id(self) -> str:
+        assert self._manager_id, "Manager ID not set"
+        return self._manager_id
 
     async def start(self) -> None:
         self._stop_event.clear()
@@ -59,7 +62,7 @@ class RemoteManagerClient:
                 pass
 
     def _ws_url(self) -> str:
-        return f"{self._config.ws_url}?token={self._config.token}"
+        return self._config.ws_url
 
     async def _run_loop(self) -> None:
         while not self._stop_event.is_set():
@@ -95,6 +98,27 @@ class RemoteManagerClient:
             self._ws = ws
             self.connection_state = "connected"
             logger.debug("Remote manager [%d] connected", self.remote_index)
+
+            # Authenticate
+            await ws.send(json.dumps({"type": "authenticate", "token": self._config.token}))
+            try:
+                auth_raw = await asyncio.wait_for(ws.recv(), timeout=10.0)
+                auth_msg = json.loads(auth_raw)
+            except Exception as exc:
+                logger.warning("Remote manager [%d]: auth error: %r", self.remote_index, exc)
+                return
+
+            if auth_msg.get("type") != "authenticate_response" or not auth_msg.get("success"):
+                logger.warning(
+                    "Remote manager [%d]: authentication failed: %s",
+                    self.remote_index,
+                    auth_msg.get("reason", "unknown"),
+                )
+                return
+
+            self._manager_id = auth_msg.get("manager_id", "")
+            logger.debug("Remote manager [%d] authenticated, manager_id=%s", self.remote_index, self._manager_id)
+
             async for raw in ws:
                 if self._stop_event.is_set():
                     break
@@ -103,6 +127,7 @@ class RemoteManagerClient:
                 except Exception:
                     continue
                 await self._handle_message(msg)
+
         self._ws = None
         for fut in list(self._pending_requests.values()):
             if not fut.done():
@@ -115,40 +140,38 @@ class RemoteManagerClient:
 
         if t == "snapshot":
             proxy_port = msg.get("proxy_port", 1234)
-            remote_manager_id = msg.get("manager_id", "")
-            self.server_id = remote_manager_id
-            await self._reconcile_models(msg.get("models", []), proxy_port, remote_manager_id)
+            await self._reconcile_models(msg.get("models", []), proxy_port)
 
         elif t == "state":
-            proxy = self._get_proxy(msg.get("model", 0))
+            proxy = self._get_proxy(msg.get("suid", ""))
             if proxy:
                 proxy.set_state(msg.get("state", "error"))
 
         elif t == "log":
-            proxy = self._get_proxy(msg.get("model", 0))
+            proxy = self._get_proxy(msg.get("suid", ""))
             if proxy:
                 proxy.feed_log(msg.get("text", ""))
 
         elif t == "log_history":
-            proxy = self._get_proxy(msg.get("model", 0))
+            proxy = self._get_proxy(msg.get("suid", ""))
             if proxy:
                 for entry in msg.get("lines", []):
                     proxy.feed_log(entry.get("text", ""))
 
         elif t == "slots":
-            proxy = self._get_proxy(msg.get("model", 0))
+            proxy = self._get_proxy(msg.get("suid", ""))
             if proxy:
                 slots = msg.get("slots", [])
                 proxy.set_slots(slots)
-                self._event_bus.publish({"type": "slots", "server_id": proxy.server_id, "slots": slots})
+                self._event_bus.publish({"type": "slots", "id": proxy.get_suid(), "data": {"slots": slots}})
 
         elif t == "health":
-            proxy = self._get_proxy(msg.get("model", 0))
+            proxy = self._get_proxy(msg.get("suid", ""))
             if proxy:
                 health = msg.get("health")
                 if health is not None:
                     proxy.set_health(health)
-                    self._event_bus.publish({"type": "health", "server_id": proxy.server_id, "health": health})
+                    self._event_bus.publish({"type": "health", "id": proxy.get_suid(), "data": {"health": health}})
 
         elif t == "slots_response":
             request_id = msg.get("request_id", "")
@@ -162,66 +185,46 @@ class RemoteManagerClient:
             if future is not None and not future.done():
                 future.set_result(msg.get("health"))
 
-    def _get_proxy(self, remote_model_index: int) -> RemoteModelProxy | None:
+    def _get_proxy(self, suid: str) -> RemoteModelProxy | None:
         for p in self.models:
-            if p.remote_model_index == remote_model_index:
+            if p.get_suid() == suid:
                 return p
         return None
 
-    async def _reconcile_models(self, model_descriptors: list[dict], proxy_port: int = 1234, remote_manager_id: str = "") -> None:
+    async def _reconcile_models(self, model_descriptors: list[dict], proxy_port: int = 1234) -> None:
         log_buffer_size = self._app_config.web_ui.log_buffer_size
         proxy_url = f"http://{self._config.host}:{proxy_port}"
 
-        existing: dict[str, RemoteModelProxy] = {}
-        for p in self.models:
-            key = p.name or f"__idx_{p.remote_model_index}"
-            existing[key] = p
+        existing: dict[str, RemoteModelProxy] = {p.get_suid(): p for p in self.models}
 
         new_models: list[RemoteModelProxy] = []
         for desc in model_descriptors:
-            rmi = desc.get("index", len(new_models))
+            suid = desc.get("suid", "")
             name = desc.get("name")
             model_id = desc.get("model_id")
-            server_id = desc.get("server_id") or f"{self._config.host}:model-{rmi}"
             state_str = desc.get("state", "stopped")
             llama_port: int | None = desc.get("llama_port")
-            key = name or f"__idx_{rmi}"
-            # TODO: add pydantic validation for model descriptors
 
-            if name is None:
-                logger.warning(f"Model descriptor missing name: {desc}")
-                name = f'Model {rmi}'
-
-            if model_id is None:
-                logger.error(f"Model descriptor missing model_id [skipping]: {desc}")
+            if not suid:
+                logger.warning("Model descriptor missing suid: %s", desc)
                 continue
 
-            if remote_manager_id:
-                process_identifier = desc.get("process_identifier") or f"model-{rmi}"
-                model_identifier = ModelIdentifier(remote_manager_id, process_identifier)
-            else:
-                try:
-                    model_identifier = ModelIdentifier.from_string(server_id)
-                except ValueError:
-                    model_identifier = ModelIdentifier(self._config.host, f"model-{rmi}")
+            if model_id is None:
+                logger.error("Model descriptor missing model_id [skipping]: %s", desc)
+                continue
 
-            if key in existing:
-                proxy = existing.pop(key)
-                proxy.remote_model_index = rmi
+            if suid in existing:
+                proxy = existing.pop(suid)
                 proxy.name = name
-                proxy.model_id = model_id
+                proxy.model_id = str(model_id)
                 proxy.proxy_url = proxy_url
-                proxy.server_id = server_id
-                proxy.model_identifier = model_identifier
             else:
                 proxy = RemoteModelProxy(
-                    remote_index=self.remote_index,
-                    remote_model_index=rmi,
-                    name=str(name),
+                    manager_id=self._manager_id,
+                    suid=suid,
+                    name=name,
                     model_id=str(model_id),
                     proxy_url=proxy_url,
-                    server_id=server_id,
-                    model_identifier=model_identifier,
                     client=self,
                     event_bus=self._event_bus,
                     log_buffer_size=log_buffer_size,
@@ -233,15 +236,15 @@ class RemoteManagerClient:
 
         self.models = new_models
 
-    async def send_command(self, remote_model_index: int, cmd: str) -> None:
+    async def send_command(self, suid: str, cmd: str) -> None:
         if self._ws is None:
             return
         try:
-            await self._ws.send(json.dumps({"type": cmd, "model": remote_model_index}))
+            await self._ws.send(json.dumps({"type": cmd, "suid": suid}))
         except Exception as exc:
             logger.debug("Failed to send command to remote manager [%d]: %r", self.remote_index, exc)
 
-    async def request_health(self, remote_model_index: int) -> dict | None:
+    async def request_health(self, suid: str) -> dict | None:
         """Send a get_health request and await the response, returning None on timeout or error."""
         if self._ws is None:
             return None
@@ -252,7 +255,7 @@ class RemoteManagerClient:
         try:
             await self._ws.send(json.dumps({
                 "type": "get_health",
-                "model": remote_model_index,
+                "suid": suid,
                 "request_id": request_id,
             }))
             return await asyncio.wait_for(future, timeout=5.0)
@@ -261,7 +264,7 @@ class RemoteManagerClient:
         finally:
             self._pending_requests.pop(request_id, None)
 
-    async def request_slots(self, remote_model_index: int) -> list[dict]:
+    async def request_slots(self, suid: str) -> list[dict]:
         """Send a get_slots request and await the response, returning [] on timeout or error."""
         if self._ws is None:
             return []
@@ -272,7 +275,7 @@ class RemoteManagerClient:
         try:
             await self._ws.send(json.dumps({
                 "type": "get_slots",
-                "model": remote_model_index,
+                "suid": suid,
                 "request_id": request_id,
             }))
             result = await asyncio.wait_for(future, timeout=5.0)

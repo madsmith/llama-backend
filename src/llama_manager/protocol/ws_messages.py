@@ -49,17 +49,17 @@ class ProxyStatusRequest(BaseModel):
 
 class ServerStatusRequest(BaseModel):
     msg: Literal["server_status"] = "server_status"
-    id: str
+    suid: str
 
 
 class SlotStatusRequest(BaseModel):
     msg: Literal["slot_status"] = "slot_status"
-    server_id: str
+    suid: str
 
 
 class SubscribeSlotStatusRequest(BaseModel):
     msg: Literal["subscribe_slot_status"] = "subscribe_slot_status"
-    server_id: str
+    suid: str
 
 
 class UnsubscribeSlotStatusRequest(BaseModel):
@@ -68,11 +68,10 @@ class UnsubscribeSlotStatusRequest(BaseModel):
 
 
 class SubscribeEventRequest(BaseModel):
-    """Generic event subscription. *id* is a client-chosen correlation token
-    returned in the response so callers can match async request/response pairs."""
+    """Generic event subscription. *id* filters which resource to subscribe to."""
     msg: Literal["subscribe_event"] = "subscribe_event"
     type: str
-    sub_type: str | None = None
+    subtype: str | None = None
     id: str | None = None
 
 
@@ -80,7 +79,7 @@ class UnsubscribeEventRequest(BaseModel):
     """Cancel a generic event subscription by its server-assigned subscription_id."""
     msg: Literal["unsubscribe_event"] = "unsubscribe_event"
     type: str
-    sub_type: str | None = None
+    subtype: str | None = None
     subscription_id: int  # subscription_id from SubscribeEventResponse
 
 
@@ -100,7 +99,7 @@ class PutConfigRequest(BaseModel):
 class LoadLogRequest(BaseModel):
     msg: Literal["load_log"] = "load_log"
     type: Literal["proxy", "server"]
-    id: str | None = None  # server_id when type="server"
+    suid: str | None = None  # suid when type="server"
 
 
 class RemotesRequest(BaseModel):
@@ -114,8 +113,7 @@ class UplinkStatusRequest(BaseModel):
 class ServerControlRequest(BaseModel):
     msg: Literal["server_control"] = "server_control"
     operation: Literal["start", "stop", "restart"]
-    server_id: str
-    model_suid: str
+    suid: str
 
 
 IncomingMessage = Annotated[
@@ -154,7 +152,7 @@ class ProxyStatusResponse(BaseModel):
 
 class ServerStatusResponse(BaseModel):
     msg: Literal["server_status_response"] = "server_status_response"
-    id: str
+    suid: str
     state: str
     pid: int | None
     host: str | None
@@ -164,21 +162,21 @@ class ServerStatusResponse(BaseModel):
 
 class SlotStatusResponse(BaseModel):
     msg: Literal["slot_status_response"] = "slot_status_response"
-    server_id: str
+    suid: str
     slots: list[SlotInfo]
 
 
 class SubscribeSlotStatusResponse(BaseModel):
     msg: Literal["subscribe_slot_status_response"] = "subscribe_slot_status_response"
     subscription_id: int
-    server_id: str
+    suid: str
     slots: list[SlotInfo]
 
 
 class SlotStatusEvent(BaseModel):
     msg: Literal["slot_status_event"] = "slot_status_event"
     subscription_id: int
-    server_id: str
+    suid: str
     slots: list[SlotInfo]
 
 
@@ -193,9 +191,9 @@ class EventResponse(BaseModel):
     """Generic event pushed to subscribers."""
     msg: Literal["event"] = "event"
     type: str
-    sub_type: str | None = None
+    subtype: str | None = None
     id: str | None = None
-    event_data: dict[str, Any]
+    data: dict[str, Any]
 
 
 class GenerateTokenResponse(BaseModel):
@@ -222,16 +220,15 @@ class LogLine(BaseModel):
 class LoadLogResponse(BaseModel):
     msg: Literal["load_log_response"] = "load_log_response"
     type: str
-    id: str | None = None
+    suid: str | None = None
     lines: list[LogLine]
 
 
 class RemoteModelInfo(BaseModel):
-    remote_model_index: int
+    suid: str
     name: str | None
     model_id: str
     state: str
-    server_id: str
 
 
 class RemoteManagerInfo(BaseModel):
@@ -256,6 +253,6 @@ class UplinkStatusResponse(BaseModel):
 class ServerControlResponse(BaseModel):
     msg: Literal["server_control_response"] = "server_control_response"
     operation: str
-    server_id: str
+    suid: str
     success: bool
     error: str | None = None

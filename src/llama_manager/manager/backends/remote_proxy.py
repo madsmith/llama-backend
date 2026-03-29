@@ -4,7 +4,6 @@ import time
 
 from llama_manager.event_bus import EventBus
 from llama_manager.log_buffer import LogBuffer
-from llama_manager.model import ModelIdentifier
 from llama_manager.manager.backends.local_managed import ServerState
 from llama_manager.protocol.backend import ManagedBackend, RemoteClient
 
@@ -14,24 +13,20 @@ class RemoteModelProxy(ManagedBackend):
 
     def __init__(
         self,
-        remote_index: int,
-        remote_model_index: int,
+        manager_id: str,
+        suid: str,
         name: str | None,
         model_id: str,
         proxy_url: str,
-        server_id: str,
-        model_identifier: ModelIdentifier,
         client: RemoteClient,
         event_bus: EventBus,
         log_buffer_size: int = 10_000,
     ) -> None:
-        self.remote_index = remote_index
-        self.remote_model_index = remote_model_index
+        self._manager_id = manager_id
+        self._suid = suid
         self.name = name
         self.model_id: str = model_id
         self.proxy_url = proxy_url
-        self.server_id = server_id
-        self.model_identifier = model_identifier
         self._client = client
         self._event_bus = event_bus
         self.state: ServerState = ServerState.unknown
@@ -45,8 +40,11 @@ class RemoteModelProxy(ManagedBackend):
     # Backend protocol
     # ------------------------------------------------------------------
 
+    def get_manager_id(self) -> str:
+        return self._manager_id
+
     def get_suid(self) -> str:
-        return self.server_id
+        return self._suid
 
     def get_name(self) -> str | None:
         return self.name
@@ -57,13 +55,16 @@ class RemoteModelProxy(ManagedBackend):
     def get_model_ids(self) -> list[str]:
         return [self.model_id]
 
+    def map_model_id(self, model_id: str | None) -> str | None:
+        return model_id
+
     def is_available(self) -> bool:
         return self.state == ServerState.running
 
     async def get_slots(self) -> list[dict] | None:
         if self._cached_slots is not None:
             return self._cached_slots
-        slots = await self._client.request_slots(self.remote_model_index)
+        slots = await self._client.request_slots(self._suid)
         if slots:
             self._cached_slots = slots
         return slots
@@ -71,7 +72,7 @@ class RemoteModelProxy(ManagedBackend):
     async def get_health(self) -> dict:
         if self._cached_health is not None:
             return self._cached_health
-        health = await self._client.request_health(self.remote_model_index)
+        health = await self._client.request_health(self._suid)
         if health is not None:
             self._cached_health = health
             return health
@@ -118,11 +119,11 @@ class RemoteModelProxy(ManagedBackend):
             self._started_at = time.time()
         elif self.state != ServerState.running:
             self._started_at = None
-        self._event_bus.publish({"type": "server_status", "id": self.server_id, "data": {"state": self.state.value}})
+        self._event_bus.publish({"type": "server_status", "id": self._suid, "data": {"state": self.state.value}})
 
     def feed_log(self, text: str) -> None:
         line = self.log_buffer.append(text)
-        self._event_bus.publish({"type": "server_log", "id": self.server_id, "data": {"line_id": line.id, "text": line.text}})
+        self._event_bus.publish({"type": "server_log", "id": self._suid, "data": {"line_id": line.id, "text": line.text}})
 
     def set_slots(self, slots: list) -> None:
         self._cached_slots = slots
@@ -131,4 +132,4 @@ class RemoteModelProxy(ManagedBackend):
         self._cached_health = health
 
     async def send_command(self, cmd: str) -> None:
-        await self._client.send_command(self.remote_model_index, cmd)
+        await self._client.send_command(self._suid, cmd)

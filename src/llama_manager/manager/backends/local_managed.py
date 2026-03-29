@@ -39,7 +39,7 @@ class ServerState(str, Enum):
 class LocalManagedModel(ManagedBackend):
     def __init__(
         self,
-        server_id: str,
+        manager_id: str,
         model_config: ModelConfig,
         port: int,
         event_bus: EventBus,
@@ -47,7 +47,7 @@ class LocalManagedModel(ManagedBackend):
         llama_server_path: Path | None,
         slot_save_path: Path | None,
     ) -> None:
-        self._server_id = server_id
+        self._manager_id = manager_id
         self._model_config = model_config
         self._llama_server_path = llama_server_path
         self._slot_save_path = slot_save_path
@@ -80,8 +80,11 @@ class LocalManagedModel(ManagedBackend):
     # Backend protocol
     # ------------------------------------------------------------------
 
+    def get_manager_id(self) -> str:
+        return self._manager_id
+
     def get_suid(self) -> str:
-        return self._server_id
+        return self._model_config.suid
 
     def get_name(self) -> str | None:
         return self._model_config.name
@@ -91,6 +94,9 @@ class LocalManagedModel(ManagedBackend):
 
     def get_model_ids(self) -> list[str]:
         return [self._model_config.effective_id]
+
+    def map_model_id(self, model_id: str | None) -> str | None:
+        return model_id
 
     def is_available(self) -> bool:
         return self.state == ServerState.running
@@ -108,14 +114,11 @@ class LocalManagedModel(ManagedBackend):
     def get_log_buffer(self) -> LogBuffer:
         return self.log_buffer
 
-    def get_server_identifier(self) -> str:
-        return self._server_id
-
     def _log(self, text: str) -> None:
         line = self.log_buffer.append(text)
         self.event_bus.publish({
             "type": "server_log",
-            "id": self._server_id,
+            "id": self._model_config.suid,
             "data": {"line_id": line.id, "text": line.text},
         })
         log.debug("[local_managed_model] %s", text)
@@ -126,7 +129,7 @@ class LocalManagedModel(ManagedBackend):
         log.debug("state %s -> %s", old.value, new.value)
         self.event_bus.publish({
             "type": "server_status",
-            "id": self._server_id,
+            "id": self._model_config.suid,
             "data": {"state": new.value},
         })
 
@@ -241,7 +244,7 @@ class LocalManagedModel(ManagedBackend):
         self._log(f"ERROR: {msg}")
         self.event_bus.publish({
             "type": "server_status",
-            "id": self._server_id,
+            "id": self._model_config.suid,
             "data": {"state": self.state.value},
         })
 
@@ -342,7 +345,7 @@ class LocalManagedModel(ManagedBackend):
             self.state = ServerState.error if rc != 0 else ServerState.stopped
             self.event_bus.publish({
                 "type": "server_status",
-                "id": self._server_id,
+                "id": self._model_config.suid,
                 "data": {"state": self.state.value},
             })
             self.process = None

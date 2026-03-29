@@ -20,7 +20,6 @@ from llama_manager.log_buffer import LogBuffer
 
 if TYPE_CHECKING:
     from llama_manager.manager.llama_manager import LlamaManager
-from .lifecycle import task_ttl_checker, get_ttl_task, set_ttl_task
 from .openai import openai_proxy
 from .request_log import RequestLog
 from .subscription import set_proxy_server
@@ -84,15 +83,9 @@ class ProxyServer:
 
         logger.info("Proxy server started on %s:%s", self._host, self._port)
         self.log(f"Proxy started on {self._host}:{self._port}")
-        set_ttl_task(asyncio.create_task(task_ttl_checker(config)))
 
 
     async def stop(self) -> None:
-        ttl_task = get_ttl_task()
-        if ttl_task is not None:
-            ttl_task.cancel()
-            set_ttl_task(None)
-
         if self._server is not None:
             self._server.should_exit = True
         
