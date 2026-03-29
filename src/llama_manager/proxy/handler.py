@@ -13,6 +13,7 @@ from starlette.responses import JSONResponse, StreamingResponse
 if TYPE_CHECKING:
     from llama_manager.manager.llama_manager import LlamaManager
     from llama_manager.protocol.backend import Backend
+    from .server import ProxyServer
 from llama_manager.config import ModelConfig
 from llama_manager.kv_cache import (
     CacheHit,
@@ -23,10 +24,6 @@ from llama_manager.kv_cache import (
 
 from .active_requests import ActiveRequestManager
 from .logging import log_request, log_response, log_stream_end
-from .models import (
-    BACKEND_ERRORS,
-    backend_error_msg,
-)
 from .request_log import RequestLog
 from .slots import slot_restore, slot_save
 
@@ -83,9 +80,18 @@ class ProxyHandler:
     ProtocolAdapter.
     """
 
-    def __init__(self, manager: LlamaManager, adapter: ProtocolAdapter) -> None:
+    _BACKEND_ERRORS = (httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError)
+
+    @staticmethod
+    def _backend_error_msg(exc: Exception) -> str:
+        if isinstance(exc, httpx.ConnectError):
+            return "Backend server is not reachable"
+        return "Backend server disconnected"
+
+    def __init__(self, manager: LlamaManager, adapter: ProtocolAdapter, proxy: ProxyServer) -> None:
         self._manager = manager
         self._adapter = adapter
+        self._proxy = proxy
 
     @staticmethod
     def _rewrite_body(body: dict, model_id: str | None, backend: Backend) -> dict:
@@ -183,6 +189,18 @@ class ProxyHandler:
                         suid=suid, cache_save=cs, request_id=request_id,
                     )
 
+                active_slot_id = body.get("id_slot")
+                cancel_event: asyncio.Event | None = None
+                if suid is not None and active_slot_id is not None:
+                    cancel_event = ActiveRequestManager.register(suid, active_slot_id)
+
+                resolve_lock: asyncio.Lock | None = None
+                lock_held = False
+                if suid is not None and active_slot_id is None:
+                    resolve_lock = self._proxy.get_resolve_lock(suid)
+                    await resolve_lock.acquire()
+                    lock_held = True
+
                 try:
                     async with httpx.AsyncClient() as client:
                         req_task = asyncio.create_task(
@@ -196,9 +214,23 @@ class ProxyHandler:
                                     return
 
                         disc_task = asyncio.create_task(_wait_disconnect())
-                        done, pending = await asyncio.wait(
-                            [req_task, disc_task], return_when=asyncio.FIRST_COMPLETED
-                        )
+
+                        if lock_held:
+                            try:
+                                claimed = await self._resolve_and_register_slot(backend_url, suid)
+                                if claimed is not None:
+                                    active_slot_id, cancel_event = claimed
+                            finally:
+                                resolve_lock.release()
+                                lock_held = False
+
+                        tasks: list[asyncio.Task] = [req_task, disc_task]
+                        cancel_task: asyncio.Task | None = None
+                        if cancel_event is not None:
+                            cancel_task = asyncio.create_task(cancel_event.wait())
+                            tasks.append(cancel_task)
+
+                        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
                         for t in pending:
                             t.cancel()
                         if disc_task in done:
@@ -206,6 +238,11 @@ class ProxyHandler:
                             if request_id:
                                 request_log.update(request_id, response_status=499, elapsed=time.monotonic() - t0)
                             return JSONResponse(adapter.error_body(503, "Client disconnected"), status_code=503)
+                        if cancel_task is not None and cancel_task in done:
+                            log_response(server_name, 503, elapsed=time.monotonic() - t0, request_id=request_id)
+                            if request_id:
+                                request_log.update(request_id, response_status=503, elapsed=time.monotonic() - t0)
+                            return JSONResponse(adapter.error_body(503, "Request cancelled: inference terminated by server operator"), status_code=503)
                         resp = req_task.result()
 
                     elapsed = time.monotonic() - t0
@@ -222,6 +259,10 @@ class ProxyHandler:
                         request_log.update(request_id, response_status=resp.status_code, response_body=resp_json, elapsed=elapsed)
                     return JSONResponse(resp_json, status_code=resp.status_code)
                 finally:
+                    if lock_held and resolve_lock is not None:
+                        resolve_lock.release()
+                    if active_slot_id is not None and suid is not None:
+                        ActiveRequestManager.unregister(suid, active_slot_id)
                     if slot_id is not None and slots is not None:
                         cache_id = result.get_cache_id() if isinstance(result, (CacheHit, CacheMiss)) else None
                         await slots.free(slot_id, cache_id)
@@ -257,15 +298,38 @@ class ProxyHandler:
                     request_log.update(request_id, response_status=resp.status_code, response_body=resp_json, elapsed=elapsed)
                 return JSONResponse(resp_json, status_code=resp.status_code)
 
-        except BACKEND_ERRORS as exc:
+        except ProxyHandler._BACKEND_ERRORS as exc:
             elapsed = time.monotonic() - t0
-            msg = backend_error_msg(exc)
+            msg = self._backend_error_msg(exc)
             log_response(server_name, 502, elapsed=elapsed, request_id=request_id)
-            self._manager.proxy.log(f"[{server_name}] {msg}", request_id=request_id)
+            self._proxy.log(f"[{server_name}] {msg}", request_id=request_id)
             resp_body = adapter.error_body(502, msg)
             if request_id:
                 request_log.update(request_id, response_status=502, response_body=resp_body, elapsed=elapsed)
             return JSONResponse(resp_body, status_code=502)
+
+    @staticmethod
+    async def _resolve_and_register_slot(
+        backend_url: str, suid: str
+    ) -> tuple[int, asyncio.Event] | None:
+        """Poll /slots and atomically claim the first processing slot not yet registered.
+
+        Iterates all processing slots and calls try_register on each until one succeeds,
+        so concurrent requests cannot claim the same slot.
+        Returns (slot_id, cancel_event) or None if no unclaimed processing slot found.
+        """
+        try:
+            async with httpx.AsyncClient(timeout=2) as client:
+                response = await client.get(f"{backend_url}/slots")
+                if response.status_code == 200:
+                    for slot in response.json():
+                        if slot.get("is_processing") and "id" in slot:
+                            event = ActiveRequestManager.try_register(suid, slot["id"])
+                            if event is not None:
+                                return slot["id"], event
+        except Exception:
+            pass
+        return None
 
     async def _stream(
         self,
@@ -285,20 +349,14 @@ class ProxyHandler:
         if suid is not None and active_slot_id is not None:
             cancel_event = ActiveRequestManager.register(suid, active_slot_id)
 
-        async def _resolve_slot() -> int | None:
-            try:
-                async with httpx.AsyncClient(timeout=2) as client:
-                    response = await client.get(f"{backend_url}/slots")
-                    if response.status_code == 200:
-                        for slot in response.json():
-                            if slot.get("is_processing"):
-                                return slot.get("id")
-            except Exception:
-                pass
-            return None
+        resolve_lock: asyncio.Lock | None = None
+        if suid is not None and active_slot_id is None:
+            resolve_lock = self._proxy.get_resolve_lock(suid)
+            await resolve_lock.acquire()
 
         async def response_generator():
             nonlocal active_slot_id, cancel_event
+            lock_held = resolve_lock is not None
             total_bytes = 0
             stream_ok = False
             accumulated_text: list[str] = []
@@ -313,11 +371,15 @@ class ProxyHandler:
                             elapsed=time.monotonic() - t0, request_id=request_id,
                         )
 
-                        if suid is not None and active_slot_id is None and resp.status_code == 200:
-                            resolved = await _resolve_slot()
-                            if resolved is not None:
-                                active_slot_id = resolved
-                                cancel_event = ActiveRequestManager.register(suid, active_slot_id)
+                        if lock_held:
+                            try:
+                                if suid is not None and active_slot_id is None and resp.status_code == 200:
+                                    claimed = await self._resolve_and_register_slot(backend_url, suid)
+                                    if claimed is not None:
+                                        active_slot_id, cancel_event = claimed
+                            finally:
+                                resolve_lock.release()
+                                lock_held = False
 
                         def is_cancelled() -> bool:
                             return cancel_event is not None and cancel_event.is_set()
@@ -353,14 +415,16 @@ class ProxyHandler:
                         streaming=True,
                         elapsed=time.monotonic() - t0,
                     )
-            except BACKEND_ERRORS as exc:
-                msg = backend_error_msg(exc)
+            except ProxyHandler._BACKEND_ERRORS as exc:
+                msg = self._backend_error_msg(exc)
                 log_response(server_name, 502, elapsed=time.monotonic() - t0, request_id=request_id)
-                self._manager.proxy.log(f"[{server_name}] {msg}", request_id=request_id)
+                self._proxy.log(f"[{server_name}] {msg}", request_id=request_id)
                 yield adapter.backend_error_sse(msg)
                 if request_id:
                     request_log.update(request_id, response_status=502, elapsed=time.monotonic() - t0)
             finally:
+                if lock_held and resolve_lock is not None:
+                    resolve_lock.release()
                 if suid is not None and active_slot_id is not None:
                     ActiveRequestManager.unregister(suid, active_slot_id)
 

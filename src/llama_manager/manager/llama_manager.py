@@ -15,7 +15,7 @@ from llama_manager.event_bus import EventBus
 from llama_manager.kv_cache import resolve_slot_save_path
 from llama_manager.llama_client import LlamaClient
 from llama_manager.protocol.backend import Backend
-from llama_manager.proxy import ProxyServer, SlotStatusService, set_llama_manager
+from llama_manager.proxy import ProxyServer, SlotStatusService
 from llama_manager.manager.remote_client import RemoteManagerClient
 from llama_manager.manager.backends import LocalManagedModel, RemoteModelProxy, RemoteUnmanagedModel
 
@@ -227,7 +227,6 @@ class LlamaManager:
     async def _start(self, vite: DevViteService | None) -> None:
         self._initialize_models(self.config)
         self.remote_manager_clients = []
-        set_llama_manager(self)
 
         if vite is not None:
             await vite.start()
@@ -321,7 +320,6 @@ class LlamaManager:
             del local_models[key]
             unmanaged.pop(key, None)
 
-        set_llama_manager(self)
         await self._sync_remote_managers(config)
         return config
 

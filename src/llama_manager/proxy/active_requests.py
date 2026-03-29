@@ -23,6 +23,19 @@ class ActiveRequestManager:
         return event
 
     @classmethod
+    def try_register(cls, suid: str, slot_id: int) -> asyncio.Event | None:
+        """Atomically register only if the slot is not already claimed.
+
+        Returns the new event, or None if another request already owns this slot.
+        """
+        with cls._lock:
+            if (suid, slot_id) in cls._active:
+                return None
+            event = asyncio.Event()
+            cls._active[(suid, slot_id)] = event
+            return event
+
+    @classmethod
     def unregister(cls, suid: str, slot_id: int) -> None:
         """Remove the cancel event for this model+slot."""
         with cls._lock:

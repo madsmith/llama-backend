@@ -1,13 +1,9 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, AsyncGenerator, AsyncIterator, Awaitable, Callable
+from typing import AsyncGenerator, AsyncIterator, Awaitable, Callable
 
 from llama_manager.config import ModelConfig
-
-if TYPE_CHECKING:
-    from llama_manager.manager.llama_manager import LlamaManager
-from .handler import ProxyHandler
 
 
 class OpenAIAdapter:
@@ -83,5 +79,3 @@ class OpenAIAdapter:
             yield line + "\n"
 
 
-def openai_proxy(manager: LlamaManager) -> ProxyHandler:
-    return ProxyHandler(manager, OpenAIAdapter())

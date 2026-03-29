@@ -20,7 +20,8 @@ from llama_manager.log_buffer import LogBuffer
 
 if TYPE_CHECKING:
     from llama_manager.manager.llama_manager import LlamaManager
-from .openai import openai_proxy
+from .handler import ProxyHandler
+from .openai import OpenAIAdapter
 from .request_log import RequestLog
 from .subscription import set_proxy_server
 
@@ -41,10 +42,12 @@ class ProxyServer:
             allow_headers=["*"],
         )
         self.app.middleware("http")(self._request_id_middleware)
+        self._slot_resolve_locks: dict[str, asyncio.Lock] = {}
+
         self.app.api_route(
             "/v1/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
             response_model=None,
-        )(openai_proxy(manager))
+        )(self._openai_handle())
 
         self._server: uvicorn.Server | None = None
         self._task: asyncio.Task | None = None
@@ -53,6 +56,14 @@ class ProxyServer:
         self._started_at: float | None = None
 
         set_proxy_server(self)
+
+    def get_resolve_lock(self, suid: str) -> asyncio.Lock:
+        if suid not in self._slot_resolve_locks:
+            self._slot_resolve_locks[suid] = asyncio.Lock()
+        return self._slot_resolve_locks[suid]
+
+    def _openai_handle(self) -> ProxyHandler:
+        return ProxyHandler(self._manager, OpenAIAdapter(), self)
 
     def log(self, text: str, *, request_id: str | None = None) -> None:
         stamped = f"[{time.strftime('%H:%M:%S')}] {text}"

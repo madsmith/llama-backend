@@ -243,11 +243,16 @@ class WsV2Connection:
 
         subscription_id = -1
         if suid is not None:
-            def _on_change(updated_slots: list[dict]) -> None:
+            def _on_change(updated_slots: list[dict], _suid: str = suid) -> None:
+                slots = [dict(s) for s in updated_slots]
+                if self.manager.get_local_models().get(_suid) is not None:
+                    cancellable = set(ActiveRequestManager.list_cancellable(_suid))
+                    for slot in slots:
+                        slot["cancellable"] = slot.get("id") in cancellable
                 self._push(EventResponse(
                     type="slots",
-                    id=suid,
-                    data={"suid": suid, "slots": updated_slots},
+                    id=_suid,
+                    data={"suid": _suid, "slots": slots},
                 ))
 
             subscription_id = self.manager.slot_status.subscribe(suid, _on_change)
