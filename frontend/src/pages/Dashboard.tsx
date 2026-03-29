@@ -57,10 +57,9 @@ function ModelPanel({
     <div className="space-y-4">
       <ServerStatusCard
         name={name}
-        modelIndex={modelIndex}
         serverId={serverId}
         status={statusOrUnknown}
-        onClick={isRemote ? undefined : () => navigate(`/logs/${modelIndex}`)}
+        onClick={isRemote ? undefined : () => navigate(`/logs/${modelSuid}`)}
         remoteAddress={remoteAddress}
         health={isRemote ? health : undefined}
       />
@@ -95,7 +94,6 @@ function RemoteModelPanel({
     <div className="space-y-4">
       <ServerStatusCard
         name={name}
-        modelIndex={modelIndex}
         serverId={serverId}
         status={statusOrUnknown}
         onClick={() => navigate(`/logs/${serverId}/${modelIndex}`)}

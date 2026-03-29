@@ -4,7 +4,8 @@ export type SettingsTab = string;
 
 export const defaultRemoteManager: RemoteManagerConfig = {
   name: null,
-  url: "",
+  host: "",
+  port: 8000,
   token: "",
   reconnect_interval: 5,
   enabled: true,
@@ -13,6 +14,7 @@ export const defaultRemoteManager: RemoteManagerConfig = {
 export const defaultConfig: ServerConfig = {
   models: [
     {
+      suid: "",
       type: "local",
       name: null,
       id: null,

@@ -7,7 +7,6 @@ import type {
   ProxyStatus,
   HealthStatus,
   SlotInfo,
-  ModelProps,
   RemoteManagerStatus,
   UplinkStatus,
 } from "./types";
@@ -21,31 +20,6 @@ export function pollRatesFromConfig(cfg: ServerConfig | null) {
     slots: w?.poll_slots ?? undefined,
     slotsActive: w?.poll_slots_active ?? undefined,
   };
-}
-
-export function useServerStatus(modelIndex = 0, pollMs = 3000) {
-  const [status, setStatus] = useState<ServerStatus>({
-    state: "unknown",
-    pid: null,
-    host: null,
-    port: null,
-    uptime: null,
-  });
-
-  const poll = useCallback(() => {
-    api
-      .getStatus(modelIndex)
-      .then(setStatus)
-      .catch(() => {});
-  }, [modelIndex]);
-
-  useEffect(() => {
-    poll();
-    const id = setInterval(poll, pollMs);
-    return () => clearInterval(id);
-  }, [poll, pollMs]);
-
-  return { status, refresh: poll };
 }
 
 export function useProxyStatus(pollMs = 5000) {
@@ -71,71 +45,6 @@ export function useProxyStatus(pollMs = 5000) {
   }, [poll, pollMs]);
 
   return { status, refresh: poll };
-}
-
-export function useHealth(modelIndex = 0, pollMs = 5000) {
-  const [health, setHealth] = useState<HealthStatus | null>(null);
-
-  useEffect(() => {
-    const fetch = () => {
-      api
-        .getHealth(modelIndex)
-        .then(setHealth)
-        .catch(() => setHealth(null));
-    };
-    fetch();
-    const id = setInterval(fetch, pollMs);
-    return () => clearInterval(id);
-  }, [modelIndex, pollMs]);
-
-  return health;
-}
-
-export function useSlots(
-  modelIndex = 0,
-  pollMs = 5000,
-  activePollMs = 500,
-  serverState?: string,
-) {
-  const [slots, setSlots] = useState<SlotInfo[]>([]);
-  const hasActive = slots.some((s) => s.is_processing);
-  const effectiveMs = hasActive ? activePollMs : pollMs;
-  const active = serverState === "running" || serverState === "remote";
-
-  useEffect(() => {
-    if (!active) return;
-    const fetch = () => {
-      api
-        .getSlots(modelIndex)
-        .then(setSlots)
-        .catch(() => setSlots([]));
-    };
-    fetch();
-    const id = setInterval(fetch, effectiveMs);
-    return () => {
-      clearInterval(id);
-    };
-  }, [modelIndex, effectiveMs, active]);
-
-  // Clear slots only when the server is no longer active
-  useEffect(() => {
-    if (!active) setSlots([]);
-  }, [active]);
-
-  return slots;
-}
-
-export function useProps() {
-  const [props, setProps] = useState<ModelProps | null>(null);
-
-  useEffect(() => {
-    api
-      .getProps()
-      .then(setProps)
-      .catch(() => setProps(null));
-  }, []);
-
-  return props;
 }
 
 export type LogLine = { id: number; text: string; request_id?: string };
