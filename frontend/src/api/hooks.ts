@@ -285,12 +285,17 @@ export function useServerStatusWS(serverId: string | undefined) {
     if (!serverId) return;
     return getWsV2().subscribeToEvent("server_status", serverId, (data) => {
       const state = data.state as ServerStatus["state"];
-      setStatus((prev) => prev ? { ...prev, state } : null);
-      if (state !== "running" && state !== "remote") {
+      if (state === "running") {
+        if (startedAtRef.current == null) {
+          refresh();
+        }
+        setStatus((prev) => prev ? { ...prev, state } : null);
+      } else {
         startedAtRef.current = null;
+        setStatus((prev) => prev ? { ...prev, state, uptime: null, pid: null } : null);
       }
     });
-  }, [serverId]);
+  }, [serverId, refresh]);
 
   useEffect(() => {
     const id = setInterval(() => {

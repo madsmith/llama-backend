@@ -285,13 +285,11 @@ class LocalManagedModel(ManagedBackend):
         await self.start()
 
     def get_status(self) -> dict:
-        uptime = None
-        if self.started_at is not None:
-            uptime = time.time() - self.started_at
         is_running = self.state == ServerState.running
+        uptime = (time.time() - self.started_at) if is_running and self.started_at is not None else None
         return {
             "state": self.state.value,
-            "pid": self.pid,
+            "pid": self.pid if is_running else None,
             "host": self.host if is_running else None,
             "port": self.port if is_running else None,
             "uptime": uptime,
