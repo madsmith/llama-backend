@@ -5,8 +5,7 @@ import type { ModelProps } from "../api/types";
 import JsonTree from "../components/JsonTree";
 
 export default function Properties() {
-  const { modelIndex } = useParams<{ modelIndex: string }>();
-  const idx = Number(modelIndex ?? 0);
+  const { modelSuid } = useParams<{ modelSuid: string }>();
   const navigate = useNavigate();
   const [props, setProps] = useState<ModelProps | null>(null);
 
@@ -16,30 +15,32 @@ export default function Properties() {
   const [modelName, setModelName] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!modelSuid) return;
     api.getConfig().then((cfg) => {
-      const m = cfg.models[idx];
+      const m = cfg.models.find(m => m.suid === modelSuid);
       setModelName(m?.name ?? null);
     }).catch(() => {});
-  }, [idx]);
+  }, [modelSuid]);
 
   const refresh = useCallback(() => {
+    if (!modelSuid) return;
     setLoading(true);
     setError("");
     api
-      .getProps(idx)
+      .getProps(modelSuid)
       .then(setProps)
       .catch(() => {
         setProps(null);
         setError("Could not fetch properties. Is the server running?");
       })
       .finally(() => setLoading(false));
-  }, [idx]);
+  }, [modelSuid]);
 
   useEffect(() => {
     refresh();
   }, [refresh]);
 
-  const title = `${modelName ?? `Llama Server ${idx + 1}`} Properties`;
+  const title = `${modelName ?? "Server"} Properties`;
 
   return (
     <div className="space-y-6">

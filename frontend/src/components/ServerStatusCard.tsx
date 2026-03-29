@@ -77,7 +77,7 @@ function slotTooltipParams(s: SlotInfo): [string, string][] {
 
 const TOOLTIP_OFFSET = { x: 12, y: 16 };
 
-function SlotRow({ slot, modelIndex }: { slot: SlotInfo; modelIndex: number }) {
+function SlotRow({ slot, modelSuid }: { slot: SlotInfo; modelSuid: string }) {
   const [visible, setVisible] = useState(false);
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const showTimer = useRef<ReturnType<typeof setTimeout>>(null);
@@ -112,7 +112,7 @@ function SlotRow({ slot, modelIndex }: { slot: SlotInfo; modelIndex: number }) {
           title="Cancel inference"
           onClick={(e) => {
             e.stopPropagation();
-            api.cancelSlot(modelIndex, slot.id).catch(() => {});
+            api.cancelSlot(modelSuid, slot.id).catch(() => {});
           }}
           className="shrink-0 h-2 w-2 rounded-full -translate-y-px bg-yellow-500 hover:bg-red-500 cursor-pointer transition-colors"
         />
@@ -122,7 +122,7 @@ function SlotRow({ slot, modelIndex }: { slot: SlotInfo; modelIndex: number }) {
         />
       )}
       <Link
-        to={`/${modelIndex}/slots`}
+        to={`/${modelSuid}/slots`}
         onClick={(e) => e.stopPropagation()}
         className="text-gray-300 hover:text-white w-14 shrink-0 transition"
       >
@@ -175,7 +175,6 @@ function remoteDisplay(health: HealthStatus | null): {
 
 interface Props {
   name: string;
-  modelIndex: number;
   serverId?: string;
   status: ServerStatus;
   onClick?: () => void;
@@ -186,7 +185,6 @@ interface Props {
 
 export default function ServerStatusCard({
   name,
-  modelIndex,
   serverId,
   status,
   onClick,
@@ -195,6 +193,7 @@ export default function ServerStatusCard({
   health,
 }: Props) {
   const navigate = useNavigate();
+  const modelSuid = serverId?.split(":")[1] ?? "";
   const [slots, setSlots] = useState<SlotInfo[]>([]);
 
   // Initial slot fetch + push updates.
@@ -255,7 +254,7 @@ export default function ServerStatusCard({
           title="Properties"
           onClick={(e) => {
             e.stopPropagation();
-            navigate(`/${modelIndex}/properties`);
+            navigate(`/${modelSuid}/properties`);
           }}
           className="text-gray-600 hover:text-gray-300 transition text-sm leading-none"
         >
@@ -305,7 +304,7 @@ export default function ServerStatusCard({
       {slots.length > 0 && (
         <div className="mt-4 ml-5 space-y-1.5">
           {slots.map((s) => (
-            <SlotRow key={s.id} slot={s} modelIndex={modelIndex} />
+            <SlotRow key={s.id} slot={s} modelSuid={modelSuid} />
           ))}
         </div>
       )}

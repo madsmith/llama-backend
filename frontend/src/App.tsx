@@ -12,10 +12,10 @@ export default function App() {
       <Routes>
         <Route element={<Layout />}>
           <Route index element={<Dashboard />} />
-          <Route path=":modelIndex/properties" element={<Properties />} />
-          <Route path=":modelIndex/slots" element={<Slots />} />
+          <Route path=":modelSuid/properties" element={<Properties />} />
+          <Route path=":modelSuid/slots" element={<Slots />} />
           <Route path="logs" element={<Logs />} />
-          <Route path="logs/:modelIndex" element={<Logs />} />
+          <Route path="logs/:modelSuid" element={<Logs />} />
           <Route path="logs/:serverId/:remoteIndex" element={<Logs />} />
           <Route path="settings" element={<Settings />} />
         </Route>

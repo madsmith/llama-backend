@@ -14,7 +14,7 @@ def make_router(manager: LlamaManager) -> APIRouter:
 
     router.get("/health")(status_routes.get_health)
     router.get("/slots")(status_routes.get_slots)
-    router.post("/slots/cancel")(StatusRoutes.cancel_slot)
+    router.post("/slots/cancel")(status_routes.cancel_slot)
     router.get("/props")(status_routes.get_props)
     router.get("/requests")(requests.list_requests)
     router.get("/requests/{request_id}")(requests.get_request)

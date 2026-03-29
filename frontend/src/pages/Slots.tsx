@@ -5,8 +5,7 @@ import type { SlotInfo } from "../api/types";
 import JsonTree from "../components/JsonTree";
 
 export default function Slots() {
-  const { modelIndex } = useParams<{ modelIndex: string }>();
-  const idx = Number(modelIndex ?? 0);
+  const { modelSuid } = useParams<{ modelSuid: string }>();
   const navigate = useNavigate();
   const [slots, setSlots] = useState<SlotInfo[] | null>(null);
 
@@ -16,30 +15,32 @@ export default function Slots() {
   const [modelName, setModelName] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!modelSuid) return;
     api.getConfig().then((cfg) => {
-      const m = cfg.models[idx];
+      const m = cfg.models.find(m => m.suid === modelSuid);
       setModelName(m?.name ?? null);
     }).catch(() => {});
-  }, [idx]);
+  }, [modelSuid]);
 
   const refresh = useCallback(() => {
+    if (!modelSuid) return;
     setLoading(true);
     setError("");
     api
-      .getSlots(idx)
+      .getSlots(modelSuid)
       .then(setSlots)
       .catch(() => {
         setSlots(null);
         setError("Could not fetch slots. Is the server running?");
       })
       .finally(() => setLoading(false));
-  }, [idx]);
+  }, [modelSuid]);
 
   useEffect(() => {
     refresh();
   }, [refresh]);
 
-  const title = `${modelName ?? `Llama Server ${idx + 1}`} Slots`;
+  const title = `${modelName ?? "Server"} Slots`;
 
   return (
     <div className="space-y-6">

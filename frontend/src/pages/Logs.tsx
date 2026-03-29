@@ -9,9 +9,10 @@ import ProxyControls from "../components/ProxyControls";
 import LogViewer from "../components/LogViewer";
 import { useProxyStatus, useServerStatusWS, useLogs, useRemotes, pollRatesFromConfig } from "../api/hooks";
 
-function ModelLogCard({ modelIndex, serverId, name, selected, path, navigate }: {
+function ModelLogCard({ modelIndex, serverId, modelSuid, name, selected, path, navigate }: {
   modelIndex: number;
   serverId: string;
+  modelSuid: string;
   name: string;
   selected: boolean;
   path: string;
@@ -29,7 +30,7 @@ function ModelLogCard({ modelIndex, serverId, name, selected, path, navigate }: 
         onClick={() => navigate(path)}
         selected={selected}
       />
-      <ServerControls status={statusOrUnknown} serverId={serverId} modelSuid={modelIndex} onAction={refresh} />
+      <ServerControls status={statusOrUnknown} serverId={serverId} modelSuid={modelSuid} onAction={refresh} />
     </div>
   );
 }
@@ -124,7 +125,7 @@ export default function Logs() {
     : `${logMode.serverId}/${logMode.remoteIndex}`;
 
   const logServerId = logMode.type === "local" && config?.manager_id
-    ? `${config.manager_id}:model-${logMode.index}`
+    ? `${config.manager_id}:${config.models[logMode.index]?.suid ?? ""}`
     : logMode.type === "remote" ? logMode.serverId
     : undefined;
 
@@ -181,7 +182,8 @@ export default function Logs() {
           <div key={i} data-source={String(i)}>
             <ModelLogCard
               modelIndex={i}
-              serverId={config?.manager_id ?? ""}
+              serverId={config?.manager_id && m.suid ? `${config.manager_id}:${m.suid}` : ""}
+              modelSuid={m.suid}
               name={m.name ?? `Llama Server ${i + 1}`}
               selected={logMode.type === "local" && logMode.index === i}
               path={`/logs/${i}`}
@@ -197,6 +199,7 @@ export default function Logs() {
                 <ModelLogCard
                   modelIndex={m.remote_model_index}
                   serverId={m.server_id}
+                  modelSuid={String(m.remote_model_index)}
                   name={m.name ?? `Remote Model ${m.remote_model_index + 1}`}
                   selected={logMode.type === "remote" && logMode.serverId === m.server_id && logMode.remoteIndex === m.remote_model_index}
                   path={`/logs/${m.server_id}/${m.remote_model_index}`}

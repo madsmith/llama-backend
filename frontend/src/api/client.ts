@@ -2,7 +2,6 @@ import type {
   ServerStatus,
   ServerConfig,
   ProxyStatus,
-  HealthStatus,
   SlotInfo,
   ModelProps,
   RequestLogEntry,
@@ -22,21 +21,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  getStatus: (model = 0) =>
-    request<ServerStatus>(`/api/server/status?model=${model}`),
-  start: (serverId: string, modelSuid: number) =>
+  start: (serverId: string, modelSuid: string) =>
     request<ServerStatus>(
-      `/api/server/start?server_id=${encodeURIComponent(serverId)}&model_suid=${modelSuid}`,
+      `/api/server/start?server_id=${encodeURIComponent(serverId)}&model_suid=${encodeURIComponent(modelSuid)}`,
       { method: "POST" },
     ),
-  stop: (serverId: string, modelSuid: number) =>
+  stop: (serverId: string, modelSuid: string) =>
     request<ServerStatus>(
-      `/api/server/stop?server_id=${encodeURIComponent(serverId)}&model_suid=${modelSuid}`,
+      `/api/server/stop?server_id=${encodeURIComponent(serverId)}&model_suid=${encodeURIComponent(modelSuid)}`,
       { method: "POST" },
     ),
-  restart: (serverId: string, modelSuid: number) =>
+  restart: (serverId: string, modelSuid: string) =>
     request<ServerStatus>(
-      `/api/server/restart?server_id=${encodeURIComponent(serverId)}&model_suid=${modelSuid}`,
+      `/api/server/restart?server_id=${encodeURIComponent(serverId)}&model_suid=${encodeURIComponent(modelSuid)}`,
       { method: "POST" },
     ),
   getProxyStatus: () => request<ProxyStatus>("/api/server/proxy-status"),
@@ -54,17 +51,15 @@ export const api = {
     getWsV2()
       .sendRequest<{ config: ServerConfig }>({ msg: "put_config", config: cfg }, "put_config_response")
       .then((r) => r.config),
-  getHealth: (model = 0) =>
-    request<HealthStatus>(`/api/status/health?model=${model}`),
-  getSlots: (model = 0) =>
-    request<SlotInfo[]>(`/api/status/slots?model=${model}`),
-  cancelSlot: (model: number, slot: number) =>
+  getSlots: (modelSuid: string) =>
+    request<SlotInfo[]>(`/api/status/slots?model_suid=${encodeURIComponent(modelSuid)}`),
+  cancelSlot: (modelSuid: string, slot: number) =>
     request<{ status: string }>(
-      `/api/status/slots/cancel?model=${model}&slot=${slot}`,
+      `/api/status/slots/cancel?model_suid=${encodeURIComponent(modelSuid)}&slot=${slot}`,
       { method: "POST" },
     ),
-  getProps: (model = 0) =>
-    request<ModelProps>(`/api/status/props?model=${model}`),
+  getProps: (modelSuid: string) =>
+    request<ModelProps>(`/api/status/props?model_suid=${encodeURIComponent(modelSuid)}`),
   getRequestLog: (requestId: string) =>
     request<RequestLogEntry>(`/api/status/requests/${requestId}`),
   generateUplinkToken: () =>
