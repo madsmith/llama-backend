@@ -24,11 +24,9 @@ from llama_manager.kv_cache import (
 
 from .active_requests import ActiveRequestManager
 from .logging import log_request, log_response, log_stream_end
-from .request_log import RequestLog
 from .slots import slot_restore, slot_save
 
 logger = logging.getLogger(__name__)
-request_log = RequestLog.get_instance()
 
 
 class ProtocolAdapter(Protocol):
@@ -120,7 +118,7 @@ class ProxyHandler:
                     log_response(None, 404, request_id=request_id)
                     resp_body = adapter.error_body(404, f"Model not found: {model_id}")
                     if request_id:
-                        request_log.update(request_id, response_status=404, response_body=resp_body, elapsed=time.monotonic() - t0)
+                        self._proxy.request_log.update(request_id, response_status=404, response_body=resp_body, elapsed=time.monotonic() - t0)
                     return JSONResponse(resp_body, status_code=404)
 
                 suid = backend.get_suid()
@@ -137,7 +135,7 @@ class ProxyHandler:
                     log_response(server_name, 503, elapsed=time.monotonic() - t0, request_id=request_id)
                     resp_body = adapter.error_body(503, str(exc))
                     if request_id:
-                        request_log.update(request_id, response_status=503, response_body=resp_body, elapsed=time.monotonic() - t0)
+                        self._proxy.request_log.update(request_id, response_status=503, response_body=resp_body, elapsed=time.monotonic() - t0)
                     return JSONResponse(resp_body, status_code=503)
 
                 self._manager.touch(suid)
@@ -236,12 +234,12 @@ class ProxyHandler:
                         if disc_task in done:
                             log_response(server_name, 499, elapsed=time.monotonic() - t0, request_id=request_id)
                             if request_id:
-                                request_log.update(request_id, response_status=499, elapsed=time.monotonic() - t0)
+                                self._proxy.request_log.update(request_id, response_status=499, elapsed=time.monotonic() - t0)
                             return JSONResponse(adapter.error_body(503, "Client disconnected"), status_code=503)
                         if cancel_task is not None and cancel_task in done:
                             log_response(server_name, 503, elapsed=time.monotonic() - t0, request_id=request_id)
                             if request_id:
-                                request_log.update(request_id, response_status=503, elapsed=time.monotonic() - t0)
+                                self._proxy.request_log.update(request_id, response_status=503, elapsed=time.monotonic() - t0)
                             return JSONResponse(adapter.error_body(503, "Request cancelled: inference terminated by server operator"), status_code=503)
                         resp = req_task.result()
 
@@ -256,7 +254,7 @@ class ProxyHandler:
 
                     resp_json = adapter.translate_response(resp.json())
                     if request_id:
-                        request_log.update(request_id, response_status=resp.status_code, response_body=resp_json, elapsed=elapsed)
+                        self._proxy.request_log.update(request_id, response_status=resp.status_code, response_body=resp_json, elapsed=elapsed)
                     return JSONResponse(resp_json, status_code=resp.status_code)
                 finally:
                     if lock_held and resolve_lock is not None:
@@ -285,7 +283,7 @@ class ProxyHandler:
                     log_response(server_name, 503, elapsed=time.monotonic() - t0, request_id=request_id)
                     resp_body = adapter.error_body(503, str(exc))
                     if request_id:
-                        request_log.update(request_id, response_status=503, response_body=resp_body, elapsed=time.monotonic() - t0)
+                        self._proxy.request_log.update(request_id, response_status=503, response_body=resp_body, elapsed=time.monotonic() - t0)
                     return JSONResponse(resp_body, status_code=503)
 
                 self._manager.touch(backend.get_suid())
@@ -295,7 +293,7 @@ class ProxyHandler:
                 log_response(server_name, resp.status_code, elapsed=elapsed, size=len(resp.content), request_id=request_id)
                 resp_json = resp.json()
                 if request_id:
-                    request_log.update(request_id, response_status=resp.status_code, response_body=resp_json, elapsed=elapsed)
+                    self._proxy.request_log.update(request_id, response_status=resp.status_code, response_body=resp_json, elapsed=elapsed)
                 return JSONResponse(resp_json, status_code=resp.status_code)
 
         except ProxyHandler._BACKEND_ERRORS as exc:
@@ -305,7 +303,7 @@ class ProxyHandler:
             self._proxy.log(f"[{server_name}] {msg}", request_id=request_id)
             resp_body = adapter.error_body(502, msg)
             if request_id:
-                request_log.update(request_id, response_status=502, response_body=resp_body, elapsed=elapsed)
+                self._proxy.request_log.update(request_id, response_status=502, response_body=resp_body, elapsed=elapsed)
             return JSONResponse(resp_body, status_code=502)
 
     @staticmethod
@@ -408,7 +406,7 @@ class ProxyHandler:
                 log_stream_end(server_name, time.monotonic() - t0, total_bytes, request_id=request_id)
                 stream_ok = True
                 if request_id:
-                    request_log.update(
+                    self._proxy.request_log.update(
                         request_id,
                         response_body="".join(accumulated_text),
                         response_status=200,
@@ -421,7 +419,7 @@ class ProxyHandler:
                 self._proxy.log(f"[{server_name}] {msg}", request_id=request_id)
                 yield adapter.backend_error_sse(msg)
                 if request_id:
-                    request_log.update(request_id, response_status=502, elapsed=time.monotonic() - t0)
+                    self._proxy.request_log.update(request_id, response_status=502, elapsed=time.monotonic() - t0)
             finally:
                 if lock_held and resolve_lock is not None:
                     resolve_lock.release()

@@ -33,6 +33,7 @@ class ProxyServer:
         self._manager = manager
         self.config: AppConfig = manager.config
         self.log_buffer = LogBuffer(maxlen=self.config.web_ui.log_buffer_size)
+        self.request_log = RequestLog()
 
         self.app = FastAPI(title="Llama Proxy")
         self.app.add_middleware(
@@ -56,6 +57,18 @@ class ProxyServer:
         self._started_at: float | None = None
 
         set_proxy_server(self)
+
+    def get_request(self, request_id: str):
+        return self.request_log.get(request_id)
+
+    def list_requests(self) -> list:
+        result = []
+        for entry in self.request_log.list_entries():
+            d = entry.to_dict()
+            d["response_body"] = self._truncate_body(d.get("response_body"))
+            d["request_body"] = self._truncate_body(d.get("request_body"))
+            result.append(d)
+        return result
 
     def get_resolve_lock(self, suid: str) -> asyncio.Lock:
         if suid not in self._slot_resolve_locks:
@@ -148,8 +161,20 @@ class ProxyServer:
 
         headers = dict(request.headers)
 
-        RequestLog.get_instance().create(request_id, headers, body=parsed_body, model_id=model_id)
+        self.request_log.create(request_id, headers, body=parsed_body, model_id=model_id)
 
         response = await call_next(request)
         response.headers["X-Request-Id"] = request_id
         return response
+
+    @staticmethod
+    def _truncate_body(body, max_len: int = 500):
+        if body is None:
+            return None
+        if isinstance(body, str):
+            return body[:max_len] + ("..." if len(body) > max_len else "")
+        if isinstance(body, dict):
+            s = str(body)
+            if len(s) > max_len:
+                return s[:max_len] + "..."
+        return body

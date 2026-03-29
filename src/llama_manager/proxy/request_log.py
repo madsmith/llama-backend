@@ -26,14 +26,6 @@ class RequestLogEntry:
 class RequestLog:
     """Thread-safe rotating log of proxy requests."""
 
-    _instance: RequestLog | None = None
-
-    @classmethod
-    def get_instance(cls) -> RequestLog:
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
-
     def __init__(self, maxlen: int = 100):
         self._maxlen = maxlen
         self._entries: OrderedDict[str, RequestLogEntry] = OrderedDict()
