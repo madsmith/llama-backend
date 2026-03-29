@@ -5,7 +5,7 @@ import type { ServerStatus } from "../api/types";
 interface Props {
   status: ServerStatus | null;
   serverId: string;
-  modelSuid: number;
+  modelSuid: string;
   onAction: () => void;
 }
 

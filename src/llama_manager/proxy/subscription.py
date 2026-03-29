@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from llama_manager.proxy.proxy import ProxyServer
+    from llama_manager.proxy.server import ProxyServer
 
 _proxy: ProxyServer | None = None
 

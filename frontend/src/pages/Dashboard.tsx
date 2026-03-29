@@ -36,7 +36,7 @@ function ModelPanel({
 }: {
   modelIndex: number;
   serverId: string | undefined;
-  modelSuid: number;
+  modelSuid: string;
   name: string;
   isRemote: boolean;
   remoteAddress?: string;
@@ -84,7 +84,7 @@ function RemoteModelPanel({
 }: {
   modelIndex: number;
   serverId: string;
-  modelSuid: number;
+  modelSuid: string;
   name: string;
 }) {
   const navigate = useNavigate();
@@ -133,7 +133,7 @@ function RemoteManagerSection({ rm }: { rm: RemoteManagerStatus }) {
               key={`${m.server_id}-${m.remote_model_index}`}
               modelIndex={m.remote_model_index}
               serverId={m.server_id}
-              modelSuid={m.remote_model_index}
+              modelSuid={String(m.remote_model_index)}
               name={m.name ?? `Remote Model ${m.remote_model_index + 1}`}
             />
           ))}
@@ -186,8 +186,8 @@ export default function Dashboard() {
           <ModelPanel
             key={i}
             modelIndex={i}
-            serverId={config?.manager_id ? `${config.manager_id}:model-${i}` : undefined}
-            modelSuid={i}
+            serverId={config?.manager_id && m.suid ? `${config.manager_id}:${m.suid}` : undefined}
+            modelSuid={m.suid}
             name={m.name ?? `Llama Server ${i + 1}`}
             isRemote={(m.type ?? "local") === "remote"}
             remoteAddress={m.remote_address}

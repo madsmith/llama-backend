@@ -9,17 +9,14 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
-from ..config import AppConfig, save_config
-from ..dev import DevViteService
-from ..event_bus import EventBus
-from ..kv_cache import resolve_slot_save_path
-from ..llama_client import LlamaClient
-from .local_managed_model import LocalManagedModel
-from ..model import ModelIdentifier
-from ..proxy import ProxyServer, set_llama_manager
-from ..proxy.slots import SlotStatusService
-from .remote_manager_client import RemoteManagerClient, RemoteModelProxy
-from .remote_unmanaged import RemoteUnmanagedModel
+from llama_manager.config import AppConfig, save_config
+from llama_manager.dev import DevViteService
+from llama_manager.event_bus import EventBus
+from llama_manager.kv_cache import resolve_slot_save_path
+from llama_manager.llama_client import LlamaClient
+from llama_manager.proxy import ProxyServer, SlotStatusService, set_llama_manager
+from llama_manager.manager.remote_client import RemoteManagerClient
+from llama_manager.manager.backends import LocalManagedModel, RemoteModelProxy, RemoteUnmanagedModel
 
 log = logging.getLogger(__name__)
 
@@ -55,7 +52,7 @@ class LlamaManager:
         local_model = self._local_models.get(model_suid)
         if local_model is None:
             return None
-        return LlamaClient(local_model.get_server_address())
+        return LlamaClient(local_model.get_base_url())
 
     def get_client_at(self, base_url: str) -> LlamaClient:
         return LlamaClient(base_url)
@@ -67,10 +64,7 @@ class LlamaManager:
     def _make_local_model(self, idx: int, config: AppConfig) -> LocalManagedModel:
         """Construct a LocalManagedModel with all config pre-resolved."""
         model_config = config.models[idx]
-        server_id = str(ModelIdentifier(
-            manager_id=config.manager_id,
-            process_identifier=f"model-{idx}",
-        ))
+        server_id = f"{config.manager_id}:{model_config.suid}"
         port = config.api_server.llama_server_starting_port + idx
         raw_path = model_config.advanced.llama_server_path or config.api_server.llama_server_path
         llama_server_path = Path(raw_path).expanduser() if raw_path else None
@@ -102,10 +96,10 @@ class LlamaManager:
         local_models: dict[LocalModelIdentifier, LocalManagedModel] = {}
         unmanaged: dict[LocalModelIdentifier, RemoteUnmanagedModel] = {}
         for idx, model_config in enumerate(config.models):
-            key = str(idx)
+            key = model_config.suid
+            server_id = f"{config.manager_id}:{model_config.suid}"
             if model_config.type == "remote":
-                server_id = str(ModelIdentifier(manager_id=config.manager_id, process_identifier=f"model-{idx}"))
-                unmanaged[key] = RemoteUnmanagedModel(server_id, model_config)
+                unmanaged[key] = RemoteUnmanagedModel(model_config, server_id=server_id)
             else:
                 local_models[key] = self._make_local_model(idx, config)
         self._local_models = local_models
@@ -125,8 +119,8 @@ class LlamaManager:
 
         await self.proxy.start()
 
-        for idx, model_config in enumerate(self.config.models):
-            local_model = self._local_models.get(str(idx))
+        for model_config in self.config.models:
+            local_model = self._local_models.get(model_config.suid)
             if model_config.auto_start and local_model is not None:
                 log.info("Auto-starting model %s", model_config.name or idx)
                 await local_model.start()
@@ -184,10 +178,10 @@ class LlamaManager:
 
         # Sync all configured models (handles new additions, type changes, config updates)
         for idx, model_config in enumerate(config.models):
-            key = str(idx)
+            key = model_config.suid
+            server_id = f"{config.manager_id}:{model_config.suid}"
             if model_config.type == "remote":
-                server_id = str(ModelIdentifier(manager_id=config.manager_id, process_identifier=f"model-{idx}"))
-                unmanaged[key] = RemoteUnmanagedModel(server_id, model_config)
+                unmanaged[key] = RemoteUnmanagedModel(model_config, server_id=server_id)
                 existing = local_models.get(key)
                 if existing is not None and existing.state.value == "stopped":
                     del local_models[key]
@@ -198,12 +192,9 @@ class LlamaManager:
                 else:
                     local_models[key] = self._make_local_model(idx, config)
 
-        # Shrink: stop and remove entries for slots no longer configured
-        orphaned_keys = sorted(
-            (k for k in local_models if int(k) >= len(config.models)),
-            key=int,
-            reverse=True,
-        )
+        # Shrink: stop and remove entries for models no longer in config
+        valid_suids = {m.suid for m in config.models}
+        orphaned_keys = [k for k in local_models if k not in valid_suids]
         for key in orphaned_keys:
             local_model = local_models[key]
             if local_model.state.value not in ("stopped", "error"):
@@ -225,9 +216,10 @@ class LlamaManager:
         for i, remote_config in enumerate(config.remote_managers):
             if i < len(clients):
                 existing = clients[i]
-                if (existing.config.host != remote_config.host
-                        or existing.config.port != remote_config.port
-                        or existing.config.token != remote_config.token):
+                existing_config = existing.get_config()
+                if (existing_config.host != remote_config.host
+                        or existing_config.port != remote_config.port
+                        or existing_config.token != remote_config.token):
                     await existing.stop()
                     if remote_config.enabled and remote_config.host:
                         client = RemoteManagerClient(i, remote_config, config, self.event_bus)
@@ -236,7 +228,7 @@ class LlamaManager:
                     else:
                         new_clients.append(existing)
                 else:
-                    existing.config = remote_config
+                    existing.set_config(remote_config)
                     new_clients.append(existing)
             else:
                 if remote_config.enabled and remote_config.host:
@@ -262,7 +254,7 @@ class LlamaManager:
                         continue
                     try:
                         async with httpx.AsyncClient(timeout=2) as client:
-                            resp = await client.get(f"{local_model.get_server_address()}/health")
+                            resp = await client.get(f"{local_model.get_base_url()}/health")
                             if resp.status_code in (200, 503):
                                 self.event_bus.publish({
                                     "type": "health",

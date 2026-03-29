@@ -6,7 +6,7 @@ import socket
 import uuid
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, PrivateAttr, model_validator
 
 CONFIG_PATH = Path(__file__).resolve().parent.parent.parent / "server_config.json"
 
@@ -32,6 +32,7 @@ class ModelAdvanced(BaseModel):
 
 
 class ModelConfig(BaseModel):
+    suid: str = ""
     type: str = "local"
     name: str | None = None
     id: str | None = None
@@ -44,6 +45,16 @@ class ModelConfig(BaseModel):
     advanced: ModelAdvanced = ModelAdvanced()
     remote_address: str = ""
     remote_model_id: str | None = None
+
+    _suid_generated: bool = PrivateAttr(default=False)
+
+
+    @model_validator(mode="after")
+    def _ensure_suid(self) -> ModelConfig:
+        if not self.suid:
+            self.suid = str(uuid.uuid4())
+            self._suid_generated = True
+        return self
 
     @property
     def effective_id(self) -> str:
@@ -116,9 +127,11 @@ def load_config() -> AppConfig:
     is_missing = not CONFIG_PATH.exists()
     if is_missing:
         cfg = AppConfig()
+        changed = True
     else:
         data = json.loads(CONFIG_PATH.read_text())
         cfg = AppConfig(**data)
+        changed = any(m._suid_generated for m in cfg.models)
 
     if not cfg.api_server.llama_server_path:
         cfg.api_server.llama_server_path = _find_llama_server()
@@ -127,8 +140,9 @@ def load_config() -> AppConfig:
         hostname = socket.gethostname()
         port = cfg.api_server.port
         cfg.manager_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{hostname}:{port}"))
-        save_config(cfg)
-    elif is_missing:
+        changed = True
+
+    if changed:
         save_config(cfg)
 
     return cfg

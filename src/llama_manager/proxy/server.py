@@ -21,7 +21,7 @@ from llama_manager.log_buffer import LogBuffer
 if TYPE_CHECKING:
     from llama_manager.manager.llama_manager import LlamaManager
 from .lifecycle import task_ttl_checker, get_ttl_task, set_ttl_task
-from .openai import OpenAIProxy
+from .openai import openai_proxy
 from .request_log import RequestLog
 from .subscription import set_proxy_server
 
@@ -42,10 +42,10 @@ class ProxyServer:
             allow_headers=["*"],
         )
         self.app.middleware("http")(self._request_id_middleware)
-        self._openai = OpenAIProxy(manager)
         self.app.api_route(
-            "/v1/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"]
-        )(self._openai)
+            "/v1/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+            response_model=None,
+        )(openai_proxy(manager))
 
         self._server: uvicorn.Server | None = None
         self._task: asyncio.Task | None = None

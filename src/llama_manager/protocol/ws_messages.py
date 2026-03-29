@@ -115,7 +115,7 @@ class ServerControlRequest(BaseModel):
     msg: Literal["server_control"] = "server_control"
     operation: Literal["start", "stop", "restart"]
     server_id: str
-    model_suid: int
+    model_suid: str
 
 
 IncomingMessage = Annotated[

@@ -4,7 +4,7 @@ from fastapi import Query
 from fastapi.responses import JSONResponse
 
 from llama_manager.manager.llama_manager import LlamaManager
-from llama_manager.proxy.active_requests import ActiveRequestManager
+from llama_manager.proxy import ActiveRequestManager
 
 
 class StatusRoutes:

@@ -21,6 +21,7 @@ export interface ModelAdvanced {
 }
 
 export interface ModelConfig {
+  suid: string;
   type?: "local" | "remote";
   name: string | null;
   id: string | null;

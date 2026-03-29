@@ -8,10 +8,11 @@ import time
 from enum import Enum
 from pathlib import Path
 
+from llama_manager.config import ModelConfig
 from llama_manager.event_bus import EventBus
-
-from ..config import ModelConfig
-from ..log_buffer import LogBuffer
+from llama_manager.llama_client import LlamaClient
+from llama_manager.log_buffer import LogBuffer
+from llama_manager.protocol.backend import ManagedBackend
 
 # Regexes for parsing prompt processing progress from llama-server logs
 _RE_NEW_PROMPT = re.compile(
@@ -35,7 +36,7 @@ class ServerState(str, Enum):
     error = "error"
 
 
-class LocalManagedModel:
+class LocalManagedModel(ManagedBackend):
     def __init__(
         self,
         server_id: str,
@@ -75,8 +76,37 @@ class LocalManagedModel:
         self._llama_server_path = llama_server_path
         self._slot_save_path = slot_save_path
 
-    def get_server_address(self) -> str:
+    # ------------------------------------------------------------------
+    # Backend protocol
+    # ------------------------------------------------------------------
+
+    def get_suid(self) -> str:
+        return self._server_id
+
+    def get_name(self) -> str | None:
+        return self._model_config.name
+
+    def get_base_url(self) -> str:
         return f"http://{self.host}:{self.port}"
+
+    def get_model_ids(self) -> list[str]:
+        return [self._model_config.effective_id]
+
+    def is_available(self) -> bool:
+        return self.state == ServerState.running
+
+    async def get_slots(self) -> list[dict] | None:
+        return await LlamaClient(self.get_base_url()).get_slots()
+
+    async def get_health(self) -> dict:
+        return await LlamaClient(self.get_base_url()).get_health() or {"status": "unknown"}
+
+    # ------------------------------------------------------------------
+    # ManagedBackend protocol
+    # ------------------------------------------------------------------
+
+    def get_log_buffer(self) -> LogBuffer:
+        return self.log_buffer
 
     def get_server_identifier(self) -> str:
         return self._server_id

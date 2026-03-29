@@ -9,8 +9,7 @@ import httpx
 
 from llama_manager.event_bus import EventBus
 from llama_manager.llama_client import LlamaClient
-from llama_manager.manager.local_managed_model import LocalManagedModel
-from llama_manager.manager.remote_manager_client import RemoteModelProxy
+from llama_manager.manager.backends import LocalManagedModel, RemoteModelProxy
 from llama_manager.proxy.subscription import proxy_log
 
 
@@ -119,7 +118,7 @@ class SlotStatusService:
                 if server_id in self._cache:
                     return self._cache[server_id]
                 if proxy.llama_server_port is not None:
-                    base_url = f"http://{proxy._client.config.host}:{proxy.llama_server_port}"
+                    base_url = f"http://{proxy._client.get_config().host}:{proxy.llama_server_port}"
                     slots = await self._provider.get_client_at(base_url).get_slots()
                     if slots is not None:
                         self._cache[server_id] = slots

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi.responses import JSONResponse
 
-from llama_manager.proxy.request_log import RequestLog
+from llama_manager.proxy import RequestLog
 
 
 def _truncate_body(body, max_len: int = 500):

@@ -5,7 +5,7 @@ import time
 from typing import TYPE_CHECKING
 
 from llama_manager.config import AppConfig
-from llama_manager.manager.local_managed_model import LocalManagedModel
+from llama_manager.manager.backends import LocalManagedModel
 
 from .subscription import proxy_log
 
@@ -43,17 +43,17 @@ async def task_ttl_checker(config: AppConfig) -> None:
         try:
             local_models = get_llama_manager().get_local_models()
             now = time.monotonic()
-            for i, m in enumerate(config.models):
+            for m in config.models:
                 if m.model_ttl is None or m.type == "remote":
                     continue
-                local_model = local_models.get(str(i))
+                local_model = local_models.get(m.suid)
                 if local_model is None or local_model.state.value != "running":
                     continue
-                last = _model_last_activity.get(i)
+                last = _model_last_activity.get(m.suid)
                 if last is None:
                     continue
                 if now - last > m.model_ttl * 60:
-                    name = m.name or f"model-{i}"
+                    name = m.name or m.suid
                     proxy_log(f"TTL expired for [{name}], stopping server")
                     await local_model.stop()
         except Exception:
@@ -75,7 +75,9 @@ async def ensure_model_server(model_index: int, config: AppConfig) -> None:
     has_ttl = model is not None and model.model_ttl is not None
     if not config.api_server.jit_model_server and not has_ttl:
         return
-    local_model = get_llama_manager().get_local_models().get(str(model_index))
+    cfg = get_llama_manager().config
+    suid = cfg.models[model_index].suid if model_index < len(cfg.models) else None
+    local_model = get_llama_manager().get_local_models().get(suid) if suid else None
     if local_model is None:
         return  # remote model or out of range — no local process to start
     if local_model.state.value == "running":

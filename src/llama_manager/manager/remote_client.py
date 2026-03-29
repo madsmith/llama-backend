@@ -3,117 +3,15 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import time
 
 import websockets
 
-from ..config import AppConfig, RemoteManagerConfig
-from ..event_bus import EventBus
-from ..log_buffer import LogBuffer
-from ..model import ModelIdentifier
-from .local_managed_model import ServerState
+from llama_manager.config import AppConfig, RemoteManagerConfig
+from llama_manager.event_bus import EventBus
+from llama_manager.model import ModelIdentifier
+from llama_manager.manager.backends import RemoteModelProxy
 
 logger = logging.getLogger(__name__)
-
-
-class RemoteModelProxy:
-    """Mirrors the LocalManagedModel interface for a model on a remote manager."""
-
-    def __init__(
-        self,
-        remote_index: int,
-        remote_model_index: int,
-        name: str | None,
-        model_id: str,
-        proxy_url: str,
-        server_id: str,
-        model_identifier: ModelIdentifier,
-        client: RemoteManagerClient,
-        event_bus: EventBus,
-        log_buffer_size: int = 10_000,
-    ) -> None:
-        self.remote_index = remote_index
-        self.remote_model_index = remote_model_index
-        self.name = name
-        self.model_id: str = model_id
-        self.proxy_url = proxy_url
-        self.server_id = server_id
-        self.model_identifier = model_identifier
-        self._client = client
-        self._event_bus = event_bus
-        self.state: ServerState = ServerState.unknown
-        self._started_at: float | None = None
-        self.log_buffer = LogBuffer(maxlen=log_buffer_size)
-        self._subscribers: list[asyncio.Queue[dict]] = []
-        self._cached_slots: list[dict] | None = None
-        self._cached_health: dict | None = None
-        self.llama_server_port: int | None = None
-
-    # --- LocalManagedModel duck-type interface ---
-
-    def get_status(self) -> dict:
-        is_running = self.state == ServerState.running
-        uptime = (time.time() - self._started_at) if is_running and self._started_at is not None else None
-        return {
-            "state": self.state.value,
-            "pid": None,
-            "host": self._client.config.host if is_running else None,
-            "port": self.llama_server_port if is_running else None,
-            "uptime": uptime,
-        }
-
-    def get_prompt_progress(self) -> dict:
-        return {}
-
-    async def get_slots(self) -> list[dict]:
-        if self._cached_slots is not None:
-            return self._cached_slots
-        slots = await self._client.request_slots(self.remote_model_index)
-        if slots:
-            self._cached_slots = slots
-        return slots
-
-    async def get_health(self) -> dict | None:
-        if self._cached_health is not None:
-            return self._cached_health
-        health = await self._client.request_health(self.remote_model_index)
-        if health is not None:
-            self._cached_health = health
-        return health
-
-    # --- Push interface called by RemoteManagerClient ---
-
-    def _broadcast(self, msg: dict) -> None:
-        for q in list(self._subscribers):
-            try:
-                q.put_nowait(msg)
-            except asyncio.QueueFull:
-                pass
-
-    def set_state(self, state_str: str) -> None:
-        prev = self.state
-        try:
-            self.state = ServerState(state_str)
-        except ValueError:
-            self.state = ServerState.error
-        if self.state == ServerState.running and prev != ServerState.running:
-            self._started_at = time.time()
-        elif self.state != ServerState.running:
-            self._started_at = None
-        self._event_bus.publish({"type": "server_status", "id": self.server_id, "data": {"state": self.state.value}})
-
-    def feed_log(self, text: str) -> None:
-        line = self.log_buffer.append(text)
-        self._event_bus.publish({"type": "server_log", "id": self.server_id, "data": {"line_id": line.id, "text": line.text}})
-
-    def set_slots(self, slots: list) -> None:
-        self._cached_slots = slots
-
-    def set_health(self, health: dict) -> None:
-        self._cached_health = health
-
-    async def send_command(self, cmd: str) -> None:
-        await self._client.send_command(self.remote_model_index, cmd)
 
 
 class RemoteManagerClient:
@@ -127,7 +25,7 @@ class RemoteManagerClient:
         event_bus: EventBus,
     ) -> None:
         self.remote_index = remote_index
-        self.config = config
+        self._config = config
         self._app_config = app_config
         self._event_bus = event_bus
         self.models: list[RemoteModelProxy] = []
@@ -138,6 +36,12 @@ class RemoteManagerClient:
         self.server_id: str | None = None
         self._pending_requests: dict[str, asyncio.Future[list[dict]]] = {}
         self._request_counter: int = 0
+
+    def get_config(self) -> RemoteManagerConfig:
+        return self._config
+
+    def set_config(self, config: RemoteManagerConfig) -> None:
+        self._config = config
 
     async def start(self) -> None:
         self._stop_event.clear()
@@ -155,7 +59,7 @@ class RemoteManagerClient:
                 pass
 
     def _ws_url(self) -> str:
-        return f"{self.config.ws_url}?token={self.config.token}"
+        return f"{self._config.ws_url}?token={self._config.token}"
 
     async def _run_loop(self) -> None:
         while not self._stop_event.is_set():
@@ -176,7 +80,7 @@ class RemoteManagerClient:
             try:
                 await asyncio.wait_for(
                     self._stop_event.wait(),
-                    timeout=self.config.reconnect_interval,
+                    timeout=self._config.reconnect_interval,
                 )
             except asyncio.TimeoutError:
                 pass
@@ -200,7 +104,6 @@ class RemoteManagerClient:
                     continue
                 await self._handle_message(msg)
         self._ws = None
-        # Cancel any in-flight request-response calls.
         for fut in list(self._pending_requests.values()):
             if not fut.done():
                 fut.cancel()
@@ -267,9 +170,8 @@ class RemoteManagerClient:
 
     async def _reconcile_models(self, model_descriptors: list[dict], proxy_port: int = 1234, remote_manager_id: str = "") -> None:
         log_buffer_size = self._app_config.web_ui.log_buffer_size
-        proxy_url = f"http://{self.config.host}:{proxy_port}"
+        proxy_url = f"http://{self._config.host}:{proxy_port}"
 
-        # Build a stable key->proxy map from existing models
         existing: dict[str, RemoteModelProxy] = {}
         for p in self.models:
             key = p.name or f"__idx_{p.remote_model_index}"
@@ -280,7 +182,7 @@ class RemoteManagerClient:
             rmi = desc.get("index", len(new_models))
             name = desc.get("name")
             model_id = desc.get("model_id")
-            server_id = desc.get("server_id") or f"{self.config.host}:model-{rmi}"
+            server_id = desc.get("server_id") or f"{self._config.host}:model-{rmi}"
             state_str = desc.get("state", "stopped")
             llama_port: int | None = desc.get("llama_port")
             key = name or f"__idx_{rmi}"
@@ -294,7 +196,6 @@ class RemoteManagerClient:
                 logger.error(f"Model descriptor missing model_id [skipping]: {desc}")
                 continue
 
-            # Construct ModelIdentifier: prefer parsing server_id, fall back to remote_manager_id
             if remote_manager_id:
                 process_identifier = desc.get("process_identifier") or f"model-{rmi}"
                 model_identifier = ModelIdentifier(remote_manager_id, process_identifier)
@@ -302,7 +203,7 @@ class RemoteManagerClient:
                 try:
                     model_identifier = ModelIdentifier.from_string(server_id)
                 except ValueError:
-                    model_identifier = ModelIdentifier(self.config.host, f"model-{rmi}")
+                    model_identifier = ModelIdentifier(self._config.host, f"model-{rmi}")
 
             if key in existing:
                 proxy = existing.pop(key)

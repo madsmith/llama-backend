@@ -8,10 +8,9 @@ from typing import Callable
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from llama_manager.config import load_config
 from llama_manager.manager.llama_manager import LlamaManager
-from llama_manager.manager.local_managed_model import LocalManagedModel
-from llama_manager.proxy.active_requests import ActiveRequestManager
+from llama_manager.manager.backends import LocalManagedModel
+from llama_manager.proxy import ActiveRequestManager
 from llama_manager.config import AppConfig
 from llama_manager.protocol.ws_messages import (
     EventResponse,
@@ -171,13 +170,15 @@ class WsV2Connection:
                     slots=[dict(s) for s in slots],
                 )
 
-        # Find the local model for this server_id.
+        # Find the local model and its config index for this server_id.
         local_model: LocalManagedModel | None = None
         model_index: int | None = None
-        for i_str, candidate in self.manager.get_local_models().items():
-            if candidate.get_server_identifier() == msg.server_id:
+        cfg = self.manager.config
+        for idx, m in enumerate(cfg.models):
+            candidate = self.manager.get_local_models().get(m.suid)
+            if candidate is not None and candidate.get_server_identifier() == msg.server_id:
                 local_model = candidate
-                model_index = int(i_str)
+                model_index = idx
                 break
 
         slots = [dict(s) for s in (await self.manager.slot_status.get_slots(msg.server_id) or [])]
@@ -367,8 +368,7 @@ class WsV2Connection:
 
     @request_handler(GetConfigRequest)
     async def _on_get_config(self, _msg: GetConfigRequest) -> BaseModel:
-        from llama_manager.config import load_config
-        return GetConfigResponse(config=load_config().model_dump())
+        return GetConfigResponse(config=self.manager.config.model_dump())
 
     @request_handler(PutConfigRequest)
     async def _on_put_config(self, msg: PutConfigRequest) -> BaseModel:
@@ -381,8 +381,8 @@ class WsV2Connection:
         remotes = [
             RemoteManagerInfo(
                 index=client.remote_index,
-                name=client.config.name,
-                url=f"{client.config.host}:{client.config.port}",
+                name=client.get_config().name,
+                url=f"{client.get_config().host}:{client.get_config().port}",
                 connection_state=client.connection_state,
                 models=[
                     RemoteModelInfo(
@@ -401,8 +401,8 @@ class WsV2Connection:
 
     @request_handler(ServerControlRequest)
     async def _on_server_control(self, msg: ServerControlRequest) -> BaseModel:
-        for i_str, local_model in self.manager.get_local_models().items():
-            if local_model.get_server_identifier() == msg.server_id and int(i_str) == msg.model_suid:
+        for local_model in self.manager.get_local_models().values():
+            if local_model.get_server_identifier() == msg.server_id:
                 try:
                     if msg.operation == "start":
                         asyncio.create_task(local_model.start())
@@ -414,7 +414,7 @@ class WsV2Connection:
                     return ServerControlResponse(operation=msg.operation, server_id=msg.server_id, success=False, error=str(exc))
                 return ServerControlResponse(operation=msg.operation, server_id=msg.server_id, success=True)
         for proxy in self.manager.get_remote_models():
-            if proxy.server_id == msg.server_id and proxy.remote_model_index == msg.model_suid:
+            if proxy.server_id == msg.server_id:
                 await proxy.send_command(msg.operation)
                 return ServerControlResponse(operation=msg.operation, server_id=msg.server_id, success=True)
         return ServerControlResponse(operation=msg.operation, server_id=msg.server_id, success=False, error="Server not found")
@@ -443,23 +443,25 @@ class UplinkConnection:
         self.outgoing.put_nowait(json.dumps(data))
 
     async def run(self) -> None:
-        cfg = load_config()
+        config = self.manager.config
+        local_models_dict = self.manager.get_local_models()
         local_models = [
-            (int(key), local_model)
-            for key, local_model in self.manager.get_local_models().items()
+            (idx, local_models_dict[m.suid])
+            for idx, m in enumerate(config.models)
+            if m.suid in local_models_dict
         ]
-        server_id_to_index = {local_model.get_server_identifier(): i for i, local_model in local_models}
+        server_id_to_index = {lm.get_server_identifier(): i for i, lm in local_models}
 
         # Snapshot
         await self.ws.send_json({
             "type": "snapshot",
-            "proxy_port": cfg.api_server.port,
-            "manager_id": cfg.manager_id,
+            "proxy_port": config.api_server.port,
+            "manager_id": config.manager_id,
             "models": [
                 {
                     "index": i,
-                    "name": cfg.models[i].name,
-                    "model_id": cfg.models[i].effective_id,
+                    "name": config.models[i].name,
+                    "model_id": config.models[i].effective_id,
                     "process_identifier": f"model-{i}",
                     "server_id": local_model.get_server_identifier(),
                     "state": local_model.get_status()["state"],
@@ -597,8 +599,8 @@ class UplinkConnection:
                 "slots": slots,
             })
         elif t == "get_health":
-            client = self.manager.get_client(str(model_idx))
-            health = await client.get_health() if client is not None else None
+            client = self.manager.get_client_at(local_model.get_base_url())
+            health = await client.get_health()
             self._push_json({
                 "type": "health_response",
                 "model": model_idx,
