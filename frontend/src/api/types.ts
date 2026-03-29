@@ -83,6 +83,8 @@ export interface RemoteModelInfo {
   name: string | null;
   model_id: string;
   state: string;
+  auto_start: boolean;
+  has_ttl: boolean;
 }
 
 export interface UplinkStatus {

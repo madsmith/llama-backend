@@ -231,6 +231,8 @@ class RemoteManagerClient:
                 )
 
             proxy.llama_server_port = llama_port
+            proxy.auto_start = bool(desc.get("auto_start", False))
+            proxy.has_ttl = bool(desc.get("has_ttl", False))
             proxy.set_status(desc)
             new_models.append(proxy)
 

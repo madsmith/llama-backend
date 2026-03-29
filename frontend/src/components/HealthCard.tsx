@@ -69,8 +69,10 @@ export default function HealthCard({ proxyStatus, servers, remotes, uplink }: Pr
   const anyServerUnknown = classifications.some(c => c === "unknown");
 
   const remoteModels = remotes?.flatMap(rm => rm.models) ?? [];
-  const allRemotesOk = remoteModels.every(m => m.state === "running" || m.state === "stopped");
-  const anyRemoteUnknown = remoteModels.some(m => m.state === "unknown");
+  const allRemotesOk = remoteModels.every(m =>
+    m.state === "running" || m.state === "unknown" || (m.state === "stopped" && (m.has_ttl || !m.auto_start))
+  );
+  const anyRemoteUnknown = remoteModels.some(m => m.state === "unknown" || m.state === "starting");
 
   const anyUnknown = anyServerUnknown || anyRemoteUnknown;
   const allOk = proxyOk && allServersOk && !anyServerUnknown && allRemotesOk && !anyRemoteUnknown;
@@ -141,18 +143,24 @@ export default function HealthCard({ proxyStatus, servers, remotes, uplink }: Pr
 
         {remotes?.flatMap(rm =>
           rm.models.map(m => {
-            const unknown = m.state === "unknown";
-            const stopped = m.state === "stopped";
-            const ok = m.state === "running" || stopped;
+            const offlineOk = m.state === "stopped" && (m.has_ttl || !m.auto_start);
+            const classified =
+              m.state === "unknown" ? "unknown"
+              : offlineOk ? "offline_ok"
+              : m.state === "running" ? "ok"
+              : m.state === "starting" ? "unknown"
+              : "degraded";
             const stateColor =
-              unknown ? "text-yellow-400"
-              : stopped ? "text-gray-500"
-              : ok ? "text-green-400"
-              : m.state === "starting" ? "text-yellow-400"
+              classified === "unknown" ? "text-yellow-400"
+              : classified === "offline_ok" ? "text-gray-500"
+              : classified === "ok" ? "text-green-400"
               : "text-red-400";
             return (
               <Fragment key={m.suid}>
-                {unknown ? <Question /> : stopped ? <Dot /> : ok ? <Check /> : <Cross />}
+                {classified === "unknown" ? <Question />
+                  : classified === "offline_ok" ? <Dot />
+                  : classified === "ok" ? <Check />
+                  : <Cross />}
                 <span className="text-sm text-gray-300">
                   {m.name ?? "Remote Model"}
                   <span className="ml-2 text-xs text-gray-600">{rm.name ?? rm.url}</span>

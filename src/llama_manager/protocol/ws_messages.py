@@ -229,6 +229,8 @@ class RemoteModelInfo(BaseModel):
     name: str | None
     model_id: str
     state: str
+    auto_start: bool = False
+    has_ttl: bool = False
 
 
 class RemoteManagerInfo(BaseModel):

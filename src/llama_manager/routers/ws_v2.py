@@ -439,6 +439,8 @@ class WsV2Connection:
                         name=m.name,
                         model_id=m.model_id,
                         state=m.state.value,
+                        auto_start=m.auto_start,
+                        has_ttl=m.has_ttl,
                     )
                     for m in client.models
                 ],
@@ -524,6 +526,7 @@ class UplinkConnection:
             for m in config.models
             if m.suid in local_models_dict
         ]
+        suid_to_cfg = {m.suid: m for m in config.models}
         suid_to_model: dict[str, LocalManagedModel] = {suid: lm for suid, lm in local_models}
         model_suids: set[str] = set(suid_to_model)
 
@@ -538,6 +541,8 @@ class UplinkConnection:
                     "model_id": lm.get_model_ids()[0],
                     **lm.get_status(),
                     "llama_port": lm.port,
+                    "auto_start": suid_to_cfg[suid].auto_start,
+                    "has_ttl": suid_to_cfg[suid].model_ttl is not None,
                 }
                 for suid, lm in local_models
             ],
