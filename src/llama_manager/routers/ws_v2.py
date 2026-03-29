@@ -157,6 +157,9 @@ class WsV2Connection:
         for proxy in self.manager.get_remote_models():
             if proxy.server_id == msg.id:
                 return ServerStatusResponse(id=msg.id, **proxy.get_status())
+        for unmanaged in self.manager.get_remote_unmanaged().values():
+            if unmanaged.get_suid() == msg.id:
+                return ServerStatusResponse(id=msg.id, **unmanaged.get_status())
         return None
 
     @request_handler(SlotStatusRequest)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
 from llama_manager.config import ModelConfig
 from llama_manager.llama_client import LlamaClient
 from llama_manager.protocol.backend import Backend
@@ -23,6 +25,9 @@ class RemoteUnmanagedModel(Backend):
         self._model_id: str = config.effective_id
         self._base_url: str = config.remote_address.rstrip("/")
         self._remote_model_id: str | None = config.remote_model_id
+        parsed = urlparse(self._base_url)
+        self._host: str | None = parsed.hostname
+        self._port: int | None = parsed.port
 
     # ------------------------------------------------------------------
     # Backend protocol
@@ -45,6 +50,9 @@ class RemoteUnmanagedModel(Backend):
 
     async def get_slots(self) -> list[dict] | None:
         return await LlamaClient(self._base_url).get_slots()
+
+    def get_status(self) -> dict:
+        return {"state": "remote", "pid": None, "host": self._host, "port": self._port, "uptime": None}
 
     async def get_health(self) -> dict:
         return await LlamaClient(self._base_url).get_health() or {"status": "unknown"}

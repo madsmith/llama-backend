@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import httpx
 import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -18,7 +17,7 @@ from llama_manager.proxy import ProxyServer, SlotStatusService, set_llama_manage
 from llama_manager.manager.remote_client import RemoteManagerClient
 from llama_manager.manager.backends import LocalManagedModel, RemoteModelProxy, RemoteUnmanagedModel
 
-log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 type LocalModelIdentifier = str
 
@@ -122,7 +121,7 @@ class LlamaManager:
         for model_config in self.config.models:
             local_model = self._local_models.get(model_config.suid)
             if model_config.auto_start and local_model is not None:
-                log.info("Auto-starting model %s", model_config.name or idx)
+                logger.info("Auto-starting model %s", model_config.name or idx)
                 await local_model.start()
 
         # _sync_remote_managers works for initial startup (empty list) and
@@ -246,25 +245,37 @@ class LlamaManager:
     # ------------------------------------------------------------------
 
     async def data_publisher(self) -> None:
-        """Publish health events for running local models to the event bus."""
+        """Publish health events for running local models and remote unmanaged models."""
         while True:
             try:
                 for local_model in self._local_models.values():
                     if local_model.state.value != "running":
                         continue
                     try:
-                        async with httpx.AsyncClient(timeout=2) as client:
-                            resp = await client.get(f"{local_model.get_base_url()}/health")
-                            if resp.status_code in (200, 503):
-                                self.event_bus.publish({
-                                    "type": "health",
-                                    "server_id": local_model.get_server_identifier(),
-                                    "health": resp.json(),
-                                })
+                        health = await LlamaClient(local_model.get_base_url()).get_health()
+                        if health is not None:
+                            self.event_bus.publish({
+                                "type": "health",
+                                "server_id": local_model.get_server_identifier(),
+                                "health": health,
+                            })
                     except Exception:
-                        pass
+                        logger.warning("data_publisher: health fetch failed for %s", local_model.get_server_identifier(), exc_info=True)
+
+                for unmanaged in self._remote_unmanaged.values():
+                    try:
+                        health = await LlamaClient(unmanaged.get_base_url()).get_health()
+                        if health is not None:
+                            self.event_bus.publish({
+                                "type": "health",
+                                "server_id": unmanaged.get_suid(),
+                                "health": health,
+                            })
+                    except Exception:
+                        logger.warning("data_publisher: health fetch failed for %s", unmanaged.get_suid(), exc_info=True)
             except Exception:
-                pass
+                logger.warning("data_publisher: unexpected error", exc_info=True)
+
             await asyncio.sleep(3.0)
 
     def generate_token(self) -> str:
