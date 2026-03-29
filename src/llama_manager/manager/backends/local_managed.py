@@ -130,7 +130,7 @@ class LocalManagedModel(ManagedBackend):
         self.event_bus.publish({
             "type": "server_status",
             "id": self._model_config.suid,
-            "data": {"state": new.value},
+            "data": self.get_status(),
         })
 
     async def start(self) -> None:
@@ -245,7 +245,7 @@ class LocalManagedModel(ManagedBackend):
         self.event_bus.publish({
             "type": "server_status",
             "id": self._model_config.suid,
-            "data": {"state": self.state.value},
+            "data": self.get_status(),
         })
 
     async def stop(self) -> None:
@@ -343,11 +343,11 @@ class LocalManagedModel(ManagedBackend):
         if self.state in (ServerState.starting, ServerState.running):
             self._log(f"process exited unexpectedly (rc={rc})")
             self.state = ServerState.error if rc != 0 else ServerState.stopped
-            self.event_bus.publish({
-                "type": "server_status",
-                "id": self._model_config.suid,
-                "data": {"state": self.state.value},
-            })
             self.process = None
             self.pid = None
             self.started_at = None
+            self.event_bus.publish({
+                "type": "server_status",
+                "id": self._model_config.suid,
+                "data": self.get_status(),
+            })

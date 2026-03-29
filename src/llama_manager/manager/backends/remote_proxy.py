@@ -31,6 +31,9 @@ class RemoteModelProxy(ManagedBackend):
         self._event_bus = event_bus
         self.state: ServerState = ServerState.unknown
         self._started_at: float | None = None
+        self._pid: int | None = None
+        self._host: str | None = None
+        self._port: int | None = None
         self.log_buffer = LogBuffer(maxlen=log_buffer_size)
         self._cached_slots: list[dict] | None = None
         self._cached_health: dict | None = None
@@ -90,9 +93,9 @@ class RemoteModelProxy(ManagedBackend):
         uptime = (time.time() - self._started_at) if is_running and self._started_at is not None else None
         return {
             "state": self.state.value,
-            "pid": None,
-            "host": self._client.get_config().host if is_running else None,
-            "port": self.llama_server_port if is_running else None,
+            "pid": self._pid if is_running else None,
+            "host": self._host if is_running else None,
+            "port": self._port if is_running else None,
             "uptime": uptime,
         }
 
@@ -109,17 +112,33 @@ class RemoteModelProxy(ManagedBackend):
     # Push interface called by RemoteManagerClient
     # ------------------------------------------------------------------
 
-    def set_state(self, state_str: str) -> None:
+    def set_status(self, status: dict) -> None:
+        """Synchronise state from a full status dict (as produced by LocalManagedModel.get_status)."""
+        state_str = status.get("state", "error")
         prev = self.state
         try:
             self.state = ServerState(state_str)
         except ValueError:
             self.state = ServerState.error
-        if self.state == ServerState.running and prev != ServerState.running:
-            self._started_at = time.time()
-        elif self.state != ServerState.running:
+
+        if self.state == ServerState.running:
+            self._pid = status.get("pid")
+            self._host = status.get("host")
+            self._port = status.get("port")
+            if prev != ServerState.running or self._started_at is None:
+                uptime = status.get("uptime")
+                self._started_at = (time.time() - uptime) if uptime is not None else time.time()
+        else:
+            self._pid = None
+            self._host = None
+            self._port = None
             self._started_at = None
+
         self._event_bus.publish({"type": "server_status", "id": self._suid, "data": {"state": self.state.value}})
+
+    def set_state(self, state_str: str) -> None:
+        """Convenience for simple state-only resets (e.g. error on disconnect)."""
+        self.set_status({"state": state_str})
 
     def feed_log(self, text: str) -> None:
         line = self.log_buffer.append(text)

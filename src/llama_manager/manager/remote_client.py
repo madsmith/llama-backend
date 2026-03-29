@@ -145,7 +145,7 @@ class RemoteManagerClient:
         elif t == "state":
             proxy = self._get_proxy(msg.get("suid", ""))
             if proxy:
-                proxy.set_state(msg.get("state", "error"))
+                proxy.set_status(msg)
 
         elif t == "log":
             proxy = self._get_proxy(msg.get("suid", ""))
@@ -231,7 +231,7 @@ class RemoteManagerClient:
                 )
 
             proxy.llama_server_port = llama_port
-            proxy.set_state(state_str)
+            proxy.set_status(desc)
             new_models.append(proxy)
 
         self.models = new_models

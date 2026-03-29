@@ -536,7 +536,7 @@ class UplinkConnection:
                     "suid": suid,
                     "name": lm.get_name(),
                     "model_id": lm.get_model_ids()[0],
-                    "state": lm.get_status()["state"],
+                    **lm.get_status(),
                     "llama_port": lm.port,
                 }
                 for suid, lm in local_models
@@ -600,11 +600,7 @@ class UplinkConnection:
                 event = await q.get()
                 suid = event.get("id")
                 if suid in model_suids:
-                    self._push_json({
-                        "type": "state",
-                        "suid": suid,
-                        "state": event.get("data", {}).get("state"),
-                    })
+                    self._push_json({"type": "state", "suid": suid, **event.get("data", {})})
         except asyncio.CancelledError:
             pass
         finally:
