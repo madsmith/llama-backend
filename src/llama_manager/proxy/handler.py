@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -184,7 +185,29 @@ class ProxyHandler:
 
                 try:
                     async with httpx.AsyncClient() as client:
-                        resp = await client.request(method, f"{backend_url}/v1/{path}", json=body, timeout=None)
+                        req_task = asyncio.create_task(
+                            client.request(method, f"{backend_url}/v1/{path}", json=body, timeout=None)
+                        )
+
+                        async def _wait_disconnect() -> None:
+                            while True:
+                                msg = await request._receive()
+                                if msg.get("type") == "http.disconnect":
+                                    return
+
+                        disc_task = asyncio.create_task(_wait_disconnect())
+                        done, pending = await asyncio.wait(
+                            [req_task, disc_task], return_when=asyncio.FIRST_COMPLETED
+                        )
+                        for t in pending:
+                            t.cancel()
+                        if disc_task in done:
+                            log_response(server_name, 499, elapsed=time.monotonic() - t0, request_id=request_id)
+                            if request_id:
+                                request_log.update(request_id, response_status=499, elapsed=time.monotonic() - t0)
+                            return JSONResponse(adapter.error_body(503, "Client disconnected"), status_code=503)
+                        resp = req_task.result()
+
                     elapsed = time.monotonic() - t0
                     log_response(server_name, resp.status_code, elapsed=elapsed, size=len(resp.content), request_id=request_id)
 
@@ -302,12 +325,23 @@ class ProxyHandler:
                         async def is_disconnected() -> bool:
                             return await request.is_disconnected()
 
-                        async for chunk in adapter.wrap_stream(
-                            resp.aiter_lines(), is_cancelled, is_disconnected,
-                            accumulated_text.append,
-                        ):
-                            total_bytes += len(chunk.encode())
-                            yield chunk
+                        async def _abort_on_disconnect() -> None:
+                            while True:
+                                msg = await request._receive()
+                                if msg.get("type") == "http.disconnect":
+                                    await resp.aclose()
+                                    return
+
+                        abort_task = asyncio.create_task(_abort_on_disconnect())
+                        try:
+                            async for chunk in adapter.wrap_stream(
+                                resp.aiter_lines(), is_cancelled, is_disconnected,
+                                accumulated_text.append,
+                            ):
+                                total_bytes += len(chunk.encode())
+                                yield chunk
+                        finally:
+                            abort_task.cancel()
 
                 log_stream_end(server_name, time.monotonic() - t0, total_bytes, request_id=request_id)
                 stream_ok = True

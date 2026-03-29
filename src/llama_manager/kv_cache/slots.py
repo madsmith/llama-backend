@@ -37,12 +37,16 @@ class SlotAvailability:
             for i in range(self._num_slots):
                 if i not in self._in_use:
                     self._in_use.add(i)
+                    logger.info("SlotAvailability: reserved slot %d", i)
                     return i
+            
+            logger.info("SlotAvailability: no slots available")
             return None
 
     async def free(self, slot_id: int, cache_id: str | None = None) -> None:
         """Release a slot, optionally recording the last cache_id it served."""
         async with self._lock:
+            logger.info("SlotAvailability: freeing slot %d", slot_id)
             self._in_use.discard(slot_id)
             if cache_id is not None:
                 self._last_cache_id[slot_id] = cache_id
