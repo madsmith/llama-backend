@@ -11,13 +11,14 @@ from fastapi import FastAPI
 
 from llama_manager.config import AppConfig, ModelConfig, save_config
 from llama_manager.dev import DevViteService
-from llama_manager.event_bus import EventBus
 from llama_manager.kv_cache import resolve_slot_save_path
-from llama_manager.llama_client import LlamaClient
 from llama_manager.protocol.backend import Backend, LlamaManagerProtocol
 from llama_manager.proxy import ProxyServer, SlotStatusService
+from llama_manager.util.event_bus import EventBus
 from llama_manager.manager.remote_client import RemoteManagerClient
 from llama_manager.manager.backends import LocalManagedModel, RemoteModelProxy, RemoteUnmanagedModel
+
+from .llama_client import LlamaClient
 
 logger = logging.getLogger(__name__)
 

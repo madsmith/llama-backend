@@ -3,10 +3,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 from llama_manager.config import RemoteManagerConfig
-from llama_manager.log_buffer import LogBuffer
+from llama_manager.util.log_buffer import LogBuffer
 
 if TYPE_CHECKING:
-    from llama_manager.llama_client import LlamaClient
+    from llama_manager.manager.llama_client import LlamaClient
     from llama_manager.manager.backends import LocalManagedModel, RemoteModelProxy, RemoteUnmanagedModel
 
 type ModelSUID = str

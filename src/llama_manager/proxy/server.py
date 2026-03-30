@@ -16,7 +16,7 @@ from typing import Any
 from typing import TYPE_CHECKING
 
 from llama_manager.config import AppConfig
-from llama_manager.log_buffer import LogBuffer
+from llama_manager.util.log_buffer import LogBuffer
 
 if TYPE_CHECKING:
     from llama_manager.manager.llama_manager import LlamaManager

@@ -4,7 +4,7 @@ import asyncio
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from llama_manager.event_bus import EventBus
+from llama_manager.util.event_bus import EventBus
 
 class EventRouter:
     def __init__(self, event_bus: EventBus):

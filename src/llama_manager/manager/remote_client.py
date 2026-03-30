@@ -7,7 +7,7 @@ import logging
 import websockets
 
 from llama_manager.config import AppConfig, RemoteManagerConfig
-from llama_manager.event_bus import EventBus
+from llama_manager.util.event_bus import EventBus
 from llama_manager.manager.backends import RemoteModelProxy
 
 logger = logging.getLogger(__name__)

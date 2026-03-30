@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import time
 
-from llama_manager.event_bus import EventBus
-from llama_manager.log_buffer import LogBuffer
+from llama_manager.util.event_bus import EventBus
+from llama_manager.util.log_buffer import LogBuffer
 from llama_manager.manager.backends.local_managed import ServerState
 from llama_manager.protocol.backend import ManagedBackend, RemoteClient
 

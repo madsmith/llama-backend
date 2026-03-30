@@ -9,8 +9,8 @@ from enum import Enum
 from pathlib import Path
 
 from llama_manager.config import ModelConfig
-from llama_manager.event_bus import EventBus
-from llama_manager.log_buffer import LogBuffer
+from llama_manager.util.event_bus import EventBus
+from llama_manager.util.log_buffer import LogBuffer
 from llama_manager.protocol.backend import LlamaManagerProtocol, ManagedBackend
 
 # Regexes for parsing prompt processing progress from llama-server logs

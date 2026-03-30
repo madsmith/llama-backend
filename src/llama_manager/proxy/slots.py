@@ -5,7 +5,7 @@ import logging
 import time
 from typing import Callable, NamedTuple
 
-from llama_manager.event_bus import EventBus
+from llama_manager.util.event_bus import EventBus
 from llama_manager.protocol.backend import LlamaManagerProtocol
 
 
