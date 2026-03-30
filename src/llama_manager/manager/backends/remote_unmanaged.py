@@ -3,8 +3,7 @@ from __future__ import annotations
 from urllib.parse import urlparse
 
 from llama_manager.config import ModelConfig
-from llama_manager.llama_client import LlamaClient
-from llama_manager.protocol.backend import Backend
+from llama_manager.protocol.backend import Backend, LlamaManagerProtocol
 
 
 class RemoteUnmanagedModel(Backend):
@@ -16,11 +15,11 @@ class RemoteUnmanagedModel(Backend):
     requests to and poll for health/slot data.
     """
 
-    def __init__(self, config: ModelConfig, manager_id: str) -> None:
+    def __init__(self, config: ModelConfig, manager: LlamaManagerProtocol) -> None:
         assert config.type == "remote", (
             f"RemoteUnmanagedServer requires type='remote', got {config.type!r}"
         )
-        self._manager_id = manager_id
+        self._manager = manager
         self._model_suid: str = config.suid
         self._name: str | None = config.name
         self._model_id: str = config.effective_id
@@ -36,7 +35,7 @@ class RemoteUnmanagedModel(Backend):
     # ------------------------------------------------------------------
 
     def get_manager_id(self) -> str:
-        return self._manager_id
+        return self._manager.get_manager_id()
 
     def get_suid(self) -> str:
         return self._model_suid
@@ -60,7 +59,7 @@ class RemoteUnmanagedModel(Backend):
         if self._supports_slots is False:
             return None
 
-        slots = await LlamaClient(self._base_url).get_slots()
+        slots = await self._manager.get_client_at(self._base_url).get_slots()
         if self._supports_slots is None:
             self._supports_slots = slots is not None
         return slots
@@ -69,4 +68,4 @@ class RemoteUnmanagedModel(Backend):
         return {"state": "remote", "pid": None, "host": self._host, "port": self._port, "uptime": None}
 
     async def get_health(self) -> dict:
-        return await LlamaClient(self._base_url).get_health() or {"status": "unknown"}
+        return await self._manager.get_client_at(self._base_url).get_health() or {"status": "unknown"}

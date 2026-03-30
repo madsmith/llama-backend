@@ -24,7 +24,6 @@ from llama_manager.kv_cache import (
 
 from .active_requests import ActiveRequestManager
 from .logging import log_request, log_response, log_stream_end
-from .slots import slot_restore, slot_save
 
 logger = logging.getLogger(__name__)
 
@@ -80,20 +79,10 @@ class ProxyHandler:
 
     _BACKEND_ERRORS = (httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError)
 
-    @staticmethod
-    def _backend_error_msg(exc: Exception) -> str:
-        if isinstance(exc, httpx.ConnectError):
-            return "Backend server is not reachable"
-        return "Backend server disconnected"
-
     def __init__(self, manager: LlamaManager, adapter: ProtocolAdapter, proxy: ProxyServer) -> None:
         self._manager = manager
         self._adapter = adapter
         self._proxy = proxy
-
-    @staticmethod
-    def _rewrite_body(body: dict, model_id: str | None, backend: Backend) -> dict:
-        return {**body, "model": backend.map_model_id(model_id)}
 
     async def __call__(self, path: str, request: Request) -> JSONResponse | StreamingResponse:
         return await self.handle(path, request)
@@ -161,11 +150,14 @@ class ProxyHandler:
                             logger.warning("KV cache: no slots available")
                         elif isinstance(result, CacheHit):
                             cache_id = result.get_cache_id()
-                            restored = await slot_restore(backend.get_base_url(), slot_id, f"{cache_id}.bin")
+                            client = self._manager.get_client_at(backend.get_base_url())
+                            restored = await client.slot_restore(slot_id, f"{cache_id}.bin")
                             if restored:
+                                self._proxy.log(f"KV cache: restored slot {slot_id} from {cache_id}.bin", request_id=request_id)
                                 kv.record_restore(cache_id, slot_id)
                                 body = {**body, "id_slot": slot_id}
                             else:
+                                self._proxy.log(f"KV cache: restore failed for slot {slot_id}", request_id=request_id)
                                 await slots.free(slot_id)
                                 slot_id = None
                         else:
@@ -249,7 +241,9 @@ class ProxyHandler:
                     if isinstance(result, CacheMiss) and slot_id is not None and resp.status_code == 200:
                         assert kv is not None
                         cache_id = result.get_cache_id()
-                        if await slot_save(backend_url, slot_id, f"{cache_id}.bin"):
+                        client = self._manager.get_client_at(backend_url)
+                        if await client.slot_save(slot_id, f"{cache_id}.bin"):
+                            self._proxy.log(f"KV cache: saved slot {slot_id} as {cache_id}.bin", request_id=request_id)
                             kv.record_save(cache_id, slot_id)
 
                     resp_json = adapter.translate_response(resp.json())
@@ -305,6 +299,16 @@ class ProxyHandler:
             if request_id:
                 self._proxy.request_log.update(request_id, response_status=502, response_body=resp_body, elapsed=elapsed)
             return JSONResponse(resp_body, status_code=502)
+
+    @staticmethod
+    def _rewrite_body(body: dict, model_id: str | None, backend: Backend) -> dict:
+        return {**body, "model": backend.map_model_id(model_id)}
+
+    @staticmethod
+    def _backend_error_msg(exc: Exception) -> str:
+        if isinstance(exc, httpx.ConnectError):
+            return "Backend server is not reachable"
+        return "Backend server disconnected"
 
     @staticmethod
     async def _resolve_and_register_slot(
@@ -429,7 +433,9 @@ class ProxyHandler:
             if cache_save:
                 kv, cache_id, slot_id, slots = cache_save
                 if stream_ok:
-                    if await slot_save(backend_url, slot_id, f"{cache_id}.bin"):
+                    client = self._manager.get_client_at(backend_url)
+                    if await client.slot_save(slot_id, f"{cache_id}.bin"):
+                        self._proxy.log(f"KV cache: saved slot {slot_id} as {cache_id}.bin", request_id=request_id)
                         kv.record_save(cache_id, slot_id)
                 await slots.free(slot_id, cache_id)
 

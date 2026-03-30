@@ -14,7 +14,7 @@ from llama_manager.dev import DevViteService
 from llama_manager.event_bus import EventBus
 from llama_manager.kv_cache import resolve_slot_save_path
 from llama_manager.llama_client import LlamaClient
-from llama_manager.protocol.backend import Backend
+from llama_manager.protocol.backend import Backend, LlamaManagerProtocol
 from llama_manager.proxy import ProxyServer, SlotStatusService
 from llama_manager.manager.remote_client import RemoteManagerClient
 from llama_manager.manager.backends import LocalManagedModel, RemoteModelProxy, RemoteUnmanagedModel
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 type LocalModelIdentifier = str
 
 
-class LlamaManager:
+class LlamaManager(LlamaManagerProtocol):
     def __init__(self, config: AppConfig) -> None:
         self.config = config
         self.event_bus = EventBus()
@@ -186,7 +186,7 @@ class LlamaManager:
         llama_server_path = Path(raw_path).expanduser() if raw_path else None
         slot_save_path = resolve_slot_save_path(config, idx)
         return LocalManagedModel(
-            manager_id=self.get_manager_id(),
+            manager=self,
             model_config=model_config,
             port=port,
             event_bus=self.event_bus,
@@ -214,7 +214,7 @@ class LlamaManager:
         for idx, model_config in enumerate(config.models):
             key = model_config.suid
             if model_config.type == "remote":
-                unmanaged[key] = RemoteUnmanagedModel(model_config, manager_id=self.get_manager_id())
+                unmanaged[key] = RemoteUnmanagedModel(model_config, self)
             else:
                 local_models[key] = self._make_local_model(idx, config)
         self._local_models = local_models
@@ -299,7 +299,7 @@ class LlamaManager:
         for idx, model_config in enumerate(config.models):
             key = model_config.suid
             if model_config.type == "remote":
-                unmanaged[key] = RemoteUnmanagedModel(model_config, manager_id=self.get_manager_id())
+                unmanaged[key] = RemoteUnmanagedModel(model_config, self)
                 existing = local_models.get(key)
                 if existing is not None and existing.state.value == "stopped":
                     del local_models[key]

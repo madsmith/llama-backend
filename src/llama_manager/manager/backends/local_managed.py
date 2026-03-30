@@ -10,9 +10,8 @@ from pathlib import Path
 
 from llama_manager.config import ModelConfig
 from llama_manager.event_bus import EventBus
-from llama_manager.llama_client import LlamaClient
 from llama_manager.log_buffer import LogBuffer
-from llama_manager.protocol.backend import ManagedBackend
+from llama_manager.protocol.backend import LlamaManagerProtocol, ManagedBackend
 
 # Regexes for parsing prompt processing progress from llama-server logs
 _RE_NEW_PROMPT = re.compile(
@@ -39,7 +38,7 @@ class ServerState(str, Enum):
 class LocalManagedModel(ManagedBackend):
     def __init__(
         self,
-        manager_id: str,
+        manager: LlamaManagerProtocol,
         model_config: ModelConfig,
         port: int,
         event_bus: EventBus,
@@ -47,7 +46,7 @@ class LocalManagedModel(ManagedBackend):
         llama_server_path: Path | None,
         slot_save_path: Path | None,
     ) -> None:
-        self._manager_id = manager_id
+        self._manager = manager
         self._model_config = model_config
         self._llama_server_path = llama_server_path
         self._slot_save_path = slot_save_path
@@ -81,7 +80,7 @@ class LocalManagedModel(ManagedBackend):
     # ------------------------------------------------------------------
 
     def get_manager_id(self) -> str:
-        return self._manager_id
+        return self._manager.get_manager_id()
 
     def get_suid(self) -> str:
         return self._model_config.suid
@@ -102,10 +101,10 @@ class LocalManagedModel(ManagedBackend):
         return self.state == ServerState.running
 
     async def get_slots(self) -> list[dict] | None:
-        return await LlamaClient(self.get_base_url()).get_slots()
+        return await self._manager.get_client_at(self.get_base_url()).get_slots()
 
     async def get_health(self) -> dict:
-        return await LlamaClient(self.get_base_url()).get_health() or {"status": "unknown"}
+        return await self._manager.get_client_at(self.get_base_url()).get_health() or {"status": "unknown"}
 
     # ------------------------------------------------------------------
     # ManagedBackend protocol

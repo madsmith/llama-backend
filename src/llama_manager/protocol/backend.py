@@ -1,9 +1,15 @@
 from __future__ import annotations
 
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from llama_manager.config import RemoteManagerConfig
 from llama_manager.log_buffer import LogBuffer
+
+if TYPE_CHECKING:
+    from llama_manager.llama_client import LlamaClient
+    from llama_manager.manager.backends import LocalManagedModel, RemoteModelProxy, RemoteUnmanagedModel
+
+type ModelSUID = str
 
 
 class RemoteClient(Protocol):
@@ -11,6 +17,15 @@ class RemoteClient(Protocol):
     async def request_slots(self, suid: str) -> list[dict]: ...
     async def request_health(self, suid: str) -> dict | None: ...
     async def send_command(self, suid: str, cmd: str) -> None: ...
+
+
+class LlamaManagerProtocol(Protocol):
+    def get_manager_id(self) -> str: ...
+    def get_local_models(self) -> dict[ModelSUID, LocalManagedModel]: ...
+    def get_remote_models(self) -> list[RemoteModelProxy]: ...
+    def get_remote_unmanaged(self) -> dict[ModelSUID, RemoteUnmanagedModel]: ...
+    def get_client(self, model_suid: ModelSUID) -> LlamaClient | None: ...
+    def get_client_at(self, base_url: str) -> LlamaClient: ...
 
 
 class Backend(Protocol):
