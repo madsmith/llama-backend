@@ -42,15 +42,6 @@ class StatusRoutes:
             slot["cancellable"] = slot.get("id") in cancellable
         return data
 
-    async def get_props(self, model_suid: str = Query(...)):
-        client = self.manager.get_client(model_suid)
-        if client is None:
-            return JSONResponse({"error": "unavailable"}, status_code=503)
-        data = await client.get_props()
-        if data is None:
-            return JSONResponse({"error": "unavailable"}, status_code=503)
-        return data
-
     async def cancel_slot(self, model_suid: str = Query(...), slot: int = Query(...)):
         if ActiveRequestManager.cancel(model_suid, slot):
             return {"status": "cancelled"}

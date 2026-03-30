@@ -185,6 +185,12 @@ class RemoteManagerClient:
             if future is not None and not future.done():
                 future.set_result(msg.get("health"))
 
+        elif t == "props_response":
+            request_id = msg.get("request_id", "")
+            future = self._pending_requests.get(request_id)
+            if future is not None and not future.done():
+                future.set_result(msg.get("props"))
+
     def _get_proxy(self, suid: str) -> RemoteModelProxy | None:
         for p in self.models:
             if p.get_suid() == suid:
@@ -257,6 +263,26 @@ class RemoteManagerClient:
         try:
             await self._ws.send(json.dumps({
                 "type": "get_health",
+                "suid": suid,
+                "request_id": request_id,
+            }))
+            return await asyncio.wait_for(future, timeout=5.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+            return None
+        finally:
+            self._pending_requests.pop(request_id, None)
+
+    async def request_props(self, suid: str) -> dict | None:
+        """Send a get_props request and await the response, returning None on timeout or error."""
+        if self._ws is None:
+            return None
+        self._request_counter += 1
+        request_id = str(self._request_counter)
+        future: asyncio.Future = asyncio.get_running_loop().create_future()
+        self._pending_requests[request_id] = future
+        try:
+            await self._ws.send(json.dumps({
+                "type": "get_props",
                 "suid": suid,
                 "request_id": request_id,
             }))

@@ -22,6 +22,8 @@ from llama_manager.protocol.ws_messages import (
     LoadLogRequest,
     LoadLogResponse,
     LogLine,
+    PropsRequest,
+    PropsResponse,
     ProxyStatusRequest,
     ProxyStatusResponse,
     PutConfigRequest,
@@ -482,6 +484,18 @@ class WsV2Connection:
             connected_clients=self.manager.uplink_client_count,
         )
 
+    @request_handler(PropsRequest)
+    async def _on_props(self, msg: PropsRequest) -> BaseModel:
+        client = self.manager.get_client(msg.suid)
+        if client is not None:
+            return PropsResponse(suid=msg.suid, props=await client.get_props())
+
+        for proxy in self.manager.get_remote_models():
+            if proxy.get_suid() == msg.suid:
+                return PropsResponse(suid=msg.suid, props=await proxy.get_props())
+
+        return PropsResponse(suid=msg.suid, props=None)
+
 
 # ---------------------------------------------------------------------------
 # Uplink connection (/v2/ws/link)
@@ -680,6 +694,15 @@ class UplinkConnection:
                 "suid": suid,
                 "request_id": cmd.get("request_id", ""),
                 "health": health,
+            })
+        elif t == "get_props":
+            client = self.manager.get_client_at(local_model.get_base_url())
+            props = await client.get_props()
+            self._push_json({
+                "type": "props_response",
+                "suid": suid,
+                "request_id": cmd.get("request_id", ""),
+                "props": props,
             })
 
 

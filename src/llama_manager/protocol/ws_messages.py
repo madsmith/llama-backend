@@ -116,6 +116,11 @@ class ServerControlRequest(BaseModel):
     suid: str
 
 
+class PropsRequest(BaseModel):
+    msg: Literal["props"] = "props"
+    suid: str
+
+
 IncomingMessage = Annotated[
     Union[
         ProxyStatusRequest,
@@ -132,6 +137,7 @@ IncomingMessage = Annotated[
         RemotesRequest,
         UplinkStatusRequest,
         ServerControlRequest,
+        PropsRequest,
     ],
     Field(discriminator="msg"),
 ]
@@ -258,3 +264,9 @@ class ServerControlResponse(BaseModel):
     suid: str
     success: bool
     error: str | None = None
+
+
+class PropsResponse(BaseModel):
+    msg: Literal["props_response"] = "props_response"
+    suid: str
+    props: dict[str, Any] | None

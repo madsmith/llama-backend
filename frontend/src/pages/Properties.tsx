@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
+import { getWsV2 } from "../api/wsv2";
 import type { ModelProps } from "../api/types";
 import JsonTree from "../components/JsonTree";
 
@@ -26,9 +27,19 @@ export default function Properties() {
     if (!modelSuid) return;
     setLoading(true);
     setError("");
-    api
-      .getProps(modelSuid)
-      .then(setProps)
+    getWsV2()
+      .sendRequest<{ suid: string; props: ModelProps | null }>(
+        { msg: "props", suid: modelSuid },
+        "props_response",
+      )
+      .then((res) => {
+        if (res.props == null) {
+          setProps(null);
+          setError("Could not fetch properties. Is the server running?");
+        } else {
+          setProps(res.props);
+        }
+      })
       .catch(() => {
         setProps(null);
         setError("Could not fetch properties. Is the server running?");

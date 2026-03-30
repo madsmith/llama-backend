@@ -56,10 +56,14 @@ class LlamaManager(LlamaManagerProtocol):
         return self.config.manager_id
 
     def get_client(self, model_suid: str) -> LlamaClient | None:
-        local_model = self._local_models.get(model_suid)
-        if local_model is None:
+        model: Backend | None = self._local_models.get(model_suid)
+        if model is None:
+            model = self._remote_unmanaged.get(model_suid)
+        
+        if model is None:
             return None
-        return LlamaClient(local_model.get_base_url())
+
+        return LlamaClient(model.get_base_url())
 
     def get_client_at(self, base_url: str) -> LlamaClient:
         return LlamaClient(base_url)

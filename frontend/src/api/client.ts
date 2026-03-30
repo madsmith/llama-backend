@@ -3,7 +3,6 @@ import type {
   ServerConfig,
   ProxyStatus,
   SlotInfo,
-  ModelProps,
   RequestLogEntry,
 } from "./types";
 import { getWsV2 } from "./wsv2";
@@ -49,8 +48,6 @@ export const api = {
       `/api/status/slots/cancel?model_suid=${encodeURIComponent(modelSuid)}&slot=${slot}`,
       { method: "POST" },
     ),
-  getProps: (modelSuid: string) =>
-    request<ModelProps>(`/api/status/props?model_suid=${encodeURIComponent(modelSuid)}`),
   getRequestLog: (requestId: string) =>
     request<RequestLogEntry>(`/api/status/requests/${requestId}`),
   generateUplinkToken: () =>

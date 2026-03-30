@@ -83,6 +83,9 @@ class RemoteModelProxy(ManagedBackend):
             return health
         return {"status": "unknown"}
 
+    async def get_props(self) -> dict | None:
+        return await self._client.request_props(self._suid)
+
     # ------------------------------------------------------------------
     # ManagedBackend protocol
     # ------------------------------------------------------------------
