@@ -21,6 +21,7 @@ from llama_manager.util.log_buffer import LogBuffer
 
 if TYPE_CHECKING:
     from llama_manager.manager.llama_manager import LlamaManager
+from llama_manager.manager.backends.remote_proxy import RemoteModelProxy
 from .handler import ProxyHandler
 from .openai import OpenAIAdapter
 from .request_log import RequestLog
@@ -112,7 +113,10 @@ class ProxyServer:
             )
 
         base_url = backend.get_base_url().rstrip("/")
-        target_url = f"{base_url}/{path}" if path else base_url
+        if isinstance(backend, RemoteModelProxy):
+            target_url = f"{base_url}/proxy/{suid}/{path}" if path else f"{base_url}/proxy/{suid}/"
+        else:
+            target_url = f"{base_url}/{path}" if path else base_url
         if request.url.query:
             target_url = f"{target_url}?{request.url.query}"
 

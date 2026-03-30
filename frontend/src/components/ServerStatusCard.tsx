@@ -325,7 +325,7 @@ export default function ServerStatusCard({
               <ServerUrl
                 displayUrl={remoteAddress}
                 allowProxy={allowProxy ?? true}
-                proxyUrl={proxyBaseUrl && modelSuid ? `${proxyBaseUrl}/proxy/${modelSuid}` : undefined}
+                proxyUrl={proxyBaseUrl && modelSuid ? `${proxyBaseUrl}/proxy/${modelSuid}/` : undefined}
               />
             ) : (
               "—"
@@ -334,7 +334,7 @@ export default function ServerStatusCard({
             <ServerUrl
               displayUrl={`http://${status.host}:${status.port}`}
               allowProxy={allowProxy ?? true}
-              proxyUrl={proxyBaseUrl && modelSuid ? `${proxyBaseUrl}/proxy/${modelSuid}` : undefined}
+              proxyUrl={proxyBaseUrl && modelSuid ? `${proxyBaseUrl}/proxy/${modelSuid}/` : undefined}
             />
           ) : (
             "—"
