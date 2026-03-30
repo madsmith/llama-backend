@@ -9,12 +9,14 @@ import ProxyControls from "../components/ProxyControls";
 import LogViewer from "../components/LogViewer";
 import { useProxyStatus, useServerStatusWS, useLogs, useRemotes, pollRatesFromConfig } from "../api/hooks";
 
-function ModelLogCard({ modelSuid, name, selected, path, navigate }: {
+function ModelLogCard({ modelSuid, name, selected, path, navigate, allowProxy, proxyBaseUrl }: {
   modelSuid: string;
   name: string;
   selected: boolean;
   path: string;
   navigate: (path: string) => void;
+  allowProxy: boolean;
+  proxyBaseUrl: string;
 }) {
   const { status, refresh } = useServerStatusWS(modelSuid);
   const statusOrUnknown = status ?? { state: "unknown" as const, pid: null, host: null, port: null, uptime: null };
@@ -27,6 +29,8 @@ function ModelLogCard({ modelSuid, name, selected, path, navigate }: {
         status={statusOrUnknown}
         onClick={() => navigate(path)}
         selected={selected}
+        allowProxy={allowProxy}
+        proxyBaseUrl={proxyBaseUrl}
       />
       <ServerControls status={statusOrUnknown} modelSuid={modelSuid} onAction={refresh} />
     </div>
@@ -141,6 +145,7 @@ export default function Logs() {
     }
   }, [isProxy, modelSuid, models, navigate]);
 
+  const proxyBaseUrl = `http://${window.location.hostname}:${config?.api_server.port ?? 1234}`;
   const sourceKey = logSuid ?? "proxy";
 
   return (
@@ -163,6 +168,8 @@ export default function Logs() {
               selected={!isProxy && modelSuid === m.suid}
               path={`/logs/${m.suid}`}
               navigate={navigate}
+              allowProxy={m.allow_proxy ?? true}
+              proxyBaseUrl={proxyBaseUrl}
             />
           </div>
         ))}
@@ -175,6 +182,8 @@ export default function Logs() {
                 selected={!isProxy && modelSuid === m.suid}
                 path={`/logs/${m.suid}`}
                 navigate={navigate}
+                allowProxy={m.allow_proxy ?? true}
+                proxyBaseUrl={proxyBaseUrl}
               />
             </div>
           ))
