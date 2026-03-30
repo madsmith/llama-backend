@@ -7,6 +7,7 @@ import os
 import time
 import uuid
 
+import httpx
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -50,6 +51,17 @@ class ProxyServer:
             response_model=None,
         )(self._openai_handle())
 
+        _methods = ["GET", "POST", "PUT", "DELETE", "PATCH"]
+
+        async def _proxy_root(suid: str, request: Request) -> Response:
+            return await self._direct_proxy(suid, "", request)
+
+        async def _proxy_path(suid: str, path: str, request: Request) -> Response:
+            return await self._direct_proxy(suid, path, request)
+
+        self.app.api_route("/proxy/{suid}", methods=_methods, response_model=None)(_proxy_root)
+        self.app.api_route("/proxy/{suid}/{path:path}", methods=_methods, response_model=None)(_proxy_path)
+
         self._server: uvicorn.Server | None = None
         self._task: asyncio.Task | None = None
         self._host: str = self.config.api_server.host
@@ -77,6 +89,63 @@ class ProxyServer:
 
     def _openai_handle(self) -> ProxyHandler:
         return ProxyHandler(self._manager, OpenAIAdapter(), self)
+
+    async def _direct_proxy(self, suid: str, path: str, request: Request) -> Response:
+        model_config = next((m for m in self._manager.config.models if m.suid == suid), None)
+        if model_config is not None and not model_config.allow_proxy:
+            return Response(
+                content=json.dumps({"error": "Proxy access disabled for this model"}),
+                status_code=403,
+                media_type="application/json",
+            )
+
+        backend = (
+            self._manager.get_local_models().get(suid)
+            or self._manager.get_remote_unmanaged().get(suid)
+            or next((p for p in self._manager.get_remote_models() if p.get_suid() == suid), None)
+        )
+        if backend is None:
+            return Response(
+                content=json.dumps({"error": "Backend not found"}),
+                status_code=404,
+                media_type="application/json",
+            )
+
+        base_url = backend.get_base_url().rstrip("/")
+        target_url = f"{base_url}/{path}" if path else base_url
+        if request.url.query:
+            target_url = f"{target_url}?{request.url.query}"
+
+        _skip_req = {"host", "content-length", "transfer-encoding", "accept-encoding"}
+        headers = {k: v for k, v in request.headers.items() if k.lower() not in _skip_req}
+
+        _skip_resp = {"content-length", "transfer-encoding", "content-encoding"}
+        try:
+            async with httpx.AsyncClient(timeout=60) as client:
+                upstream = await client.request(
+                    method=request.method,
+                    url=target_url,
+                    content=request.state.raw_body,
+                    headers=headers,
+                )
+            return Response(
+                content=upstream.content,
+                status_code=upstream.status_code,
+                media_type=upstream.headers.get("content-type"),
+                headers={k: v for k, v in upstream.headers.items() if k.lower() not in _skip_resp},
+            )
+        except httpx.ConnectError:
+            return Response(
+                content=json.dumps({"error": "Backend unavailable"}),
+                status_code=503,
+                media_type="application/json",
+            )
+        except Exception:
+            return Response(
+                content=json.dumps({"error": "Proxy error"}),
+                status_code=502,
+                media_type="application/json",
+            )
 
     def log(self, text: str, *, request_id: str | None = None) -> None:
         stamped = f"[{time.strftime('%H:%M:%S')}] {text}"

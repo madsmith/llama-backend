@@ -161,6 +161,50 @@ function SlotRow({ slot, modelSuid }: { slot: SlotInfo; modelSuid: string }) {
   );
 }
 
+function isLoopback(url: string): boolean {
+  try {
+    const { hostname } = new URL(url);
+    return (
+      hostname === "localhost" ||
+      hostname === "0.0.0.0" ||
+      hostname === "::1" ||
+      hostname === "[::1]" ||
+      /^127\./.test(hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
+const urlClass = "hover:text-gray-200 transition";
+
+function ServerUrl({
+  displayUrl,
+  allowProxy,
+  proxyUrl,
+}: {
+  displayUrl: string;
+  allowProxy: boolean;
+  proxyUrl: string | undefined;
+}) {
+  const stopProp = (e: React.MouseEvent) => e.stopPropagation();
+  if (allowProxy && proxyUrl) {
+    return (
+      <a href={proxyUrl} target="_blank" rel="noreferrer" onClick={stopProp} className={urlClass}>
+        {displayUrl}
+      </a>
+    );
+  }
+  if (!allowProxy && isLoopback(displayUrl)) {
+    return <span>{displayUrl}</span>;
+  }
+  return (
+    <a href={displayUrl} target="_blank" rel="noreferrer" onClick={stopProp} className={urlClass}>
+      {displayUrl}
+    </a>
+  );
+}
+
 function remoteDisplay(health: HealthStatus | null): {
   label: string;
   color: string;
@@ -181,6 +225,8 @@ interface Props {
   selected?: boolean;
   remoteAddress?: string;
   health?: HealthStatus | null;
+  allowProxy?: boolean;
+  proxyBaseUrl?: string;
 }
 
 export default function ServerStatusCard({
@@ -191,6 +237,8 @@ export default function ServerStatusCard({
   selected,
   remoteAddress,
   health,
+  allowProxy,
+  proxyBaseUrl,
 }: Props) {
   const navigate = useNavigate();
   const [slots, setSlots] = useState<SlotInfo[]>([]);
@@ -274,26 +322,20 @@ export default function ServerStatusCard({
         <span className="text-sm text-gray-400 font-mono">
           {isRemote ? (
             remoteAddress ? (
-              <a
-                href={remoteAddress}
-                target="_blank"
-                rel="noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="hover:text-gray-200 transition"
-              >
-                {remoteAddress}
-              </a>
+              <ServerUrl
+                displayUrl={remoteAddress}
+                allowProxy={allowProxy ?? true}
+                proxyUrl={proxyBaseUrl && modelSuid ? `${proxyBaseUrl}/proxy/${modelSuid}` : undefined}
+              />
             ) : (
               "—"
             )
           ) : status.host != null && status.port != null ? (
-            <a
-              href={`http://${status.host}:${status.port}`}
-              target="_blank"
-              rel="noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="hover:text-gray-200 transition"
-            >{`http://${status.host}:${status.port}`}</a>
+            <ServerUrl
+              displayUrl={`http://${status.host}:${status.port}`}
+              allowProxy={allowProxy ?? true}
+              proxyUrl={proxyBaseUrl && modelSuid ? `${proxyBaseUrl}/proxy/${modelSuid}` : undefined}
+            />
           ) : (
             "—"
           )}

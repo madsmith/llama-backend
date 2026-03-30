@@ -448,6 +448,7 @@ class WsV2Connection:
                         state=m.state.value,
                         auto_start=m.auto_start,
                         has_ttl=m.has_ttl,
+                        allow_proxy=m.allow_proxy,
                     )
                     for m in client.models
                 ],
@@ -562,6 +563,7 @@ class UplinkConnection:
                     "llama_port": lm.port,
                     "auto_start": suid_to_cfg[suid].auto_start,
                     "has_ttl": suid_to_cfg[suid].model_ttl is not None,
+                    "allow_proxy": suid_to_cfg[suid].allow_proxy,
                 }
                 for suid, lm in local_models
             ],

@@ -36,6 +36,7 @@ class RemoteModelProxy(ManagedBackend):
         self._port: int | None = None
         self.auto_start: bool = False
         self.has_ttl: bool = False
+        self.allow_proxy: bool = True
         self.log_buffer = LogBuffer(maxlen=log_buffer_size)
         self._cached_slots: list[dict] | None = None
         self._cached_health: dict | None = None

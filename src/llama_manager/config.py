@@ -42,6 +42,7 @@ class ModelConfig(BaseModel):
     parallel: int = 2
     auto_start: bool = False
     model_ttl: int | None = None
+    allow_proxy: bool = True
     advanced: ModelAdvanced = ModelAdvanced()
     remote_address: str = ""
     remote_model_id: str | None = None

@@ -31,6 +31,7 @@ export interface ModelConfig {
   parallel: number;
   auto_start: boolean;
   model_ttl: number | null;
+  allow_proxy?: boolean;
   advanced: ModelAdvanced;
   remote_address?: string;
   remote_model_id?: string | null;
@@ -85,6 +86,7 @@ export interface RemoteModelInfo {
   state: string;
   auto_start: boolean;
   has_ttl: boolean;
+  allow_proxy: boolean;
 }
 
 export interface UplinkStatus {

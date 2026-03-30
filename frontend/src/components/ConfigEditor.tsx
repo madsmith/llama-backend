@@ -763,6 +763,22 @@ export default function ConfigEditor({
                 />
               </label>
 
+              <label className="flex items-center justify-between cursor-pointer">
+                <div>
+                  <span className="text-sm font-medium text-gray-400">
+                    Allow Proxy
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={model.allow_proxy ?? true}
+                  onChange={(e) =>
+                    updateModel({ allow_proxy: e.target.checked })
+                  }
+                  className="h-4 w-4 rounded border-gray-700 bg-gray-900 accent-blue-500"
+                />
+              </label>
+
               <label className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium text-gray-400">

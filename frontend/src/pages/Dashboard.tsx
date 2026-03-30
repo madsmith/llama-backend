@@ -31,6 +31,8 @@ function ModelPanel({
   remoteAddress,
   autoStart,
   hasTTL,
+  allowProxy,
+  proxyBaseUrl,
   onSnapshot,
 }: {
   modelIndex: number;
@@ -40,6 +42,8 @@ function ModelPanel({
   remoteAddress?: string;
   autoStart: boolean;
   hasTTL: boolean;
+  allowProxy: boolean;
+  proxyBaseUrl: string;
   onSnapshot: (index: number, snap: ServerSnapshot) => void;
 }) {
   const navigate = useNavigate();
@@ -60,6 +64,8 @@ function ModelPanel({
         onClick={isRemote ? undefined : () => navigate(`/logs/${modelSuid}`)}
         remoteAddress={remoteAddress}
         health={isRemote ? health : undefined}
+        allowProxy={allowProxy}
+        proxyBaseUrl={proxyBaseUrl}
       />
       {!isRemote && (
         <ServerControls
@@ -75,9 +81,13 @@ function ModelPanel({
 function RemoteModelPanel({
   modelSuid,
   name,
+  allowProxy,
+  proxyBaseUrl,
 }: {
   modelSuid: string;
   name: string;
+  allowProxy: boolean;
+  proxyBaseUrl: string;
 }) {
   const navigate = useNavigate();
   const { status, refresh } = useServerStatusWS(modelSuid);
@@ -90,6 +100,8 @@ function RemoteModelPanel({
         modelSuid={modelSuid}
         status={statusOrUnknown}
         onClick={() => navigate(`/logs/${modelSuid}`)}
+        allowProxy={allowProxy}
+        proxyBaseUrl={proxyBaseUrl}
       />
       <ServerControls status={status} modelSuid={modelSuid} onAction={refresh} />
     </div>
@@ -102,7 +114,7 @@ function connectionDot(state: RemoteManagerStatus["connection_state"]) {
   return "bg-gray-600";
 }
 
-function RemoteManagerSection({ rm }: { rm: RemoteManagerStatus }) {
+function RemoteManagerSection({ rm, proxyBaseUrl }: { rm: RemoteManagerStatus; proxyBaseUrl: string }) {
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2 mt-2">
@@ -124,6 +136,8 @@ function RemoteManagerSection({ rm }: { rm: RemoteManagerStatus }) {
               key={m.suid}
               modelSuid={m.suid}
               name={m.name ?? "Remote Model"}
+              allowProxy={m.allow_proxy ?? true}
+              proxyBaseUrl={proxyBaseUrl}
             />
           ))}
         </div>
@@ -162,6 +176,7 @@ export default function Dashboard() {
 
   const models = config?.models ?? [];
   const servers = Array.from(snapshots.values());
+  const proxyBaseUrl = `http://${window.location.hostname}:${config?.api_server.port ?? 1234}`;
 
   return (
     <div className="space-y-6">
@@ -181,6 +196,8 @@ export default function Dashboard() {
             remoteAddress={m.remote_address}
             autoStart={m.auto_start ?? false}
             hasTTL={m.model_ttl != null}
+            allowProxy={m.allow_proxy ?? true}
+            proxyBaseUrl={proxyBaseUrl}
             onSnapshot={handleSnapshot}
           />
         ))}
@@ -189,7 +206,7 @@ export default function Dashboard() {
         <div className="space-y-4">
           <h2 className="text-lg font-semibold text-gray-400">Remotes</h2>
           {remotes.map((rm) => (
-            <RemoteManagerSection key={rm.index} rm={rm} />
+            <RemoteManagerSection key={rm.index} rm={rm} proxyBaseUrl={proxyBaseUrl} />
           ))}
         </div>
       )}

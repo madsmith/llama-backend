@@ -237,6 +237,7 @@ class RemoteModelInfo(BaseModel):
     state: str
     auto_start: bool = False
     has_ttl: bool = False
+    allow_proxy: bool = True
 
 
 class RemoteManagerInfo(BaseModel):
