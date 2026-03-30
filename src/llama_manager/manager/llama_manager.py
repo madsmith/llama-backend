@@ -95,6 +95,12 @@ class LlamaManager(LlamaManagerProtocol):
                 return m
         return None
 
+    def find_backend_by_suid(self, suid: str) -> Backend | None:
+        """Find the backend by suid."""
+        return (self._local_models.get(suid)
+                or self._remote_unmanaged.get(suid)
+                or next((proxy for proxy in self.get_remote_models() if proxy.get_suid() == suid), None))
+
     def get_model_config(self, suid: str) -> ModelConfig | None:
         """Return the ModelConfig for a locally-configured model by suid."""
         for m in self.config.models:
