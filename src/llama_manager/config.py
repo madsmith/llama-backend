@@ -29,6 +29,13 @@ class ModelAdvanced(BaseModel):
     swa_full: bool = False
     max_prediction_tokens: int | None = None
     extra_args: list[str] = []
+    fit: bool = True
+    use_jinja: bool = True
+    temperature: float | None = None
+    top_p: float | None = None
+    top_k: int | None = None
+    min_p: float | None = None
+    stop: str | None = None
 
 
 class ModelConfig(BaseModel):

@@ -18,6 +18,13 @@ export interface ModelAdvanced {
   swa_full: boolean;
   max_prediction_tokens: number | null;
   extra_args: string[];
+  fit: boolean;
+  use_jinja: boolean;
+  temperature: number | null;
+  top_p: number | null;
+  top_k: number | null;
+  min_p: number | null;
+  stop: string | null;
 }
 
 export interface ModelConfig {

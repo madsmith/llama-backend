@@ -218,6 +218,27 @@ class LocalManagedModel(ManagedBackend):
         if adv.max_prediction_tokens is not None:
             cmd += ["--n-predict", str(adv.max_prediction_tokens)]
 
+        if not adv.fit:
+            cmd += ["--fit", "off"]
+
+        if adv.use_jinja:
+            cmd += ["--jinja"]
+
+        if adv.temperature is not None:
+            cmd += ["--temp", str(adv.temperature)]
+
+        if adv.top_p is not None:
+            cmd += ["--top-p", str(adv.top_p)]
+
+        if adv.top_k is not None:
+            cmd += ["--top-k", str(adv.top_k)]
+
+        if adv.min_p is not None:
+            cmd += ["--min-p", str(adv.min_p)]
+
+        if adv.stop:
+            cmd += ["--stop", adv.stop]
+
         cmd += adv.extra_args
         return cmd
 
