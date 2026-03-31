@@ -19,6 +19,8 @@ interface SliderFieldProps {
   nullSliderPosition?: number;
   /** Moving slider to sliderMin sets value to null */
   nullAtSliderMin?: boolean;
+  /** Starting value for arrow key increment when field is null — defaults to numberMin */
+  nullDefault?: number;
   /** Snap slider changes to nearest multiple of this value (slider units) */
   snap?: number;
   bg?: "gray-800" | "gray-900";
@@ -39,6 +41,7 @@ export default function SliderField({
   placeholder,
   nullSliderPosition,
   nullAtSliderMin = false,
+  nullDefault,
   snap,
   bg = "gray-900",
 }: SliderFieldProps) {
@@ -71,8 +74,18 @@ export default function SliderField({
     onChange(Number(raw));
   };
 
+  const handleNumberKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    e.preventDefault();
+    const parsedPlaceholder = placeholder !== undefined ? parseFloat(placeholder) : NaN;
+    const base = value ?? nullDefault ?? (isNaN(parsedPlaceholder) ? numberMin : parsedPlaceholder);
+    const next = e.key === "ArrowUp" ? base + numberStep : base - numberStep;
+    const clamped = Math.min(numberMax, Math.max(numberMin, next));
+    onChange(parseFloat(clamped.toFixed(precision)));
+  };
+
   return (
-    <div>
+    <div className="relative group">
       <label className="block text-sm font-medium text-gray-400 mb-1">
         {label}
         {tip && <Tip>{tip}</Tip>}
@@ -80,7 +93,7 @@ export default function SliderField({
           <span className="ml-1 text-xs text-gray-600 font-normal">off</span>
         )}
       </label>
-      <div className="flex items-center gap-3">
+      <div className="relative flex items-center gap-3">
         <input
           type="range"
           min={sliderMin}
@@ -98,8 +111,20 @@ export default function SliderField({
           value={value ?? ""}
           placeholder={placeholder}
           onChange={handleNumberChange}
-          className={`w-24 rounded-md border border-gray-700 pl-3 pr-1 py-2 text-sm text-gray-100 font-mono text-right focus:border-blue-500 focus:outline-none ${bg === "gray-800" ? "bg-gray-800" : "bg-gray-900"}`}
+          onKeyDown={handleNumberKeyDown}
+          className={`w-24 rounded-md border border-gray-700 pl-3 pr-1 py-2 text-sm text-gray-100 font-mono text-right focus:border-blue-500 focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none ${bg === "gray-800" ? "bg-gray-800" : "bg-gray-900"}`}
         />
+        {value !== null && <button
+          type="button"
+          onClick={() => onChange(null)}
+          aria-label="Clear"
+          className="absolute right-0 translate-x-full pl-2 pr-4 py-2 invisible group-hover:visible text-red-500 hover:text-red-300 transition-colors"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+            <line x1="2" y1="2" x2="12" y2="12" />
+            <line x1="12" y1="2" x2="2" y2="12" />
+          </svg>
+        </button>}
       </div>
       {note && <div className="mt-1 text-xs text-gray-500">{note}</div>}
     </div>

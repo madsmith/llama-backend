@@ -505,10 +505,11 @@ export default function ConfigEditor({
 
               <IntegerField
                 label="GPU Layers"
-                value={model.n_gpu_layers}
-                onChange={(v) => updateModel({ n_gpu_layers: v ?? model.n_gpu_layers })}
-                min={-1}
+                value={model.n_gpu_layers === -1 ? null : model.n_gpu_layers}
+                onChange={(v) => updateModel({ n_gpu_layers: v ?? -1 })}
+                min={0}
                 placeholder="-1"
+                nullable
               />
 
               <ToggleField
