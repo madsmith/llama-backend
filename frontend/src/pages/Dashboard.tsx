@@ -147,6 +147,7 @@ function RemoteManagerSection({ rm, proxyBaseUrl }: { rm: RemoteManagerStatus; p
 }
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [config, setConfig] = useState<ServerConfig | null>(null);
   const { status: proxyStatus, refresh: refreshProxy } = useProxyStatusWS();
   const [snapshots, setSnapshots] = useState<Map<number, ServerSnapshot>>(
@@ -183,7 +184,7 @@ export default function Dashboard() {
       <h1 className="text-2xl font-bold">Dashboard</h1>
       <div className="flex gap-6 items-start flex-wrap">
         <div className="space-y-4">
-          <ProxyStatusCard status={proxyStatus} onClick={() => {}} />
+          <ProxyStatusCard status={proxyStatus} onClick={() => navigate("/logs/proxy")} />
           <ProxyControls status={proxyStatus} onAction={refreshProxy} />
         </div>
         {models.map((m, i) => (
