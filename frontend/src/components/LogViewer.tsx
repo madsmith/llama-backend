@@ -31,10 +31,13 @@ interface Props {
   connected: boolean;
   onClear: () => void;
   source?: string;
+  isPending?: boolean;
 }
 
-export default function LogViewer({ lines, connected, onClear, source }: Props) {
+export default function LogViewer({ lines, connected, onClear, source, isPending }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollLockedRef = useRef(false);
+  const lockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [tab, setTab] = useState<Tab>("server");
   const [showApiCalls, setShowApiCalls] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<RequestLogEntry | null>(null);
@@ -47,8 +50,17 @@ export default function LogViewer({ lines, connected, onClear, source }: Props) 
     [lines, tab, showApiCalls, isProxy],
   );
 
+  const handleScroll = useCallback(() => {
+    scrollLockedRef.current = true;
+    if (lockTimerRef.current !== null) clearTimeout(lockTimerRef.current);
+    lockTimerRef.current = setTimeout(() => {
+      scrollLockedRef.current = false;
+      lockTimerRef.current = null;
+    }, 3000);
+  }, []);
+
   useEffect(() => {
-    if (!selectedEntry) {
+    if (!selectedEntry && !scrollLockedRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
   }, [filtered.length, selectedEntry]);
@@ -117,8 +129,11 @@ export default function LogViewer({ lines, connected, onClear, source }: Props) 
         </div>
 
         {/* log output */}
-        <div className="flex-1 overflow-auto p-4 font-mono text-xs leading-5 text-gray-300">
-          {filtered.length === 0 && (
+        <div className="flex-1 overflow-auto p-4 font-mono text-xs leading-5 text-gray-300" onScroll={handleScroll}>
+          {isPending && lines.length === 0 && (
+            <span className="text-gray-600">Loading logs...</span>
+          )}
+          {!isPending && filtered.length === 0 && (
             <span className="text-gray-600">No log output yet.</span>
           )}
           {filtered.map((l) =>

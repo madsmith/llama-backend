@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useTransition } from "react";
 import { api } from "./client";
 import { getWsV2 } from "./wsv2";
 import type {
@@ -52,6 +52,7 @@ export type LogLine = { id: number; text: string; request_id?: string };
 export function useLogs(type: "proxy" | "server", serverId?: string) {
   const [lines, setLines] = useState<LogLine[]>([]);
   const [connected, setConnected] = useState(false);
+  const [isPending, startTransition] = useTransition();
   const maxIdRef = useRef(0);
 
   useEffect(() => {
@@ -76,7 +77,7 @@ export function useLogs(type: "proxy" | "server", serverId?: string) {
         return line;
       });
       maxIdRef.current = loaded.reduce((m, l) => Math.max(m, l.id), 0);
-      setLines(loaded);
+      startTransition(() => setLines(loaded));
     };
 
     const handleEvent = (data: Record<string, unknown>) => {
@@ -85,7 +86,7 @@ export function useLogs(type: "proxy" | "server", serverId?: string) {
       maxIdRef.current = lineId;
       const line: LogLine = { id: lineId, text: data.text as string };
       if (data.request_id) line.request_id = data.request_id as string;
-      setLines((prev) => [...prev, line]);
+      startTransition(() => setLines((prev) => [...prev, line]));
     };
 
     const unsubLoad = wsv2.subscribe("load_log_response", handleLoad, onConnect);
@@ -101,7 +102,7 @@ export function useLogs(type: "proxy" | "server", serverId?: string) {
 
   const clear = useCallback(() => setLines([]), []);
 
-  return { lines, connected, clear };
+  return { lines, connected, clear, isPending };
 }
 
 export function useRemotes(pollMs = 3000) {
