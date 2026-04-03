@@ -42,6 +42,8 @@ export default function LogViewer({ lines, connected, onClear, source, isPending
   const [showApiCalls, setShowApiCalls] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<RequestLogEntry | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [hoveredLineId, setHoveredLineId] = useState<number | null>(null);
+  const [hoveredRequestId, setHoveredRequestId] = useState<string | null>(null);
 
   const isProxy = source === "proxy";
 
@@ -136,21 +138,30 @@ export default function LogViewer({ lines, connected, onClear, source, isPending
           {!isPending && filtered.length === 0 && (
             <span className="text-gray-600">No log output yet.</span>
           )}
-          {filtered.map((l) =>
-            l.request_id ? (
+          {filtered.map((l) => {
+            const isHovered = l.id === hoveredLineId;
+            const isRelated = !isHovered && l.request_id != null && l.request_id === hoveredRequestId;
+            const bgClass = isHovered
+              ? "bg-gray-600/70"
+              : isRelated
+                ? "bg-gray-700/30"
+                : "hover:bg-gray-600/70";
+            return l.request_id ? (
               <div
                 key={l.id}
-                className="whitespace-pre-wrap break-all cursor-pointer hover:bg-gray-800/60 rounded px-1 -mx-1 transition-colors"
+                className={`whitespace-pre-wrap break-all cursor-pointer ${bgClass} rounded px-1 -mx-1 transition-colors`}
                 onClick={() => handleLineClick(l.request_id!)}
+                onMouseEnter={() => { setHoveredLineId(l.id); setHoveredRequestId(l.request_id!); }}
+                onMouseLeave={() => { setHoveredLineId(null); setHoveredRequestId(null); }}
               >
                 {l.text}
               </div>
             ) : (
-              <div key={l.id} className="whitespace-pre-wrap break-all">
+              <div key={l.id} className={`whitespace-pre-wrap break-all ${bgClass} rounded px-1 -mx-1`}>
                 {l.text}
               </div>
-            ),
-          )}
+            );
+          })}
           <div ref={bottomRef} />
         </div>
 
