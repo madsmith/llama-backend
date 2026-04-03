@@ -27,9 +27,10 @@ function JsonBlock({ label, data }: { label: string; data: unknown }) {
 interface Props {
   entry: RequestLogEntry;
   onClose: () => void;
+  requestIds?: string[];
 }
 
-export default function RequestDetail({ entry: initial, onClose }: Props) {
+export default function RequestDetail({ entry: initial, onClose, requestIds = [] }: Props) {
   const [entry, setEntry] = useState(initial);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -54,6 +55,21 @@ export default function RequestDetail({ entry: initial, onClose }: Props) {
     }
   }, [entry.request_id]);
 
+  const navigate = useCallback(async (dir: -1 | 1) => {
+    const idx = requestIds.indexOf(entry.request_id);
+    const nextIdx = idx + dir;
+    if (idx === -1 || nextIdx < 0 || nextIdx >= requestIds.length) {
+      setToast(dir === -1 ? "No previous request" : "No next request");
+      return;
+    }
+    try {
+      const next = await api.getRequestLog(requestIds[nextIdx]);
+      setEntry(next);
+    } catch {
+      setToast("Request no longer in log");
+    }
+  }, [entry.request_id, requestIds]);
+
   const elapsed =
     entry.elapsed != null ? `${entry.elapsed.toFixed(2)}s` : "pending";
   const status = entry.response_status ?? "pending";
@@ -70,7 +86,9 @@ export default function RequestDetail({ entry: initial, onClose }: Props) {
           &larr; Back
         </button>
         <span className="text-xs text-gray-600">|</span>
+        <button onClick={() => navigate(-1)} className="text-gray-600 hover:text-gray-300 transition text-sm leading-none">&#9664;</button>
         <span className="font-mono text-xs text-gray-400">{entry.request_id}</span>
+        <button onClick={() => navigate(1)} className="text-gray-600 hover:text-gray-300 transition text-sm leading-none">&#9654;</button>
         {entry.model_id && (
           <span className="text-xs text-gray-500">{entry.model_id}</span>
         )}
@@ -107,6 +125,7 @@ export default function RequestDetail({ entry: initial, onClose }: Props) {
         {chatMode && requestBody ? (
           <div className="flex flex-col flex-1 min-w-0 min-h-0">
             <ChatView
+              key={entry.request_id}
               body={requestBody}
               responseBody={entry.response_body}
               responseStatus={entry.response_status}

@@ -52,6 +52,18 @@ export default function LogViewer({ lines, connected, onClear, source, isPending
     [lines, tab, showApiCalls, isProxy],
   );
 
+  const orderedRequestIds = useMemo(() => {
+    const seen = new Set<string>();
+    const ids: string[] = [];
+    for (const line of lines) {
+      if (line.request_id && !seen.has(line.request_id)) {
+        seen.add(line.request_id);
+        ids.push(line.request_id);
+      }
+    }
+    return ids;
+  }, [lines]);
+
   const handleScroll = useCallback(() => {
     scrollLockedRef.current = true;
     if (lockTimerRef.current !== null) clearTimeout(lockTimerRef.current);
@@ -167,7 +179,7 @@ export default function LogViewer({ lines, connected, onClear, source, isPending
 
         {/* request detail overlay */}
         {selectedEntry && (
-          <RequestDetail entry={selectedEntry} onClose={() => setSelectedEntry(null)} />
+          <RequestDetail entry={selectedEntry} onClose={() => setSelectedEntry(null)} requestIds={orderedRequestIds} />
         )}
 
         {/* toast */}

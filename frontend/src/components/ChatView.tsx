@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import LongString from "./LongString";
 
 interface ContentBlock {
@@ -291,14 +291,23 @@ function extractResponseMessage(
   responseStatus: number | null | undefined,
 ): ChatMessage | "error" | null {
   if (!responseBody) return null;
+
   if (responseStatus === 200 || responseStatus == null) {
     const b = responseBody as Record<string, unknown>;
     const choices = b.choices;
     if (Array.isArray(choices) && choices.length > 0) {
       const msg = (choices[0] as Record<string, unknown>).message;
-      if (msg && typeof msg === "object") return msg as ChatMessage;
+      if (msg && typeof msg === "object") {
+        return msg as ChatMessage;
+      }
+    } else {
+      return {
+        role: "assistant",
+        content: JSON.stringify(b),
+      } as ChatMessage;
     }
   }
+
   return "error";
 }
 
@@ -323,6 +332,8 @@ export default function ChatView({ body, responseBody, responseStatus }: {
   const responseMsg = extractResponseMessage(responseBody, responseStatus);
   const [showTools, setShowTools] = useState(false);
   const [reasoningMode, setReasoningMode] = useState<ReasoningMode>("off");
+  const bottomRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { bottomRef.current?.scrollIntoView(); }, []);
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -364,6 +375,7 @@ export default function ChatView({ body, responseBody, responseStatus }: {
             )}
           </>
         )}
+        <div ref={bottomRef} />
       </div>
     </div>
   );
