@@ -37,7 +37,7 @@ function LongString({ value }: { value: string }) {
 
   return (
     <span
-      onClick={() => setExpanded(!expanded)}
+      onClick={() => { if (!window.getSelection()?.toString()) setExpanded(!expanded); }}
       className="text-green-400 cursor-pointer hover:bg-gray-800/50 rounded"
     >
       {expanded ? (
