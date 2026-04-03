@@ -1,4 +1,12 @@
 type JsonMessage = Record<string, unknown>;
+
+let _wsLogging = false;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+(window as any).wsv2_toggle_logging = () => {
+  _wsLogging = !_wsLogging;
+  console.log(`[wsv2] logging ${_wsLogging ? "enabled" : "disabled"}`);
+};
+const wsLog = (...args: unknown[]) => { if (_wsLogging) console.log("[wsv2]", ...args); };
 type MessageHandler = (msg: JsonMessage) => void;
 type ConnectHandler = () => void;
 
@@ -96,7 +104,7 @@ class WsV2ClientImpl implements WsV2Client {
   }
 
   send(msg: JsonMessage): void {
-    console.log("Sending message:", msg);
+    wsLog("Sending message:", msg);
     if (this.isOpen()) {
       this.ws!.send(JSON.stringify(msg));
     }
@@ -112,7 +120,7 @@ class WsV2ClientImpl implements WsV2Client {
         resolve(msg as T);
       };
       const onConnect = () => {
-        console.log("Sending request:", requestMsg);
+        wsLog("Sending request:", requestMsg);
         this.send(requestMsg);
       };
       const unsub = this.subscribe(responseType, onResponse, onConnect);
@@ -147,7 +155,7 @@ class WsV2ClientImpl implements WsV2Client {
     const type = this.getMessageType(msg);
     if (!type) return;
 
-    console.log("Received:", type, msg);
+    wsLog("Received:", type, msg);
 
     // Route subscribe_event_response to the FIFO pending queue.
     if (type === "subscribe_event_response") {
@@ -189,7 +197,7 @@ class WsV2ClientImpl implements WsV2Client {
       const sendMsg: JsonMessage = { msg: "subscribe_event", type };
       if (id !== null) sendMsg.id = id;
       if (subType !== undefined) sendMsg.subtype = subType;
-      console.log("Sending subscribe_event:", sendMsg);
+      wsLog("Sending subscribe_event:", sendMsg);
       this.send(sendMsg);
     };
 
