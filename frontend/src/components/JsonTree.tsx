@@ -1,4 +1,5 @@
 import { useState } from "react";
+import LongString from "./LongString";
 
 function isCollapsible(value: unknown): value is Record<string, unknown> | unknown[] {
   return value !== null && typeof value === "object";
@@ -25,30 +26,6 @@ function Chevron({ open }: { open: boolean }) {
 
 const TRUNCATE_AT = 80;
 
-function LongString({ value }: { value: string }) {
-  const [expanded, setExpanded] = useState(false);
-
-  if (value.length <= TRUNCATE_AT) {
-    return <span className="text-green-400">"{value}"</span>;
-  }
-
-  const prefixLen = Math.floor(TRUNCATE_AT / 2);
-  const suffixLen = TRUNCATE_AT - prefixLen;
-
-  return (
-    <span
-      onClick={() => { if (!window.getSelection()?.toString()) setExpanded(!expanded); }}
-      className="text-green-400 cursor-pointer hover:bg-gray-800/50 rounded"
-    >
-      {expanded ? (
-        <>"{value}"</>
-      ) : (
-        <>"{value.slice(0, prefixLen)}<span className="text-gray-500">...({value.length - prefixLen - suffixLen})</span>{value.slice(-suffixLen)}"</>
-      )}
-    </span>
-  );
-}
-
 function ValueSpan({ value }: { value: unknown }) {
   if (value === null) return <span className="text-gray-500">null</span>;
   if (typeof value === "boolean")
@@ -56,7 +33,7 @@ function ValueSpan({ value }: { value: unknown }) {
   if (typeof value === "number")
     return <span className="text-blue-400">{String(value)}</span>;
   if (typeof value === "string")
-    return <LongString value={value} />;
+    return <span className="text-green-400 hover:bg-gray-800/50 rounded">"<LongString text={value} limit={TRUNCATE_AT} />"</span>;
   return <span className="text-gray-300">{String(value)}</span>;
 }
 

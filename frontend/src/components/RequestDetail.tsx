@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { api } from "../api/client";
 import type { RequestLogEntry } from "../api/types";
 import JsonTree from "./JsonTree";
+import ChatView from "./ChatView";
 
 function JsonBlock({ label, data }: { label: string; data: unknown }) {
   const isObject = data !== null && typeof data === "object";
@@ -31,6 +32,10 @@ interface Props {
 export default function RequestDetail({ entry: initial, onClose }: Props) {
   const [entry, setEntry] = useState(initial);
   const [toast, setToast] = useState<string | null>(null);
+
+  const requestBody = entry.request_body as Record<string, unknown> | null;
+  const hasMessages = Array.isArray(requestBody?.messages);
+  const [chatMode, setChatMode] = useState(hasMessages);
 
   useEffect(() => setEntry(initial), [initial]);
 
@@ -73,6 +78,22 @@ export default function RequestDetail({ entry: initial, onClose }: Props) {
           {status}{streaming} &middot; {elapsed}
         </span>
         <div className="flex-1" />
+        {hasMessages && (
+          <div className="flex items-center rounded-full bg-gray-800 p-0.5 gap-0.5">
+            {(["Raw", "Chat"] as const).map((mode) => {
+              const active = mode === "Chat" ? chatMode : !chatMode;
+              return (
+                <button
+                  key={mode}
+                  onClick={() => setChatMode(mode === "Chat")}
+                  className={`px-2.5 py-0.5 rounded-full text-xs font-medium transition-colors ${active ? "bg-gray-600 text-gray-100" : "text-gray-500 hover:text-gray-300"}`}
+                >
+                  {mode}
+                </button>
+              );
+            })}
+          </div>
+        )}
         <button
           onClick={refresh}
           className="text-xs text-gray-500 hover:text-gray-200 transition"
@@ -81,16 +102,22 @@ export default function RequestDetail({ entry: initial, onClose }: Props) {
         </button>
       </div>
 
-      {/* split pane */}
+      {/* pane */}
       <div className="relative flex flex-1 min-h-0 divide-x divide-gray-800">
-        <JsonBlock
-          label="Request"
-          data={entry.request_body}
-        />
-        <JsonBlock
-          label="Response"
-          data={entry.response_body}
-        />
+        {chatMode && requestBody ? (
+          <div className="flex flex-col flex-1 min-w-0 min-h-0">
+            <ChatView
+              body={requestBody}
+              responseBody={entry.response_body}
+              responseStatus={entry.response_status}
+            />
+          </div>
+        ) : (
+          <>
+            <JsonBlock label="Request" data={entry.request_body} />
+            <JsonBlock label="Response" data={entry.response_body} />
+          </>
+        )}
 
         {/* toast */}
         {toast && (
