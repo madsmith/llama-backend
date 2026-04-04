@@ -42,11 +42,11 @@ function classifyServer(s: ServerInfo): DerivedState {
   if (s.status.state === "unknown") return "unknown";
 
   if (s.status.state === "remote") {
-    if (s.health == null) return "unknown";
+    if (s.health == null) return "degraded";
+    if (s.health.status === "unknown") return "unknown";
     if (
       s.health.status === "ok" ||
-      s.health.status === "no slot available" ||
-      s.health.status === "unknown" // tolerate stale remote health
+      s.health.status === "no slot available"
     ) return "ok";
     return "degraded";
   }
@@ -108,9 +108,9 @@ export default function HealthCard({ proxyStatus, servers, remotes, uplink }: Pr
           const isRemote = state === "remote";
 
           const displayState =
-            classified === "offline_ok" ? "offline_ok"
+            classified === "offline_ok" ? "offline"
             : isRemote
-              ? (s.health?.status === "ok" ? "running" : (s.health?.status ?? "unknown"))
+              ? (s.health == null ? "offline" : s.health.status === "ok" ? "running" : s.health.status)
               : (state ?? "unknown");
 
           const stateColor =
