@@ -330,8 +330,13 @@ export default function ChatView({ body, responseBody, responseStatus }: {
     .flatMap((m) => m.tool_calls as ToolCall[]);
 
   const responseMsg = extractResponseMessage(responseBody, responseStatus);
-  const [showTools, setShowTools] = useState(false);
-  const [reasoningMode, setReasoningMode] = useState<ReasoningMode>("off");
+  const [showTools, setShowTools] = useState(() => localStorage.getItem("pref:showTools") === "true");
+  const [reasoningMode, setReasoningMode] = useState<ReasoningMode>(() => {
+    const v = localStorage.getItem("pref:reasoningMode");
+    return v === "collapsed" || v === "expanded" ? v : "off";
+  });
+  useEffect(() => { localStorage.setItem("pref:showTools", String(showTools)); }, [showTools]);
+  useEffect(() => { localStorage.setItem("pref:reasoningMode", reasoningMode); }, [reasoningMode]);
   const bottomRef = useRef<HTMLDivElement>(null);
   useEffect(() => { bottomRef.current?.scrollIntoView(); }, []);
 

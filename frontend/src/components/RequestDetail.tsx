@@ -36,7 +36,13 @@ export default function RequestDetail({ entry: initial, onClose, requestIds = []
 
   const requestBody = entry.request_body as Record<string, unknown> | null;
   const hasMessages = Array.isArray(requestBody?.messages);
-  const [chatMode, setChatMode] = useState(hasMessages);
+  const [chatMode, setChatMode] = useState(() => {
+    const stored = localStorage.getItem("pref:chatMode");
+    return stored !== null ? stored === "chat" : hasMessages;
+  });
+  useEffect(() => {
+    localStorage.setItem("pref:chatMode", chatMode ? "chat" : "raw");
+  }, [chatMode]);
 
   useEffect(() => setEntry(initial), [initial]);
 
