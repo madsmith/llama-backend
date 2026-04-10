@@ -20,7 +20,12 @@ uv.lock
 .vscode/
 *.swp
 *.swo
+
+# OS generated files
 .DS_Store
+
+# Runtime state
 slot_saves
 slot_output/*
 test_output/
+logs/

@@ -25,11 +25,18 @@ def main() -> None:
     )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument(
+        "--save-log",
+        action="store_true",
+        help="Write each proxy request to logs/<request_id>.json",
+    )
     args = parser.parse_args()
 
     if args.debug:
         args.verbose = True
 
+    if args.save_log:
+        os.environ["LLAMA_SAVE_LOGS"] = "1"
     if args.dev:
         os.environ["LLAMA_DEV"] = "1"
     if args.debug:

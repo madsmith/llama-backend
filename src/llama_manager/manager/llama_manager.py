@@ -39,6 +39,9 @@ class LlamaManager(LlamaManagerProtocol):
         self._ttl_task: asyncio.Task | None = None
         self._model_last_activity: dict[str, float] = {}
 
+    def enable_save_logs(self) -> None:
+        self.proxy.enable_save_logs()
+
     # ------------------------------------------------------------------
     # Public accessors
     # ------------------------------------------------------------------

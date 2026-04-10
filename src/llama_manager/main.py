@@ -34,6 +34,9 @@ config = load_config()
 manager = LlamaManager(config)
 vite = DevViteService() if DEV_MODE else None
 
+if os.environ.get("LLAMA_SAVE_LOGS"):
+    manager.enable_save_logs()
+
 app = FastAPI(title="Llama Server Manager", lifespan=manager.get_lifespan(vite=vite))
 
 app.add_middleware(

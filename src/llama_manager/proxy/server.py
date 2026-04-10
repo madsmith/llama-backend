@@ -71,6 +71,9 @@ class ProxyServer:
 
         set_proxy_server(self)
 
+    def enable_save_logs(self) -> None:
+        self.request_log.enable_save_logs()
+
     def get_request(self, request_id: str):
         return self.request_log.get(request_id)
 
