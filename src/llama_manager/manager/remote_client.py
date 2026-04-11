@@ -71,7 +71,7 @@ class RemoteManagerClient:
             except asyncio.CancelledError:
                 break
             except Exception as exc:
-                logger.debug("Remote manager [%d] error: %r", self.remote_index, exc)
+                logger.warning("Remote manager [%d] connection error: %r", self.remote_index, exc)
 
             if self._stop_event.is_set():
                 break
@@ -150,7 +150,7 @@ class RemoteManagerClient:
         elif t == "log":
             proxy = self._get_proxy(msg.get("suid", ""))
             if proxy:
-                proxy.feed_log(msg.get("text", ""))
+                proxy.feed_log(msg.get("text") or "")
 
         elif t == "log_history":
             proxy = self._get_proxy(msg.get("suid", ""))

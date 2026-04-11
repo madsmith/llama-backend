@@ -640,11 +640,14 @@ class UplinkConnection:
                 suid = event.get("id")
                 if suid in model_suids:
                     data = event.get("data", {})
+                    # data is a WireLogRecord dump: {id, line_number, time, request_id, data: {type, text, ...}}
+                    log_data = data.get("data", {})
+                    text = log_data.get("text", "") if log_data.get("type") == "text" else str(log_data)
                     self._push_json({
                         "type": "log",
                         "suid": suid,
-                        "id": data.get("line_id"),
-                        "text": data.get("text"),
+                        "id": data.get("id"),
+                        "text": text,
                     })
         except asyncio.CancelledError:
             pass
