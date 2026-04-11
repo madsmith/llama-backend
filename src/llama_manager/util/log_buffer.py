@@ -16,15 +16,15 @@ class LogLine:
 class LogBuffer:
     """Thread-safe rolling log buffer with monotonic IDs."""
 
-    def __init__(self, manager_id: str, maxlen: int = 10_000) -> None:
-        self._manager_id = manager_id
+    def __init__(self, buffer_id: str, maxlen: int = 10_000) -> None:
+        self.buffer_id = buffer_id
         self._buf: deque[LogLine] = deque(maxlen=maxlen)
         self._next_line_no = 1
         self._lock = threading.Lock()
 
     def append(self, text: str, request_id: str | None = None) -> LogLine:
         with self._lock:
-            id = f"{self._manager_id}-{self._next_line_no}"
+            id = f"{self.buffer_id}-{self._next_line_no}"
             line = LogLine(id=id, line_number=self._next_line_no, text=text, request_id=request_id)
             self._next_line_no += 1
             self._buf.append(line)
