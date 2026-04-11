@@ -4,6 +4,7 @@ import type { RequestLogEntry } from "../api/types";
 import JsonTree from "./JsonTree";
 import ChatView from "./ChatView";
 import SegmentedControl from "./inputs/SegmentedControl";
+import ErrorToast from "./ErrorToast";
 
 function JsonBlock({ label, data }: { label: string; data: unknown }) {
   const isObject = data !== null && typeof data === "object";
@@ -136,12 +137,7 @@ export default function RequestDetail({ entry: initial, onClose, requestIds = []
           </>
         )}
 
-        {/* toast */}
-        {toast && (
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 rounded-md bg-red-900/80 border border-red-700 px-4 py-2 text-sm text-red-200 shadow-lg">
-            {toast}
-          </div>
-        )}
+        <ErrorToast message={toast} float />
       </div>
     </div>
   );

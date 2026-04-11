@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api } from "../api/client";
 import type { ProxyStatus } from "../api/types";
+import ErrorToast from "./ErrorToast";
 
 interface Props {
   status: ProxyStatus;
@@ -54,11 +55,7 @@ export default function ProxyControls({ status, onAction }: Props) {
           Restart
         </button>
       </div>
-      {error && (
-        <div className="rounded-md bg-red-900/50 border border-red-700 px-3 py-2 text-sm text-red-300">
-          {error}
-        </div>
-      )}
+      <ErrorToast message={error} />
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { getWsV2 } from "../api/wsv2";
+import ErrorToast from "./ErrorToast";
 import type { ServerStatus } from "../api/types";
 
 interface Props {
@@ -73,11 +74,7 @@ export default function ServerControls({ status, modelSuid, onAction }: Props) {
           Restart
         </button>
       </div>
-      {error && (
-        <div className="rounded-md bg-red-900/50 border border-red-700 px-3 py-2 text-sm text-red-300">
-          {error}
-        </div>
-      )}
+      <ErrorToast message={error} />
     </div>
   );
 }

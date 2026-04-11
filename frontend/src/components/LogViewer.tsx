@@ -5,6 +5,7 @@ import type { RequestLogEntry } from "../api/types";
 import type { LogLine, WireProxyRequest, WireProxyResponse } from "../api/hooks";
 import RequestDetail from "./RequestDetail";
 import ToggleSelector from "./inputs/ToggleSelector";
+import ErrorToast from "./ErrorToast";
 
 type Tab = "server" | "info" | "other" | "all";
 
@@ -351,12 +352,7 @@ export default function LogViewer({ lines, connected, onClear, source, isPending
           <RequestDetail entry={selectedEntry} onClose={() => setSelectedEntry(null)} requestIds={orderedRequestIds} />
         )}
 
-        {/* toast */}
-        {toast && (
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 rounded-md bg-red-900/80 border border-red-700 px-4 py-2 text-sm text-red-200 shadow-lg">
-            {toast}
-          </div>
-        )}
+        <ErrorToast message={toast} float />
       </div>
     </div>
   );
