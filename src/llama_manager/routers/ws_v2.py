@@ -21,7 +21,7 @@ from llama_manager.protocol.ws_messages import (
     IncomingMessage,
     LoadLogRequest,
     LoadLogResponse,
-    LogLine,
+    LogRecord,
     PropsRequest,
     PropsResponse,
     ProxyStatusRequest,
@@ -390,7 +390,7 @@ class WsV2Connection:
             lines = self.manager.proxy.get_log_buffer().snapshot()
             return LoadLogResponse(
                 type="proxy",
-                lines=[LogLine(id=l.id, line_number=l.line_number, text=l.text, request_id=l.request_id) for l in lines],
+                lines=[LogRecord.from_buffer(l) for l in lines],
             )
         # type == "server"
         suid = msg.suid
@@ -400,7 +400,7 @@ class WsV2Connection:
             return LoadLogResponse(
                 type="server",
                 suid=suid,
-                lines=[LogLine(id=l.id, line_number=l.line_number, text=l.text, request_id=l.request_id) for l in lines],
+                lines=[LogRecord.from_buffer(l) for l in lines],
             )
         for proxy in self.manager.get_remote_models():
             if proxy.get_suid() == suid:
@@ -408,7 +408,7 @@ class WsV2Connection:
                 return LoadLogResponse(
                     type="server",
                     suid=suid,
-                    lines=[LogLine(id=l.id, line_number=l.line_number, text=l.text, request_id=l.request_id) for l in lines],
+                    lines=[LogRecord.from_buffer(l) for l in lines],
                 )
         return LoadLogResponse(type="server", suid=suid, lines=[])
 
@@ -576,7 +576,7 @@ class UplinkConnection:
                 await self.ws.send_json({
                     "type": "log_history",
                     "suid": suid,
-                    "lines": [{"id": ln.id, "text": ln.text} for ln in lines],
+                    "lines": [{"id": ln.id, "text": str(ln)} for ln in lines],
                 })
 
         self.manager.uplink_client_count += 1

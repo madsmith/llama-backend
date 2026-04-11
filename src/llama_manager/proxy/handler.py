@@ -7,6 +7,7 @@ import time
 from typing import TYPE_CHECKING, AsyncGenerator, AsyncIterator, Awaitable, Callable, Protocol
 
 import httpx
+from http import HTTPStatus
 from fastapi import Request
 from starlette.responses import JSONResponse, StreamingResponse
 
@@ -23,20 +24,9 @@ from llama_manager.kv_cache import (
 )
 
 from .active_requests import ActiveRequestManager
+from llama_manager.util.log_buffer import ProxyRequest, ProxyResponse
 
 logger = logging.getLogger(__name__)
-
-_STATUS_TEXT = {
-    200: "OK",
-    201: "Created",
-    204: "No Content",
-    400: "Bad Request",
-    404: "Not Found",
-    422: "Unprocessable Entity",
-    500: "Internal Server Error",
-    502: "Bad Gateway",
-    503: "Service Unavailable",
-}
 
 
 class ProtocolAdapter(Protocol):
@@ -115,11 +105,11 @@ class ProxyHandler:
                 backend = self._manager.find_backend(model_id)
                 if backend is None:
                     self._log_request(None, method, f"/v1/{path}", http_ver, req_size, request_id=request_id)
-                    self._log_response(None, 404, request_id=request_id)
-                    resp_body = adapter.error_body(404, f"Model not found: {model_id}")
+                    self._log_response(None, HTTPStatus.NOT_FOUND, request_id=request_id)
+                    resp_body = adapter.error_body(HTTPStatus.NOT_FOUND, f"Model not found: {model_id}")
                     if request_id:
-                        self._proxy.request_log.update(request_id, response_status=404, response_body=resp_body, elapsed=time.monotonic() - t0)
-                    return JSONResponse(resp_body, status_code=404)
+                        self._proxy.request_log.update(request_id, response_status=HTTPStatus.NOT_FOUND, response_body=resp_body, elapsed=time.monotonic() - t0)
+                    return JSONResponse(resp_body, status_code=HTTPStatus.NOT_FOUND)
 
                 suid = backend.get_suid()
                 model_config = self._manager.get_model_config(suid)
@@ -132,11 +122,11 @@ class ProxyHandler:
                 try:
                     await self._manager.ensure_server(backend)
                 except RuntimeError as exc:
-                    self._log_response(server_name, 503, elapsed=time.monotonic() - t0, request_id=request_id)
-                    resp_body = adapter.error_body(503, str(exc))
+                    self._log_response(server_name, HTTPStatus.SERVICE_UNAVAILABLE, elapsed=time.monotonic() - t0, request_id=request_id)
+                    resp_body = adapter.error_body(HTTPStatus.SERVICE_UNAVAILABLE, str(exc))
                     if request_id:
-                        self._proxy.request_log.update(request_id, response_status=503, response_body=resp_body, elapsed=time.monotonic() - t0)
-                    return JSONResponse(resp_body, status_code=503)
+                        self._proxy.request_log.update(request_id, response_status=HTTPStatus.SERVICE_UNAVAILABLE, response_body=resp_body, elapsed=time.monotonic() - t0)
+                    return JSONResponse(resp_body, status_code=HTTPStatus.SERVICE_UNAVAILABLE)
 
                 self._manager.touch(suid)
                 body = self._rewrite_body(body, model_id, backend)
@@ -211,7 +201,7 @@ class ProxyHandler:
                         async def _wait_disconnect() -> None:
                             while True:
                                 msg = await request._receive()
-                                if msg.get("type") == "http.disconnect":
+                                if msg.get("type") == "HTTPStatus.disconnect":
                                     return
 
                         disc_task = asyncio.create_task(_wait_disconnect())
@@ -238,18 +228,18 @@ class ProxyHandler:
                             self._log_response(server_name, 499, elapsed=time.monotonic() - t0, request_id=request_id)
                             if request_id:
                                 self._proxy.request_log.update(request_id, response_status=499, elapsed=time.monotonic() - t0)
-                            return JSONResponse(adapter.error_body(503, "Client disconnected"), status_code=503)
+                            return JSONResponse(adapter.error_body(HTTPStatus.SERVICE_UNAVAILABLE, "Client disconnected"), status_code=HTTPStatus.SERVICE_UNAVAILABLE)
                         if cancel_task is not None and cancel_task in done:
-                            self._log_response(server_name, 503, elapsed=time.monotonic() - t0, request_id=request_id)
+                            self._log_response(server_name, HTTPStatus.SERVICE_UNAVAILABLE, elapsed=time.monotonic() - t0, request_id=request_id)
                             if request_id:
-                                self._proxy.request_log.update(request_id, response_status=503, elapsed=time.monotonic() - t0)
-                            return JSONResponse(adapter.error_body(503, "Request cancelled: inference terminated by server operator"), status_code=503)
+                                self._proxy.request_log.update(request_id, response_status=HTTPStatus.SERVICE_UNAVAILABLE, elapsed=time.monotonic() - t0)
+                            return JSONResponse(adapter.error_body(HTTPStatus.SERVICE_UNAVAILABLE, "Request cancelled: inference terminated by server operator"), status_code=HTTPStatus.SERVICE_UNAVAILABLE)
                         resp = req_task.result()
 
                     elapsed = time.monotonic() - t0
                     self._log_response(server_name, resp.status_code, elapsed=elapsed, size=len(resp.content), request_id=request_id)
 
-                    if isinstance(result, CacheMiss) and slot_id is not None and resp.status_code == 200:
+                    if isinstance(result, CacheMiss) and slot_id is not None and resp.status_code == HTTPStatus.OK:
                         assert kv is not None
                         cache_id = result.get_cache_id()
                         client = self._manager.get_client_at(backend_url)
@@ -274,9 +264,9 @@ class ProxyHandler:
                 backend = self._manager.find_backend(None)
                 if backend is None:
                     self._log_request(None, method, f"/v1/{path}", http_ver, request_id=request_id)
-                    self._log_response(None, 503, elapsed=0.0, request_id=request_id)
-                    resp_body = adapter.error_body(503, "No backend available")
-                    return JSONResponse(resp_body, status_code=503)
+                    self._log_response(None, HTTPStatus.SERVICE_UNAVAILABLE, elapsed=0.0, request_id=request_id)
+                    resp_body = adapter.error_body(HTTPStatus.SERVICE_UNAVAILABLE, "No backend available")
+                    return JSONResponse(resp_body, status_code=HTTPStatus.SERVICE_UNAVAILABLE)
 
                 backend_url = backend.get_base_url()
                 server_name = backend.get_name()
@@ -285,11 +275,11 @@ class ProxyHandler:
                 try:
                     await self._manager.ensure_server(backend)
                 except RuntimeError as exc:
-                    self._log_response(server_name, 503, elapsed=time.monotonic() - t0, request_id=request_id)
-                    resp_body = adapter.error_body(503, str(exc))
+                    self._log_response(server_name, HTTPStatus.SERVICE_UNAVAILABLE, elapsed=time.monotonic() - t0, request_id=request_id)
+                    resp_body = adapter.error_body(HTTPStatus.SERVICE_UNAVAILABLE, str(exc))
                     if request_id:
-                        self._proxy.request_log.update(request_id, response_status=503, response_body=resp_body, elapsed=time.monotonic() - t0)
-                    return JSONResponse(resp_body, status_code=503)
+                        self._proxy.request_log.update(request_id, response_status=HTTPStatus.SERVICE_UNAVAILABLE, response_body=resp_body, elapsed=time.monotonic() - t0)
+                    return JSONResponse(resp_body, status_code=HTTPStatus.SERVICE_UNAVAILABLE)
 
                 self._manager.touch(backend.get_suid())
                 async with httpx.AsyncClient() as client:
@@ -304,12 +294,12 @@ class ProxyHandler:
         except ProxyHandler._BACKEND_ERRORS as exc:
             elapsed = time.monotonic() - t0
             msg = self._backend_error_msg(exc)
-            self._log_response(server_name, 502, elapsed=elapsed, request_id=request_id)
+            self._log_response(server_name, HTTPStatus.BAD_GATEWAY, elapsed=elapsed, request_id=request_id)
             self._proxy.log(f"[{server_name}] {msg}", request_id=request_id)
-            resp_body = adapter.error_body(502, msg)
+            resp_body = adapter.error_body(HTTPStatus.BAD_GATEWAY, msg)
             if request_id:
-                self._proxy.request_log.update(request_id, response_status=502, response_body=resp_body, elapsed=elapsed)
-            return JSONResponse(resp_body, status_code=502)
+                self._proxy.request_log.update(request_id, response_status=HTTPStatus.BAD_GATEWAY, response_body=resp_body, elapsed=elapsed)
+            return JSONResponse(resp_body, status_code=HTTPStatus.BAD_GATEWAY)
 
     def _log_request(
         self,
@@ -320,14 +310,10 @@ class ProxyHandler:
         size: int | None = None,
         request_id: str | None = None,
     ) -> None:
-        route = f"[{server_name}]" if server_name else ""
-        msg = f"{method} {path} HTTP/{http_ver}"
-        if size is not None:
-            msg += f" [{_fmt_size(size)}]"
-        self._proxy.log(
-            f"\u2192 {route} {msg}" if route else f"\u2192 {msg}",
-            request_id=request_id,
-        )
+        self._proxy.log(ProxyRequest(
+            method=method, path=path, http_ver=http_ver, size=size,
+            server_name=server_name, request_id=request_id,
+        ))
 
     def _log_response(
         self,
@@ -340,21 +326,11 @@ class ProxyHandler:
         size: int | None = None,
         request_id: str | None = None,
     ) -> None:
-        route = f"[{server_name}]" if server_name else ""
-        text = _STATUS_TEXT.get(status, "")
-        msg = f"HTTP/{http_ver} {status}"
-        if text:
-            msg += f" {text}"
-        if streaming:
-            msg += " streaming"
-        if elapsed is not None:
-            msg += f" ({elapsed:.2f}s)"
-        if size is not None:
-            msg += f" [{_fmt_size(size)}]"
-        self._proxy.log(
-            f"\u2190 {route} {msg}" if route else f"\u2190 {msg}",
-            request_id=request_id,
-        )
+        self._proxy.log(ProxyResponse(
+            status=status, http_ver=http_ver, streaming=streaming,
+            elapsed=elapsed, size=size,
+            server_name=server_name, request_id=request_id,
+        ))
 
     def _log_stream_end(
         self,
@@ -363,12 +339,11 @@ class ProxyHandler:
         size: int,
         request_id: str | None = None,
     ) -> None:
-        route = f"[{server_name}]" if server_name else ""
-        msg = f"stream complete ({elapsed:.2f}s) [{_fmt_size(size)}]"
-        self._proxy.log(
-            f"\u2190 {route} {msg}" if route else f"\u2190 {msg}",
-            request_id=request_id,
-        )
+        self._proxy.log(ProxyResponse(
+            status=HTTPStatus.OK, streaming=True, complete=True,
+            elapsed=elapsed, size=size,
+            server_name=server_name, request_id=request_id,
+        ))
 
     @staticmethod
     def _rewrite_body(body: dict, model_id: str | None, backend: Backend) -> dict:
@@ -393,7 +368,7 @@ class ProxyHandler:
         try:
             async with httpx.AsyncClient(timeout=2) as client:
                 response = await client.get(f"{backend_url}/slots")
-                if response.status_code == 200:
+                if response.status_code == HTTPStatus.OK:
                     for slot in response.json():
                         if slot.get("is_processing") and "id" in slot:
                             event = ActiveRequestManager.try_register(suid, slot["id"])
@@ -445,7 +420,7 @@ class ProxyHandler:
 
                         if lock_held:
                             try:
-                                if suid is not None and active_slot_id is None and resp.status_code == 200:
+                                if suid is not None and active_slot_id is None and resp.status_code == HTTPStatus.OK:
                                     claimed = await self._resolve_and_register_slot(backend_url, suid)
                                     if claimed is not None:
                                         active_slot_id, cancel_event = claimed
@@ -462,7 +437,7 @@ class ProxyHandler:
                         async def _abort_on_disconnect() -> None:
                             while True:
                                 msg = await request._receive()
-                                if msg.get("type") == "http.disconnect":
+                                if msg.get("type") == "HTTPStatus.disconnect":
                                     await resp.aclose()
                                     return
 
@@ -483,17 +458,17 @@ class ProxyHandler:
                     self._proxy.request_log.update(
                         request_id,
                         response_body="".join(accumulated_text),
-                        response_status=200,
+                        response_status=HTTPStatus.OK,
                         streaming=True,
                         elapsed=time.monotonic() - t0,
                     )
             except ProxyHandler._BACKEND_ERRORS as exc:
                 msg = self._backend_error_msg(exc)
-                self._log_response(server_name, 502, elapsed=time.monotonic() - t0, request_id=request_id)
+                self._log_response(server_name, HTTPStatus.BAD_GATEWAY, elapsed=time.monotonic() - t0, request_id=request_id)
                 self._proxy.log(f"[{server_name}] {msg}", request_id=request_id)
                 yield adapter.backend_error_sse(msg)
                 if request_id:
-                    self._proxy.request_log.update(request_id, response_status=502, elapsed=time.monotonic() - t0)
+                    self._proxy.request_log.update(request_id, response_status=HTTPStatus.BAD_GATEWAY, elapsed=time.monotonic() - t0)
             finally:
                 if lock_held and resolve_lock is not None:
                     resolve_lock.release()
@@ -510,7 +485,3 @@ class ProxyHandler:
                 await slots.free(slot_id, cache_id)
 
         return StreamingResponse(response_generator(), media_type="text/event-stream")
-
-
-def _fmt_size(n: int) -> str:
-    return f"{n}B" if n < 1024 else f"{n / 1024:.1f}KB"

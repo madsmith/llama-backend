@@ -7,6 +7,7 @@ from llama_manager.manager.llama_manager import LlamaManager
 from llama_manager.manager.backends import LocalManagedModel, RemoteModelProxy
 
 
+
 class ServerRoutes:
     def __init__(self, manager: LlamaManager):
         self.manager: LlamaManager = manager
@@ -55,6 +56,6 @@ class ServerRoutes:
         status = local_model.get_status()
         if status["state"] == "error":
             lines = local_model.log_buffer.snapshot()
-            status["error"] = lines[-1].text if lines else "Unknown error"
+            status["error"] = str(lines[-1]) if lines else "Unknown error"
             return JSONResponse(status, status_code=500)
         return status

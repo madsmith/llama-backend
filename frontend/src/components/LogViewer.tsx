@@ -12,16 +12,49 @@ const API_CALL_RE = /srv.*(?:GET \/slots|update_slots)/;
 const INFO_RE = /print_info/;
 const CMD_RE = /^\$ /;
 const MAIN_RE = /\bmain: /;
-const ALWAYS_RE = (l: string) => CMD_RE.test(l) || MAIN_RE.test(l);
+const ALWAYS_RE = (s: string) => CMD_RE.test(s) || MAIN_RE.test(s);
+
+function lineText(l: LogLine): string {
+  if (l.data.type === "text") return l.data.text;
+  if (l.data.type === "request") {
+    const d = l.data;
+    const route = d.server_name ? `[${d.server_name}] ` : "";
+    let msg = `\u2192 ${route}${d.method} ${d.path} HTTP/${d.http_ver}`;
+    if (d.size != null) msg += ` [${fmtSize(d.size)}]`;
+    return `[${fmtTime(l.time)}] ${msg}`;
+  }
+  const d = l.data;
+  const route = d.server_name ? `[${d.server_name}] ` : "";
+  let msg: string;
+  if (d.complete) {
+    msg = `stream complete (${d.elapsed?.toFixed(2)}s) [${fmtSize(d.size ?? 0)}]`;
+  } else {
+    msg = `HTTP/${d.http_ver} ${d.status}${d.phrase ? ` ${d.phrase}` : ""}`;
+    if (d.streaming) msg += " streaming";
+    if (d.elapsed != null) msg += ` (${d.elapsed.toFixed(2)}s)`;
+    if (d.size != null) msg += ` [${fmtSize(d.size)}]`;
+  }
+  return `[${fmtTime(l.time)}] \u2190 ${route}${msg}`;
+}
+
+function fmtTime(t: number): string {
+  return new Date(t * 1000).toLocaleTimeString("en-US", { hour12: false });
+}
+
+function fmtSize(n: number): string {
+  return n < 1024 ? `${n}B` : `${(n / 1024).toFixed(1)}KB`;
+}
 
 function filterLines(lines: LogLine[], tab: Tab, showApiCalls: boolean): LogLine[] {
   if (tab === "all") return lines;
-  if (tab === "info") return lines.filter((l) => INFO_RE.test(l.text) || ALWAYS_RE(l.text));
-  if (tab === "other") return lines.filter((l) => !SRV_RE.test(l.text));
   return lines.filter((l) => {
-    if (ALWAYS_RE(l.text)) return true;
-    if (!SRV_RE.test(l.text)) return false;
-    if (!showApiCalls && API_CALL_RE.test(l.text)) return false;
+    const text = lineText(l);
+    if (tab === "info") return INFO_RE.test(text) || ALWAYS_RE(text);
+    if (tab === "other") return !SRV_RE.test(text);
+    // server tab
+    if (ALWAYS_RE(text)) return true;
+    if (!SRV_RE.test(text)) return false;
+    if (!showApiCalls && API_CALL_RE.test(text)) return false;
     return true;
   });
 }
@@ -166,11 +199,11 @@ export default function LogViewer({ lines, connected, onClear, source, isPending
                 onMouseEnter={() => { setHoveredLineId(l.id); setHoveredRequestId(l.request_id!); }}
                 onMouseLeave={() => { setHoveredLineId(null); setHoveredRequestId(null); }}
               >
-                {l.text}
+                {lineText(l)}
               </div>
             ) : (
               <div key={l.id} className={`whitespace-pre-wrap break-all ${bgClass} rounded px-1 -mx-1`}>
-                {l.text}
+                {lineText(l)}
               </div>
             );
           })}

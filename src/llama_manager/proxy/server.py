@@ -12,12 +12,13 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import Response
-from typing import Any
+from typing import Any, overload
 
 from typing import TYPE_CHECKING
 
 from llama_manager.config import AppConfig
-from llama_manager.util.log_buffer import LogBuffer
+from llama_manager.util.log_buffer import LogBuffer, LogRecordData, ProxyRequest, ProxyResponse
+from llama_manager.protocol.ws_messages import LogRecord as WireLogRecord
 
 if TYPE_CHECKING:
     from llama_manager.manager.llama_manager import LlamaManager
@@ -153,12 +154,23 @@ class ProxyServer:
                 media_type="application/json",
             )
 
-    def log(self, text: str, *, request_id: str | None = None) -> None:
-        stamped = f"[{time.strftime('%H:%M:%S')}] {text}"
-        line = self.log_buffer.append(stamped, request_id=request_id)
+    @overload
+    def log(self, data: str, *, request_id: str | None = None) -> None: 
+        """Log a string message with optional request_id."""
+        ...  # TODO: migrate callers to typed ProxyRequest/ProxyResponse
+
+    @overload
+    def log(self, data: ProxyRequest | ProxyResponse) -> None:
+        """Log a ProxyRequest or ProxyResponse object."""
+        ...
+
+    def log(self, data: LogRecordData, *, request_id: str | None = None) -> None:
+        if isinstance(data, str):
+            data = f"[{time.strftime('%H:%M:%S')}] {data}"
+        line = self.log_buffer.append(data, request_id=request_id)
         self._manager.event_bus.publish({
             "type": "proxy_log",
-            "data": {"line_id": line.id, "line_number": line.line_number, "text": line.text, "request_id": request_id},
+            "data": WireLogRecord.from_buffer(line).model_dump(),
         })
 
 

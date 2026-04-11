@@ -11,6 +11,7 @@ from pathlib import Path
 from llama_manager.config import ModelConfig
 from llama_manager.util.event_bus import EventBus
 from llama_manager.util.log_buffer import LogBuffer
+from llama_manager.protocol.ws_messages import LogRecord as WireLogRecord
 from llama_manager.protocol.backend import LlamaManagerProtocol, ManagedBackend
 
 # Regexes for parsing prompt processing progress from llama-server logs
@@ -118,7 +119,7 @@ class LocalManagedModel(ManagedBackend):
         self.event_bus.publish({
             "type": "server_log",
             "id": self._model_config.suid,
-            "data": {"line_id": line.id, "line_number": line.line_number, "text": line.text},
+            "data": WireLogRecord.from_buffer(line).model_dump(),
         })
         log.debug("[local_managed_model] %s", text)
 

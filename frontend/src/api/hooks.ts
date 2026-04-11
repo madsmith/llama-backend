@@ -47,7 +47,11 @@ export function useProxyStatus(pollMs = 5000) {
   return { status, refresh: poll };
 }
 
-export type LogLine = { id: string; line_number: number; text: string; request_id?: string };
+export type WireTextLog = { type: "text"; text: string };
+export type WireProxyRequest = { type: "request"; method: string; path: string; http_ver: string; size?: number | null; server_name?: string | null };
+export type WireProxyResponse = { type: "response"; status: number; phrase: string; http_ver: string; streaming: boolean; complete: boolean; elapsed?: number | null; size?: number | null; server_name?: string | null };
+export type WireLogData = WireTextLog | WireProxyRequest | WireProxyResponse;
+export type LogLine = { id: string; line_number: number; time: number; request_id?: string | null; data: WireLogData };
 
 export function useLogs(type: "proxy" | "server", serverId?: string) {
   const [lines, setLines] = useState<LogLine[]>([]);
@@ -71,21 +75,15 @@ export function useLogs(type: "proxy" | "server", serverId?: string) {
     const handleLoad = (msg: Record<string, unknown>) => {
       if (msg.type !== type) return;
       if (type === "server" && msg.suid !== serverId) return;
-      const loaded = ((msg.lines as Array<{ id: string; line_number: number; text: string; request_id?: string }>) ?? []).map((l) => {
-        const line: LogLine = { id: l.id, line_number: l.line_number, text: l.text };
-        if (l.request_id) line.request_id = l.request_id;
-        return line;
-      });
+      const loaded = ((msg.lines as Array<LogLine>) ?? []);
       maxIdRef.current = loaded.reduce((m, l) => Math.max(m, l.line_number), 0);
       startTransition(() => setLines(loaded));
     };
 
     const handleEvent = (data: Record<string, unknown>) => {
-      const lineNumber = data.line_number as number;
-      if (lineNumber <= maxIdRef.current) return;
-      maxIdRef.current = lineNumber;
-      const line: LogLine = { id: data.line_id as string, line_number: lineNumber, text: data.text as string };
-      if (data.request_id) line.request_id = data.request_id as string;
+      const line = data as unknown as LogLine;
+      if (line.line_number <= maxIdRef.current) return;
+      maxIdRef.current = line.line_number;
       startTransition(() => setLines((prev) => [...prev, line]));
     };
 

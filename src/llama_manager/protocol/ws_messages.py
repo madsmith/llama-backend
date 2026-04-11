@@ -1,8 +1,12 @@
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal, Union
+from http import HTTPStatus
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field
+
+if TYPE_CHECKING:
+    from llama_manager.util.log_buffer import LogRecord as BufferLogRecord
 
 
 # ---------------------------------------------------------------------------
@@ -217,18 +221,74 @@ class PutConfigResponse(BaseModel):
     config: dict[str, Any]
 
 
-class LogLine(BaseModel):
+class WireTextLog(BaseModel):
+    type: Literal["text"] = "text"
+    text: str
+
+
+class WireProxyRequest(BaseModel):
+    type: Literal["request"] = "request"
+    method: str
+    path: str
+    http_ver: str
+    size: int | None = None
+    server_name: str | None = None
+
+
+class WireProxyResponse(BaseModel):
+    type: Literal["response"] = "response"
+    status: int
+    phrase: str
+    http_ver: str
+    streaming: bool
+    complete: bool
+    elapsed: float | None = None
+    size: int | None = None
+    server_name: str | None = None
+
+
+WireLogData = Annotated[
+    Union[WireTextLog, WireProxyRequest, WireProxyResponse],
+    Field(discriminator="type"),
+]
+
+
+class LogRecord(BaseModel):
     id: str
     line_number: int
-    text: str
+    time: float
     request_id: str | None = None
+    data: WireLogData
+
+    @staticmethod
+    def from_buffer(r: BufferLogRecord) -> LogRecord:
+        from llama_manager.util.log_buffer import ProxyRequest, ProxyResponse
+        d = r.data
+        if isinstance(d, ProxyRequest):
+            wire: WireLogData = WireProxyRequest(
+                method=d.method, path=d.path, http_ver=d.http_ver,
+                size=d.size, server_name=d.server_name,
+            )
+        elif isinstance(d, ProxyResponse):
+            try:
+                phrase = HTTPStatus(d.status).phrase
+            except ValueError:
+                phrase = ""
+            wire = WireProxyResponse(
+                status=d.status, phrase=phrase, http_ver=d.http_ver,
+                streaming=d.streaming, complete=d.complete,
+                elapsed=d.elapsed, size=d.size, server_name=d.server_name,
+            )
+        else:
+            wire = WireTextLog(text=d)
+        return LogRecord(id=r.id, line_number=r.line_number, time=r.time, request_id=r.request_id, data=wire)
 
 
 class LoadLogResponse(BaseModel):
     msg: Literal["load_log_response"] = "load_log_response"
     type: str
     suid: str | None = None
-    lines: list[LogLine]
+    lines: list[LogRecord]
 
 
 class RemoteModelInfo(BaseModel):

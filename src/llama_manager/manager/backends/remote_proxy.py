@@ -4,6 +4,7 @@ import time
 
 from llama_manager.util.event_bus import EventBus
 from llama_manager.util.log_buffer import LogBuffer
+from llama_manager.protocol.ws_messages import LogRecord as WireLogRecord
 from llama_manager.manager.backends.local_managed import ServerState
 from llama_manager.protocol.backend import ManagedBackend, RemoteClient
 
@@ -148,7 +149,7 @@ class RemoteModelProxy(ManagedBackend):
 
     def feed_log(self, text: str) -> None:
         line = self.log_buffer.append(text)
-        self._event_bus.publish({"type": "server_log", "id": self._suid, "data": {"line_id": line.id, "line_number": line.line_number, "text": line.text}})
+        self._event_bus.publish({"type": "server_log", "id": self._suid, "data": WireLogRecord.from_buffer(line).model_dump()})
 
     def set_slots(self, slots: list) -> None:
         self._cached_slots = slots
