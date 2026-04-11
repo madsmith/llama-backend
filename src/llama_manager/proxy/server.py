@@ -25,8 +25,6 @@ from llama_manager.manager.backends.remote_proxy import RemoteModelProxy
 from .handler import ProxyHandler
 from .openai import OpenAIAdapter
 from .request_log import RequestLog
-from .subscription import set_proxy_server
-
 logger = logging.getLogger(__name__)
 
 
@@ -68,8 +66,6 @@ class ProxyServer:
         self._host: str = self.config.api_server.host
         self._port: int = self.config.api_server.port
         self._started_at: float | None = None
-
-        set_proxy_server(self)
 
     def get_log_buffer(self) -> LogBuffer:
         return self.log_buffer
