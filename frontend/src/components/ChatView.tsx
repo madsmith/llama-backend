@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import LongString from "./LongString";
+import ToggleSelector from "./inputs/ToggleSelector";
+import SegmentedControl from "./inputs/SegmentedControl";
 
 interface ContentBlock {
   type: string;
@@ -219,37 +221,24 @@ function MetaBar({ model, messageCount, systemMessages, tools, showTools, onTogg
             </>
           )}
         </button>
-        <label
-          className="flex items-center gap-2 mr-3 cursor-pointer"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <span className="text-xs text-gray-500">Show Tools</span>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={showTools}
-            onClick={onToggleTools}
-            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${showTools ? "bg-green-600" : "bg-gray-600"}`}
-          >
-            <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 ease-in-out ${showTools ? "translate-x-4" : "translate-x-0"}`} />
-          </button>
-        </label>
+        <ToggleSelector
+          className="mr-3"
+          label="Show Tools"
+          checked={showTools}
+          onChange={() => onToggleTools()}
+          stopPropagation
+        />
         <div
           className="flex items-center gap-2 mr-3"
           onClick={(e) => e.stopPropagation()}
         >
           <span className="text-xs text-gray-500">Reasoning</span>
-          <div className="flex items-center rounded-full bg-gray-800 p-0.5 gap-0.5">
-            {(["off", "collapsed", "expanded"] as const).map((mode) => (
-              <button
-                key={mode}
-                onClick={() => onSetReasoning(mode)}
-                className={`px-2 py-0.5 rounded-full text-xs font-medium transition-colors capitalize ${reasoningMode === mode ? "bg-gray-600 text-gray-100" : "text-gray-500 hover:text-gray-300"}`}
-              >
-                {mode === "off" ? "Off" : mode === "collapsed" ? "Fold" : "Full"}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            options={["off", "collapsed", "expanded"] as const}
+            value={reasoningMode}
+            onChange={onSetReasoning}
+            labels={{ off: "Off", collapsed: "Fold", expanded: "Full" }}
+          />
         </div>
       </div>
       {open && (

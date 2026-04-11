@@ -191,7 +191,7 @@ export default function Logs() {
       </ScrollStrip>
       <h2 className="text-lg font-semibold mb-2">{logHeader} Logs</h2>
       <div className="flex-1 min-h-0">
-        <LogViewer lines={lines} connected={connected} onClear={clear} source={sourceKey} isPending={isPending} />
+        <LogViewer key={sourceKey} lines={lines} connected={connected} onClear={clear} source={sourceKey} isPending={isPending} />
       </div>
     </div>
   );

@@ -3,6 +3,7 @@ import { api } from "../api/client";
 import type { RequestLogEntry } from "../api/types";
 import JsonTree from "./JsonTree";
 import ChatView from "./ChatView";
+import SegmentedControl from "./inputs/SegmentedControl";
 
 function JsonBlock({ label, data }: { label: string; data: unknown }) {
   const isObject = data !== null && typeof data === "object";
@@ -103,20 +104,11 @@ export default function RequestDetail({ entry: initial, onClose, requestIds = []
         </span>
         <div className="flex-1" />
         {hasMessages && (
-          <div className="flex items-center rounded-full bg-gray-800 p-0.5 gap-0.5">
-            {(["Raw", "Chat"] as const).map((mode) => {
-              const active = mode === "Chat" ? chatMode : !chatMode;
-              return (
-                <button
-                  key={mode}
-                  onClick={() => setChatMode(mode === "Chat")}
-                  className={`px-2.5 py-0.5 rounded-full text-xs font-medium transition-colors ${active ? "bg-gray-600 text-gray-100" : "text-gray-500 hover:text-gray-300"}`}
-                >
-                  {mode}
-                </button>
-              );
-            })}
-          </div>
+          <SegmentedControl
+            options={["Raw", "Chat"] as const}
+            value={chatMode ? "Chat" : "Raw"}
+            onChange={(v) => setChatMode(v === "Chat")}
+          />
         )}
         <button
           onClick={refresh}
