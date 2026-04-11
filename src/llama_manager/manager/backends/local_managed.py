@@ -58,7 +58,7 @@ class LocalManagedModel(ManagedBackend):
         self.host: str = "127.0.0.1"
         self.port: int = port
         self.started_at: float | None = None
-        self.log_buffer = LogBuffer(manager, maxlen=log_buffer_size)
+        self.log_buffer = LogBuffer(manager.get_manager_id(), maxlen=log_buffer_size)
         self._subscribers: list[asyncio.Queue[dict]] = []
         self._reader_task: asyncio.Task | None = None
         self._lock = asyncio.Lock()

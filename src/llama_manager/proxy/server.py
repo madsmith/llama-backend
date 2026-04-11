@@ -34,7 +34,7 @@ class ProxyServer:
     def __init__(self, manager: LlamaManager) -> None:
         self._manager = manager
         self.config: AppConfig = manager.config
-        self.log_buffer = LogBuffer(manager, maxlen=self.config.web_ui.log_buffer_size)
+        self.log_buffer = LogBuffer(manager.get_manager_id(), maxlen=self.config.web_ui.log_buffer_size)
         self.request_log = RequestLog()
 
         self.app = FastAPI(title="Llama Proxy")
@@ -70,6 +70,9 @@ class ProxyServer:
         self._started_at: float | None = None
 
         set_proxy_server(self)
+
+    def get_log_buffer(self) -> LogBuffer:
+        return self.log_buffer
 
     def enable_save_logs(self) -> None:
         self.request_log.enable_save_logs()

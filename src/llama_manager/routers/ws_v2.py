@@ -387,7 +387,7 @@ class WsV2Connection:
     @request_handler(LoadLogRequest)
     async def _on_load_log(self, msg: LoadLogRequest) -> BaseModel:
         if msg.type == "proxy":
-            lines = self.manager.proxy.log_buffer.snapshot()
+            lines = self.manager.proxy.get_log_buffer().snapshot()
             return LoadLogResponse(
                 type="proxy",
                 lines=[LogLine(id=l.id, line_number=l.line_number, text=l.text, request_id=l.request_id) for l in lines],
@@ -396,7 +396,7 @@ class WsV2Connection:
         suid = msg.suid
         local_model = self.manager.get_local_models().get(suid) if suid else None
         if local_model is not None:
-            lines = local_model.log_buffer.snapshot()
+            lines = local_model.get_log_buffer().snapshot()
             return LoadLogResponse(
                 type="server",
                 suid=suid,
@@ -404,7 +404,7 @@ class WsV2Connection:
             )
         for proxy in self.manager.get_remote_models():
             if proxy.get_suid() == suid:
-                lines = proxy.log_buffer.snapshot()
+                lines = proxy.get_log_buffer().snapshot()
                 return LoadLogResponse(
                     type="server",
                     suid=suid,
