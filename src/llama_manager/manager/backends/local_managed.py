@@ -58,7 +58,7 @@ class LocalManagedModel(ManagedBackend):
         self.host: str = "127.0.0.1"
         self.port: int = port
         self.started_at: float | None = None
-        self.log_buffer = LogBuffer(maxlen=log_buffer_size)
+        self.log_buffer = LogBuffer(manager, maxlen=log_buffer_size)
         self._subscribers: list[asyncio.Queue[dict]] = []
         self._reader_task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
@@ -118,7 +118,7 @@ class LocalManagedModel(ManagedBackend):
         self.event_bus.publish({
             "type": "server_log",
             "id": self._model_config.suid,
-            "data": {"line_id": line.id, "text": line.text},
+            "data": {"line_id": line.id, "line_number": line.line_number, "text": line.text},
         })
         log.debug("[local_managed_model] %s", text)
 

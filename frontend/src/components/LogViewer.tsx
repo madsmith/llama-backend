@@ -42,7 +42,7 @@ export default function LogViewer({ lines, connected, onClear, source, isPending
   const [showApiCalls, setShowApiCalls] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<RequestLogEntry | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [hoveredLineId, setHoveredLineId] = useState<number | null>(null);
+  const [hoveredLineId, setHoveredLineId] = useState<string | null>(null);
   const [hoveredRequestId, setHoveredRequestId] = useState<string | null>(null);
 
   const isProxy = source === "proxy";

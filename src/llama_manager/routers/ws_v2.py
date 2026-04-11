@@ -390,7 +390,7 @@ class WsV2Connection:
             lines = self.manager.proxy.log_buffer.snapshot()
             return LoadLogResponse(
                 type="proxy",
-                lines=[LogLine(id=l.id, text=l.text, request_id=l.request_id) for l in lines],
+                lines=[LogLine(id=l.id, line_number=l.line_number, text=l.text, request_id=l.request_id) for l in lines],
             )
         # type == "server"
         suid = msg.suid
@@ -400,7 +400,7 @@ class WsV2Connection:
             return LoadLogResponse(
                 type="server",
                 suid=suid,
-                lines=[LogLine(id=l.id, text=l.text, request_id=l.request_id) for l in lines],
+                lines=[LogLine(id=l.id, line_number=l.line_number, text=l.text, request_id=l.request_id) for l in lines],
             )
         for proxy in self.manager.get_remote_models():
             if proxy.get_suid() == suid:
@@ -408,7 +408,7 @@ class WsV2Connection:
                 return LoadLogResponse(
                     type="server",
                     suid=suid,
-                    lines=[LogLine(id=l.id, text=l.text, request_id=l.request_id) for l in lines],
+                    lines=[LogLine(id=l.id, line_number=l.line_number, text=l.text, request_id=l.request_id) for l in lines],
                 )
         return LoadLogResponse(type="server", suid=suid, lines=[])
 

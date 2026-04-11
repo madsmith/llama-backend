@@ -34,7 +34,7 @@ class ProxyServer:
     def __init__(self, manager: LlamaManager) -> None:
         self._manager = manager
         self.config: AppConfig = manager.config
-        self.log_buffer = LogBuffer(maxlen=self.config.web_ui.log_buffer_size)
+        self.log_buffer = LogBuffer(manager, maxlen=self.config.web_ui.log_buffer_size)
         self.request_log = RequestLog()
 
         self.app = FastAPI(title="Llama Proxy")
@@ -159,7 +159,7 @@ class ProxyServer:
         line = self.log_buffer.append(stamped, request_id=request_id)
         self._manager.event_bus.publish({
             "type": "proxy_log",
-            "data": {"line_id": line.id, "text": line.text, "request_id": request_id},
+            "data": {"line_id": line.id, "line_number": line.line_number, "text": line.text, "request_id": request_id},
         })
 
 

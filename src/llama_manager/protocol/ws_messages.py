@@ -218,7 +218,8 @@ class PutConfigResponse(BaseModel):
 
 
 class LogLine(BaseModel):
-    id: int
+    id: str
+    line_number: int
     text: str
     request_id: str | None = None
 

@@ -37,7 +37,7 @@ class RemoteModelProxy(ManagedBackend):
         self.auto_start: bool = False
         self.has_ttl: bool = False
         self.allow_proxy: bool = True
-        self.log_buffer = LogBuffer(maxlen=log_buffer_size)
+        self.log_buffer = LogBuffer(self, maxlen=log_buffer_size)
         self._cached_slots: list[dict] | None = None
         self._cached_health: dict | None = None
         self.llama_server_port: int | None = None
@@ -148,7 +148,7 @@ class RemoteModelProxy(ManagedBackend):
 
     def feed_log(self, text: str) -> None:
         line = self.log_buffer.append(text)
-        self._event_bus.publish({"type": "server_log", "id": self._suid, "data": {"line_id": line.id, "text": line.text}})
+        self._event_bus.publish({"type": "server_log", "id": self._suid, "data": {"line_id": line.id, "line_number": line.line_number, "text": line.text}})
 
     def set_slots(self, slots: list) -> None:
         self._cached_slots = slots
