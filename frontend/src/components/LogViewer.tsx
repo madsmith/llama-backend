@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useMemo, useCallback } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useMemo, useCallback } from "react";
 import { TabButton, PANEL_BG } from "./TabBar";
 import { api } from "../api/client";
 import type { RequestLogEntry } from "../api/types";
@@ -160,10 +160,15 @@ interface Props {
   onClear: () => void;
   source?: string;
   isPending?: boolean;
+  hasMore?: boolean;
+  isLoadingMore?: boolean;
+  onLoadMore?: () => void;
 }
 
-export default function LogViewer({ lines, connected, onClear, source, isPending }: Props) {
+export default function LogViewer({ lines, connected, onClear, source, isPending, hasMore, isLoadingMore, onLoadMore }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const prevScrollHeightRef = useRef(0);
   const scrollLockedRef = useRef(false);
   const lockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [tab, setTab] = useState<Tab>("server");
@@ -224,13 +229,27 @@ export default function LogViewer({ lines, connected, onClear, source, isPending
   }, [filtered, isProxy, groupRequests]);
 
   const handleScroll = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (el && el.scrollTop < 80 && hasMore && !isLoadingMore) {
+      prevScrollHeightRef.current = el.scrollHeight;
+      onLoadMore?.();
+    }
     scrollLockedRef.current = true;
     if (lockTimerRef.current !== null) clearTimeout(lockTimerRef.current);
     lockTimerRef.current = setTimeout(() => {
       scrollLockedRef.current = false;
       lockTimerRef.current = null;
     }, 3000);
-  }, []);
+  }, [hasMore, isLoadingMore, onLoadMore]);
+
+  // Restore scroll position after prepending older records
+  useLayoutEffect(() => {
+    const el = scrollContainerRef.current;
+    if (el && prevScrollHeightRef.current > 0) {
+      el.scrollTop += el.scrollHeight - prevScrollHeightRef.current;
+      prevScrollHeightRef.current = 0;
+    }
+  }, [lines.length]);
 
   useEffect(() => {
     if (!selectedEntry && !scrollLockedRef.current) {
@@ -309,7 +328,12 @@ export default function LogViewer({ lines, connected, onClear, source, isPending
         </div>
 
         {/* log output */}
-        <div className="flex-1 overflow-auto p-4 font-mono text-xs leading-5 text-gray-300" onScroll={handleScroll}>
+        <div ref={scrollContainerRef} className="flex-1 overflow-auto p-4 font-mono text-xs leading-5 text-gray-300" onScroll={handleScroll}>
+          {hasMore && (
+            <div className="text-center text-gray-600 py-2 text-xs">
+              {isLoadingMore ? "Loading\u2026" : "Scroll up to load more"}
+            </div>
+          )}
           {isPending && lines.length === 0 && (
             <span className="text-gray-600">Loading logs...</span>
           )}

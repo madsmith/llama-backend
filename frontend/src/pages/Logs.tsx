@@ -110,7 +110,7 @@ export default function Logs() {
   const isProxy = !modelSuid || modelSuid === "proxy";
   const logSuid = isProxy ? undefined : modelSuid;
 
-  const { lines, connected, clear, isPending } = useLogs(
+  const { lines, connected, clear, isPending, hasMore, isLoadingMore, loadMore } = useLogs(
     isProxy ? "proxy" : "server",
     logSuid,
   );
@@ -191,7 +191,7 @@ export default function Logs() {
       </ScrollStrip>
       <h2 className="text-lg font-semibold mb-2">{logHeader} Logs</h2>
       <div className="flex-1 min-h-0">
-        <LogViewer key={sourceKey} lines={lines} connected={connected} onClear={clear} source={sourceKey} isPending={isPending} />
+        <LogViewer key={sourceKey} lines={lines} connected={connected} onClear={clear} source={sourceKey} isPending={isPending} hasMore={hasMore} isLoadingMore={isLoadingMore} onLoadMore={loadMore} />
       </div>
     </div>
   );

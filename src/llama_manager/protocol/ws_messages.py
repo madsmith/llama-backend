@@ -104,6 +104,8 @@ class LoadLogRequest(BaseModel):
     msg: Literal["load_log"] = "load_log"
     type: Literal["proxy", "server"]
     suid: str | None = None  # suid when type="server"
+    before_id: str | None = None  # fetch records older than the record with this id
+    limit: int = 200  # max records to return
 
 
 class RemotesRequest(BaseModel):
@@ -289,6 +291,7 @@ class LoadLogResponse(BaseModel):
     type: str
     suid: str | None = None
     lines: list[LogRecord]
+    has_more: bool = False
 
 
 class RemoteModelInfo(BaseModel):

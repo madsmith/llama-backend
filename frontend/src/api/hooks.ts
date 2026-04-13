@@ -53,31 +53,54 @@ export type WireProxyResponse = { type: "response"; status: number; phrase: stri
 export type WireLogData = WireTextLog | WireProxyRequest | WireProxyResponse;
 export type LogLine = { id: string; line_number: number; time: number; request_id?: string | null; data: WireLogData };
 
+const LOG_PAGE_SIZE = 200;
+
 export function useLogs(type: "proxy" | "server", serverId?: string) {
   const [lines, setLines] = useState<LogLine[]>([]);
   const [connected, setConnected] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isPending, startTransition] = useTransition();
   const maxIdRef = useRef(0);
+  const linesRef = useRef<LogLine[]>([]);
+  const loadingMoreRef = useRef(false);
+
+  // Keep linesRef in sync with lines state
+  useEffect(() => {
+    linesRef.current = lines;
+  }, [lines]);
 
   useEffect(() => {
     if (type === "server" && !serverId) return;
 
     const wsv2 = getWsV2();
     maxIdRef.current = 0;
+    loadingMoreRef.current = false;
 
     const onConnect = () => {
       setConnected(true);
       setLines([]);
+      setHasMore(false);
+      setIsLoadingMore(false);
       maxIdRef.current = 0;
-      wsv2.send({ msg: "load_log", type, ...(serverId ? { suid: serverId } : {}) });
+      loadingMoreRef.current = false;
+      wsv2.send({ msg: "load_log", type, ...(serverId ? { suid: serverId } : {}), limit: LOG_PAGE_SIZE });
     };
 
     const handleLoad = (msg: Record<string, unknown>) => {
       if (msg.type !== type) return;
       if (type === "server" && msg.suid !== serverId) return;
-      const loaded = ((msg.lines as Array<LogLine>) ?? []);
-      maxIdRef.current = loaded.reduce((m, l) => Math.max(m, l.line_number), 0);
-      startTransition(() => setLines(loaded));
+      const loaded = (msg.lines as LogLine[]) ?? [];
+      const more = (msg.has_more as boolean) ?? false;
+      if (loadingMoreRef.current) {
+        loadingMoreRef.current = false;
+        setIsLoadingMore(false);
+        startTransition(() => setLines((prev) => [...loaded, ...prev]));
+      } else {
+        maxIdRef.current = loaded.reduce((m, l) => Math.max(m, l.line_number), 0);
+        startTransition(() => setLines(loaded));
+      }
+      setHasMore(more);
     };
 
     const handleEvent = (data: Record<string, unknown>) => {
@@ -93,14 +116,32 @@ export function useLogs(type: "proxy" | "server", serverId?: string) {
     return () => {
       setConnected(false);
       setLines([]);
+      setHasMore(false);
+      setIsLoadingMore(false);
+      loadingMoreRef.current = false;
       unsubLoad();
       unsubEvent();
     };
   }, [type, serverId]);
 
+  const loadMore = useCallback(() => {
+    if (loadingMoreRef.current || !hasMore) return;
+    const oldestId = linesRef.current[0]?.id;
+    if (oldestId == null) return;
+    loadingMoreRef.current = true;
+    setIsLoadingMore(true);
+    getWsV2().send({
+      msg: "load_log",
+      type,
+      ...(serverId ? { suid: serverId } : {}),
+      before_id: oldestId,
+      limit: LOG_PAGE_SIZE,
+    });
+  }, [hasMore, type, serverId]);
+
   const clear = useCallback(() => setLines([]), []);
 
-  return { lines, connected, clear, isPending };
+  return { lines, connected, clear, isPending, hasMore, isLoadingMore, loadMore };
 }
 
 export function useRemotes(pollMs = 3000) {

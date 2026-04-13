@@ -51,6 +51,8 @@ from llama_manager.protocol.ws_messages import (
 
 logger = logging.getLogger(__name__)
 
+LOG_PAGE_SIZE = 200
+
 _handler_map: dict[type, str] = {}
 _event_handler_map: dict[str, str] = {}
 
@@ -386,31 +388,35 @@ class WsV2Connection:
 
     @request_handler(LoadLogRequest)
     async def _on_load_log(self, msg: LoadLogRequest) -> BaseModel:
+        def _from_local(log_buffer) -> tuple[list[LogRecord], bool]:
+            if msg.before_id is not None:
+                recs, has_more = log_buffer.before(msg.before_id, msg.limit)
+            else:
+                snap = log_buffer.snapshot()
+                has_more = len(snap) > msg.limit
+                recs = snap[-msg.limit:] if has_more else snap
+            return [LogRecord.from_buffer(r) for r in recs], has_more
+
         if msg.type == "proxy":
-            lines = self.manager.proxy.get_log_buffer().snapshot()
-            return LoadLogResponse(
-                type="proxy",
-                lines=[LogRecord.from_buffer(l) for l in lines],
-            )
+            lines, has_more = _from_local(self.manager.proxy.get_log_buffer())
+            return LoadLogResponse(type="proxy", lines=lines, has_more=has_more)
         # type == "server"
         suid = msg.suid
         local_model = self.manager.get_local_models().get(suid) if suid else None
         if local_model is not None:
-            lines = local_model.get_log_buffer().snapshot()
-            return LoadLogResponse(
-                type="server",
-                suid=suid,
-                lines=[LogRecord.from_buffer(l) for l in lines],
-            )
+            lines, has_more = _from_local(local_model.get_log_buffer())
+            return LoadLogResponse(type="server", suid=suid, lines=lines, has_more=has_more)
         for proxy in self.manager.get_remote_models():
             if proxy.get_suid() == suid:
-                lines = proxy.get_log_buffer().snapshot()
-                return LoadLogResponse(
-                    type="server",
-                    suid=suid,
-                    lines=[LogRecord.from_buffer(l) for l in lines],
-                )
-        return LoadLogResponse(type="server", suid=suid, lines=[])
+                result = await proxy.fetch_log(msg.before_id, msg.limit)
+                if result is not None:
+                    raw_lines, has_more = result
+                    lines = [LogRecord.model_validate(d) for d in raw_lines]
+                    return LoadLogResponse(type="server", suid=suid, lines=lines, has_more=has_more)
+                # Fall back to local proxy buffer if uplink unreachable
+                lines, has_more = _from_local(proxy.get_log_buffer())
+                return LoadLogResponse(type="server", suid=suid, lines=lines, has_more=has_more)
+        return LoadLogResponse(type="server", suid=suid, lines=[], has_more=False)
 
     @request_handler(UnsubscribeEventRequest)
     async def _on_unsubscribe_event(self, msg: UnsubscribeEventRequest) -> None:
@@ -569,16 +575,6 @@ class UplinkConnection:
             ],
         })
 
-        # Log history
-        for suid, lm in local_models:
-            lines = lm.log_buffer.snapshot()
-            if lines:
-                await self.ws.send_json({
-                    "type": "log_history",
-                    "suid": suid,
-                    "lines": [{"id": ln.id, "text": str(ln)} for ln in lines],
-                })
-
         self.manager.uplink_client_count += 1
 
         sender_task = asyncio.create_task(self._sender())
@@ -708,6 +704,31 @@ class UplinkConnection:
                 "suid": suid,
                 "request_id": cmd.get("request_id", ""),
                 "props": props,
+            })
+        elif t == "get_log":
+            before_id: str | None = cmd.get("before_id")
+            limit = int(cmd.get("limit") or LOG_PAGE_SIZE)
+            if before_id is not None:
+                recs, has_more = local_model.log_buffer.before(before_id, limit)
+            else:
+                snap = local_model.log_buffer.snapshot()
+                has_more = len(snap) > limit
+                recs = snap[-limit:] if has_more else snap
+            self._push_json({
+                "type": "log_response",
+                "request_id": cmd.get("request_id", ""),
+                "suid": suid,
+                "has_more": has_more,
+                "lines": [
+                    {
+                        "id": r.id,
+                        "line_number": r.line_number,
+                        "time": r.time,
+                        "request_id": r.request_id,
+                        "data": LogRecord.from_buffer(r).data.model_dump(),
+                    }
+                    for r in recs
+                ],
             })
 
 

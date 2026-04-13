@@ -157,5 +157,15 @@ class RemoteModelProxy(ManagedBackend):
     def set_health(self, health: dict) -> None:
         self._cached_health = health
 
+    async def fetch_log(
+        self, before_id: str | None, limit: int
+    ) -> tuple[list[dict], bool] | None:
+        """Fetch a page of log records from the uplink.
+
+        Returns (lines, has_more) or None if the uplink is unreachable.
+        Lines are dicts in the LogRecord wire format.
+        """
+        return await self._client.request_log(self._suid, before_id, limit)
+
     async def send_command(self, cmd: str) -> None:
         await self._client.send_command(self._suid, cmd)

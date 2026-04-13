@@ -111,6 +111,28 @@ class LogBuffer:
         with self._lock:
             return list(self._buf)
 
+    def tail(self, n: int) -> list[LogRecord]:
+        """Return the last n records."""
+        with self._lock:
+            items = list(self._buf)
+        return items[-n:] if n < len(items) else items
+
+    def before(self, record_id: str, n: int) -> tuple[list[LogRecord], bool]:
+        """Return up to n records that appear before the record with the given id.
+
+        Returns (records, has_more) where has_more=True if there are older
+        records in the buffer beyond the returned n.  Returns ([], False) if
+        record_id is not found in the buffer.
+        """
+        with self._lock:
+            items = list(self._buf)
+        idx = next((i for i, r in enumerate(items) if r.id == record_id), None)
+        if idx is None:
+            return [], False
+        older = items[:idx]
+        has_more = len(older) > n
+        return (older[-n:] if n < len(older) else older), has_more
+
     def clear(self) -> None:
         with self._lock:
             self._buf.clear()

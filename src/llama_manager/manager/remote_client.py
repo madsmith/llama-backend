@@ -152,11 +152,11 @@ class RemoteManagerClient:
             if proxy:
                 proxy.feed_log(msg.get("text") or "")
 
-        elif t == "log_history":
-            proxy = self._get_proxy(msg.get("suid", ""))
-            if proxy:
-                for entry in msg.get("lines", []):
-                    proxy.feed_log(entry.get("text", ""))
+        elif t == "log_response":
+            request_id = msg.get("request_id", "")
+            future = self._pending_requests.get(request_id)
+            if future is not None and not future.done():
+                future.set_result((msg.get("lines", []), msg.get("has_more", False)))
 
         elif t == "slots":
             proxy = self._get_proxy(msg.get("suid", ""))
@@ -289,6 +289,35 @@ class RemoteManagerClient:
             }))
             return await asyncio.wait_for(future, timeout=5.0)
         except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+            return None
+        finally:
+            self._pending_requests.pop(request_id, None)
+
+    async def request_log(
+        self, suid: str, before_id: str | None = None, limit: int = 200
+    ) -> tuple[list[dict], bool] | None:
+        """Request a page of log records from the uplink.
+
+        Returns (lines, has_more) or None if the connection is unavailable.
+        """
+        if self._ws is None:
+            return None
+        self._request_counter += 1
+        request_id = str(self._request_counter)
+        future: asyncio.Future = asyncio.get_running_loop().create_future()
+        self._pending_requests[request_id] = future
+        try:
+            await self._ws.send(json.dumps({
+                "type": "get_log",
+                "suid": suid,
+                "before_id": before_id,
+                "limit": limit,
+                "request_id": request_id,
+            }))
+            result = await asyncio.wait_for(future, timeout=10.0)
+            return result
+        except (asyncio.TimeoutError, asyncio.CancelledError, Exception) as e:
+            logger.debug("Failed to receive get_log response: %r", e)
             return None
         finally:
             self._pending_requests.pop(request_id, None)
