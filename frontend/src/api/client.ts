@@ -53,5 +53,9 @@ export const api = {
   generateUplinkToken: () =>
     getWsV2()
       .sendRequest<{ token: string }>({ msg: "generate_token" }, "generate_token_response"),
+  browseFs: (path: string) =>
+    request<{ path: string; entries: Array<{ name: string; type: "dir" | "file" }> }>(
+      `/api/fs/browse?path=${encodeURIComponent(path)}`,
+    ),
 };
 

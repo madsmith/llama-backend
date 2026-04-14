@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { api } from "../api/client";
 import type { ServerConfig, ModelConfig, ModelAdvanced, RemoteManagerConfig } from "../api/types";
 import type { SettingsTab } from "./config-defaults";
-import { ToggleField, IntegerField, SliderField, TextField } from "./inputs";
+import { ToggleField, IntegerField, SliderField, TextField, PathField } from "./inputs";
 
 const CTX_MIN = 1;
 const CTX_MAX = 1_000_000;
@@ -479,7 +479,7 @@ export default function ConfigEditor({
             </>
           ) : (
             <>
-              <TextField
+              <PathField
                 label="Model Path"
                 value={model.model_path}
                 onChange={(v) => updateModel({ model_path: v })}
