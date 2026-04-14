@@ -58,13 +58,31 @@ function ScrollStrip({ children, sourceKey }: { children: React.ReactNode; sourc
     return () => observer.disconnect();
   }, [updateScroll]);
 
+  const didInitialScroll = useRef(false);
+
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const selected = el.querySelector(`[data-source="${sourceKey}"]`);
-    if (selected) {
-      selected.scrollIntoView({ inline: "nearest", behavior: "smooth", block: "nearest" });
-    }
+
+    // Use instant scroll on page load, smooth when the user switches cards
+    const behavior = didInitialScroll.current ? "smooth" : "instant";
+
+    const tryScroll = () => {
+      const selected = el.querySelector(`[data-source="${sourceKey}"]`);
+      if (!selected) return false;
+      selected.scrollIntoView({ inline: "nearest", behavior, block: "nearest" });
+      didInitialScroll.current = true;
+      return true;
+    };
+
+    if (tryScroll()) return;
+
+    // Element not yet in the DOM (config still loading) — watch for it
+    const observer = new MutationObserver(() => {
+      if (tryScroll()) observer.disconnect();
+    });
+    observer.observe(el, { childList: true, subtree: true });
+    return () => observer.disconnect();
   }, [sourceKey]);
 
   const scroll = (dir: number) => {
