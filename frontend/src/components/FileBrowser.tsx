@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "../api/client";
 
 interface Entry {
@@ -28,6 +28,7 @@ export default function FileBrowser({ initialPath, onConfirm, onClose }: Props) 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
+  const mouseDownOnBackdrop = useRef(false);
 
   const loadDir = useCallback(async (path: string, preSelect?: string) => {
     setLoading(true);
@@ -98,7 +99,8 @@ export default function FileBrowser({ initialPath, onConfirm, onClose }: Props) 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-      onClick={onClose}
+      onMouseDown={(e) => { mouseDownOnBackdrop.current = e.target === e.currentTarget; }}
+      onClick={(e) => { if (mouseDownOnBackdrop.current && e.target === e.currentTarget) onClose(); }}
     >
       <div
         className="bg-gray-900 border border-gray-700 rounded-lg w-full max-w-2xl mx-4 flex flex-col h-[70vh] shadow-2xl"
