@@ -101,7 +101,7 @@ export default function FileBrowser({ initialPath, onConfirm, onClose }: Props) 
       onClick={onClose}
     >
       <div
-        className="bg-gray-900 border border-gray-700 rounded-lg w-full max-w-2xl mx-4 flex flex-col max-h-[80vh] shadow-2xl"
+        className="bg-gray-900 border border-gray-700 rounded-lg w-full max-w-2xl mx-4 flex flex-col h-[70vh] shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
