@@ -100,7 +100,7 @@ class WsV2Connection:
                     logger.warning(f"Invalid message: {data}")
                     continue
                 await self._handle(msg)
-        except (WebSocketDisconnect, asyncio.CancelledError):
+        except (WebSocketDisconnect, asyncio.CancelledError, RuntimeError):
             pass
         finally:
             sender_task.cancel()
