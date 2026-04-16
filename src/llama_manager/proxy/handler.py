@@ -143,7 +143,6 @@ class ProxyHandler:
                     slots = SlotAvailabilityProvider.get(suid, model_config.parallel)
                     messages = body.get("messages", [])
                     result = kv.get(messages)
-                    logger.warning("KV cache: %s", type(result).__name__)
 
                     if isinstance(result, (CacheHit, CacheMiss)):
                         slot_id = await slots.get_available()
@@ -162,7 +161,6 @@ class ProxyHandler:
                                 await slots.free(slot_id)
                                 slot_id = None
                         else:
-                            logger.warning("KV cache: miss, using slot %d", slot_id)
                             body = {**body, "id_slot": slot_id}
 
                 backend_url = backend.get_base_url()
