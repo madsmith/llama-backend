@@ -132,6 +132,7 @@ class LocalManagedModel(ManagedBackend):
             "id": self._model_config.suid,
             "data": self.get_status(),
         })
+        self._manager.notify_state_change(self._model_config.suid, new.value)
 
     async def start(self) -> None:
         async with self._lock:
@@ -261,13 +262,8 @@ class LocalManagedModel(ManagedBackend):
         self._reader_task = asyncio.create_task(self._read_output())
 
     def _fail(self, msg: str) -> None:
-        self.state = ServerState.error
         self._log(f"ERROR: {msg}")
-        self.event_bus.publish({
-            "type": "server_status",
-            "id": self._model_config.suid,
-            "data": self.get_status(),
-        })
+        self._set_state(ServerState.error)
 
     async def stop(self) -> None:
         async with self._lock:
@@ -363,12 +359,8 @@ class LocalManagedModel(ManagedBackend):
         rc = self.process.returncode
         if self.state in (ServerState.starting, ServerState.running):
             self._log(f"process exited unexpectedly (rc={rc})")
-            self.state = ServerState.error if rc != 0 else ServerState.stopped
             self.process = None
             self.pid = None
             self.started_at = None
-            self.event_bus.publish({
-                "type": "server_status",
-                "id": self._model_config.suid,
-                "data": self.get_status(),
-            })
+            self.prompt_progress.clear()
+            self._set_state(ServerState.error if rc != 0 else ServerState.stopped)

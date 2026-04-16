@@ -102,14 +102,33 @@ class ProxyHandler:
                 body = await request.json()
                 model_id = body.get("model")
 
-                backend = self._manager.find_backend(model_id)
-                if backend is None:
+                candidates = self._manager.find_backends(model_id)
+                if not candidates:
                     self._log_request(None, method, f"/v1/{path}", http_ver, req_size, request_id=request_id)
                     self._log_response(None, HTTPStatus.NOT_FOUND, request_id=request_id)
                     resp_body = adapter.error_body(HTTPStatus.NOT_FOUND, f"Model not found: {model_id}")
                     if request_id:
                         self._proxy.request_log.update(request_id, response_status=HTTPStatus.NOT_FOUND, response_body=resp_body, elapsed=time.monotonic() - t0)
                     return JSONResponse(resp_body, status_code=HTTPStatus.NOT_FOUND)
+
+                # Try each candidate in priority order; skip any that fail to start.
+                backend = None
+                for candidate in candidates:
+                    try:
+                        await self._manager.ensure_server(candidate)
+                        backend = candidate
+                        break
+                    except RuntimeError as exc:
+                        name = candidate.get_name() or candidate.get_suid()
+                        self._proxy.log(f"Backend [{name}] unavailable: {exc}, trying next...", request_id=request_id)
+
+                if backend is None:
+                    self._log_request(None, method, f"/v1/{path}", http_ver, req_size, request_id=request_id)
+                    self._log_response(None, HTTPStatus.SERVICE_UNAVAILABLE, elapsed=time.monotonic() - t0, request_id=request_id)
+                    resp_body = adapter.error_body(HTTPStatus.SERVICE_UNAVAILABLE, f"No available backend for model: {model_id}")
+                    if request_id:
+                        self._proxy.request_log.update(request_id, response_status=HTTPStatus.SERVICE_UNAVAILABLE, response_body=resp_body, elapsed=time.monotonic() - t0)
+                    return JSONResponse(resp_body, status_code=HTTPStatus.SERVICE_UNAVAILABLE)
 
                 suid = backend.get_suid()
                 model_config = self._manager.get_model_config(suid)
@@ -118,15 +137,6 @@ class ProxyHandler:
                 body = adapter.prepare_body(body, model_config)
                 server_name = backend.get_name() or model_id
                 self._log_request(server_name, method, f"/v1/{path}", http_ver, req_size, request_id=request_id)
-
-                try:
-                    await self._manager.ensure_server(backend)
-                except RuntimeError as exc:
-                    self._log_response(server_name, HTTPStatus.SERVICE_UNAVAILABLE, elapsed=time.monotonic() - t0, request_id=request_id)
-                    resp_body = adapter.error_body(HTTPStatus.SERVICE_UNAVAILABLE, str(exc))
-                    if request_id:
-                        self._proxy.request_log.update(request_id, response_status=HTTPStatus.SERVICE_UNAVAILABLE, response_body=resp_body, elapsed=time.monotonic() - t0)
-                    return JSONResponse(resp_body, status_code=HTTPStatus.SERVICE_UNAVAILABLE)
 
                 self._manager.touch(suid)
                 body = self._rewrite_body(body, model_id, backend)

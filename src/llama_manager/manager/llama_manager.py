@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 
 type LocalModelIdentifier = str
 
+BACKEND_PENALTY_SECONDS = 600  # 10 minutes
+
 
 class LlamaManager(LlamaManagerProtocol):
     def __init__(self, config: AppConfig) -> None:
@@ -38,6 +40,7 @@ class LlamaManager(LlamaManagerProtocol):
         self._data_publisher_task: asyncio.Task | None = None
         self._ttl_task: asyncio.Task | None = None
         self._model_last_activity: dict[str, float] = {}
+        self._penalized_until: dict[str, float] = {}
 
     def enable_save_logs(self) -> None:
         self.proxy.enable_save_logs()
@@ -72,35 +75,73 @@ class LlamaManager(LlamaManagerProtocol):
         return LlamaClient(base_url)
 
     # ------------------------------------------------------------------
+    # Backend penalty tracking
+    # ------------------------------------------------------------------
+
+    def penalize(self, suid: str) -> None:
+        """Suppress a backend from routing for BACKEND_PENALTY_SECONDS."""
+        deadline = time.monotonic() + BACKEND_PENALTY_SECONDS
+        self._penalized_until[suid] = deadline
+        logger.info("Backend %s penalized for %ds", suid, BACKEND_PENALTY_SECONDS)
+
+    def clear_penalty(self, suid: str) -> None:
+        self._penalized_until.pop(suid, None)
+
+    def is_penalized(self, suid: str) -> bool:
+        deadline = self._penalized_until.get(suid)
+        if deadline is None:
+            return False
+        if time.monotonic() >= deadline:
+            self._penalized_until.pop(suid, None)
+            return False
+        return True
+
+    def notify_state_change(self, suid: str, state: str) -> None:
+        """Called by backends when their state changes."""
+        if state in ("running", "stopped"):
+            self.clear_penalty(suid)
+        elif state == "error":
+            self.penalize(suid)
+
+    # ------------------------------------------------------------------
     # Backend resolution
     # ------------------------------------------------------------------
 
-    def find_backend(self, model_id: str | None) -> Backend | None:
-        """Find the backend that serves model_id, or the default backend if None.
+    def find_backends(self, model_id: str | None) -> list[Backend]:
+        """Return all non-penalized backends matching model_id, best first.
 
-        When multiple backends match, the one with the highest priority wins.
+        Remote proxies (uplink) come first, then local/unmanaged sorted by
+        priority descending.
         """
-        # Remote proxies (uplink) first
+        result: list[Backend] = []
+
+        # Remote proxies — not subject to local penalty tracking
         for proxy in self.get_remote_models():
             if model_id is None or model_id in proxy.get_model_ids():
-                return proxy
+                result.append(proxy)
 
         def _priority(b: Backend) -> int:
             m = self.get_model_config(b.get_suid())
             return m.priority if m is not None else 1
 
-        # Local and remote-unmanaged models
         candidates: list[Backend] = []
         for m in self._local_models.values():
             if model_id is None or model_id in m.get_model_ids():
-                candidates.append(m)
+                if not self.is_penalized(m.get_suid()):
+                    candidates.append(m)
         for m in self._remote_unmanaged.values():
             if model_id is None or model_id in m.get_model_ids():
-                candidates.append(m)
+                if not self.is_penalized(m.get_suid()):
+                    candidates.append(m)
 
-        if not candidates:
-            return None
-        return max(candidates, key=_priority)
+        candidates.sort(key=_priority, reverse=True)
+        result.extend(candidates)
+        return result
+
+    def find_backend(self, model_id: str | None) -> Backend | None:
+        """Return the best non-penalized backend for model_id, or None."""
+        backends = self.find_backends(model_id)
+        return backends[0] if backends else None
 
     def find_backend_by_suid(self, suid: str) -> Backend | None:
         """Find the backend by suid."""
