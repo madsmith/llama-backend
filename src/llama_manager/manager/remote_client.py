@@ -35,6 +35,7 @@ class RemoteManagerClient:
         self._manager_id: str = ""
         self._pending_requests: dict[str, asyncio.Future[list[dict]]] = {}
         self._request_counter: int = 0
+        self._logged_connection_error: bool = False
 
     def get_config(self) -> RemoteManagerConfig:
         return self._config
@@ -71,7 +72,11 @@ class RemoteManagerClient:
             except asyncio.CancelledError:
                 break
             except Exception as exc:
-                logger.warning("Remote manager [%d] connection error: %r", self.remote_index, exc)
+                if not self._logged_connection_error:
+                    logger.warning("Remote manager [%d] connection error: %r", self.remote_index, exc)
+                    self._logged_connection_error = True
+                else:
+                    logger.debug("Remote manager [%d] connection error: %r", self.remote_index, exc)
 
             if self._stop_event.is_set():
                 break
@@ -97,7 +102,11 @@ class RemoteManagerClient:
         async with websockets.connect(url) as ws:
             self._ws = ws
             self.connection_state = "connected"
-            logger.debug("Remote manager [%d] connected", self.remote_index)
+            if self._logged_connection_error:
+                logger.info("Remote manager [%d] connected", self.remote_index)
+                self._logged_connection_error = False
+            else:
+                logger.debug("Remote manager [%d] connected", self.remote_index)
 
             # Authenticate
             await ws.send(json.dumps({"type": "authenticate", "token": self._config.token}))
