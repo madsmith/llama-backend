@@ -550,6 +550,15 @@ export default function ConfigEditor({
               {advanced && (
                 <div className="space-y-4 border-l-2 border-gray-700 pl-6">
 
+                  <IntegerField
+                    label="Priority"
+                    tip="When multiple backends serve the same model ID, the one with the highest priority handles the request."
+                    value={model.priority ?? 1}
+                    onChange={(v) => updateModel({ priority: v ?? 1 })}
+                    min={1}
+                    placeholder="1"
+                  />
+
                   {/* ── Output ── */}
                   <ToggleField
                     label="Stream Responses"

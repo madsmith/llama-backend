@@ -76,27 +76,31 @@ class LlamaManager(LlamaManagerProtocol):
     # ------------------------------------------------------------------
 
     def find_backend(self, model_id: str | None) -> Backend | None:
-        """Find the backend that serves model_id, or the default backend if None."""
+        """Find the backend that serves model_id, or the default backend if None.
+
+        When multiple backends match, the one with the highest priority wins.
+        """
         # Remote proxies (uplink) first
         for proxy in self.get_remote_models():
             if model_id is None or model_id in proxy.get_model_ids():
                 return proxy
 
-        # Local and remote-unmanaged models
-        if model_id is None:
-            if self._local_models:
-                return next(iter(self._local_models.values()))
-            if self._remote_unmanaged:
-                return next(iter(self._remote_unmanaged.values()))
-            return None
+        def _priority(b: Backend) -> int:
+            m = self.get_model_config(b.get_suid())
+            return m.priority if m is not None else 1
 
+        # Local and remote-unmanaged models
+        candidates: list[Backend] = []
         for m in self._local_models.values():
-            if model_id in m.get_model_ids():
-                return m
+            if model_id is None or model_id in m.get_model_ids():
+                candidates.append(m)
         for m in self._remote_unmanaged.values():
-            if model_id in m.get_model_ids():
-                return m
-        return None
+            if model_id is None or model_id in m.get_model_ids():
+                candidates.append(m)
+
+        if not candidates:
+            return None
+        return max(candidates, key=_priority)
 
     def find_backend_by_suid(self, suid: str) -> Backend | None:
         """Find the backend by suid."""

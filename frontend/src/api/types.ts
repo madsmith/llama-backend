@@ -39,6 +39,7 @@ export interface ModelConfig {
   auto_start: boolean;
   model_ttl: number | null;
   allow_proxy?: boolean;
+  priority: number;
   advanced: ModelAdvanced;
   remote_address?: string;
   remote_model_id?: string | null;

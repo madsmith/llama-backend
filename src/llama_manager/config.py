@@ -50,6 +50,7 @@ class ModelConfig(BaseModel):
     auto_start: bool = False
     model_ttl: int | None = None
     allow_proxy: bool = True
+    priority: int = 1
     advanced: ModelAdvanced = ModelAdvanced()
     remote_address: str = ""
     remote_model_id: str | None = None

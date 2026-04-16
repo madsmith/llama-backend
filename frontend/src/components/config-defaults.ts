@@ -24,6 +24,7 @@ export const defaultConfig: ServerConfig = {
       parallel: 2,
       auto_start: false,
       model_ttl: null,
+      priority: 1,
       advanced: {
         llama_server_path: "",
         stream: true,
