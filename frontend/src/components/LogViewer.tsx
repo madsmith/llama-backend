@@ -166,7 +166,6 @@ interface Props {
 }
 
 export default function LogViewer({ lines, connected, onClear, source, isPending, hasMore, isLoadingMore, onLoadMore }: Props) {
-  const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const prevScrollHeightRef = useRef(0);
   const scrollLockedRef = useRef(false);
@@ -253,7 +252,8 @@ export default function LogViewer({ lines, connected, onClear, source, isPending
 
   useEffect(() => {
     if (!selectedEntry && !scrollLockedRef.current) {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      const el = scrollContainerRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
     }
   }, [filtered.length, selectedEntry]);
 
@@ -368,7 +368,6 @@ export default function LogViewer({ lines, connected, onClear, source, isPending
               : null
             )
           )}
-          <div ref={bottomRef} />
         </div>
 
         {/* request detail overlay */}

@@ -34,7 +34,7 @@ class ProxyServer:
         self._manager = manager
         self.config: AppConfig = manager.config
         self.log_buffer = LogBuffer(manager.get_manager_id(), maxlen=self.config.web_ui.log_buffer_size)
-        self.request_log = RequestLog()
+        self.request_log = RequestLog(maxlen=self.config.web_ui.log_buffer_size)
 
         self.app = FastAPI(title="Llama Proxy")
         self.app.add_middleware(
