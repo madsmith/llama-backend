@@ -1,7 +1,27 @@
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
-import type { ServerConfig, ServerStatus, HealthStatus, RemoteManagerStatus } from "../api/types";
+import type { ServerConfig, ServerStatus, HealthStatus, RemoteManagerStatus, ModelConfig } from "../api/types";
+
+function effectiveModelId(m: ModelConfig): string {
+  if (m.id) return m.id;
+  if (m.type === "remote") {
+    if (m.remote_model_id) return m.remote_model_id;
+    if (m.remote_address) {
+      const stripped = m.remote_address.replace(/\/+$/, "");
+      const lastSegment = stripped.split("/").pop() ?? "";
+      return lastSegment.split(":")[0];
+    }
+    return "";
+  }
+  if (m.model_path) {
+    const basename = m.model_path.split("/").pop() ?? "";
+    const dotIdx = basename.lastIndexOf(".");
+    const stem = dotIdx > 0 ? basename.slice(0, dotIdx) : basename;
+    return stem.toLowerCase();
+  }
+  return "";
+}
 import ServerStatusCard from "../components/ServerStatusCard";
 import ServerControls from "../components/ServerControls";
 import ProxyStatusCard from "../components/ProxyStatusCard";
@@ -27,6 +47,7 @@ function ModelPanel({
   modelIndex,
   modelSuid,
   name,
+  modelId,
   isRemote,
   remoteAddress,
   autoStart,
@@ -38,6 +59,7 @@ function ModelPanel({
   modelIndex: number;
   modelSuid: string;
   name: string;
+  modelId?: string | null;
   isRemote: boolean;
   remoteAddress?: string;
   autoStart: boolean;
@@ -59,6 +81,7 @@ function ModelPanel({
     <div className="space-y-4">
       <ServerStatusCard
         name={name}
+        modelId={modelId}
         modelSuid={modelSuid}
         status={statusOrUnknown}
         onClick={isRemote ? undefined : () => navigate(`/logs/${modelSuid}`)}
@@ -193,6 +216,7 @@ export default function Dashboard() {
             modelIndex={i}
             modelSuid={m.suid}
             name={m.name ?? `Llama Server ${i + 1}`}
+            modelId={effectiveModelId(m)}
             isRemote={(m.type ?? "local") === "remote"}
             remoteAddress={m.remote_address}
             autoStart={m.auto_start ?? false}

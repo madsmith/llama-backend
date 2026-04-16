@@ -219,6 +219,7 @@ function remoteDisplay(health: HealthStatus | null): {
 
 interface Props {
   name: string;
+  modelId?: string;
   modelSuid?: string;
   status: ServerStatus;
   onClick?: () => void;
@@ -231,6 +232,7 @@ interface Props {
 
 export default function ServerStatusCard({
   name,
+  modelId,
   modelSuid,
   status,
   onClick,
@@ -242,6 +244,37 @@ export default function ServerStatusCard({
 }: Props) {
   const navigate = useNavigate();
   const [slots, setSlots] = useState<SlotInfo[]>([]);
+  const [nameHoverVisible, setNameHoverVisible] = useState(false);
+  const [nameHoverPos, setNameHoverPos] = useState({ x: 0, y: 0 });
+  const nameShowTimer = useRef<ReturnType<typeof setTimeout>>(null);
+  const nameHideTimer = useRef<ReturnType<typeof setTimeout>>(null);
+  const nameRef = useRef<HTMLSpanElement>(null);
+
+  const cancelHide = useCallback(() => {
+    if (nameHideTimer.current) clearTimeout(nameHideTimer.current);
+  }, []);
+
+  const scheduleHide = useCallback(() => {
+    cancelHide();
+    nameHideTimer.current = setTimeout(() => setNameHoverVisible(false), 150);
+  }, [cancelHide]);
+
+  const onNameEnter = useCallback(() => {
+    if (!modelId?.length) return;
+    cancelHide();
+    nameShowTimer.current = setTimeout(() => {
+      if (nameRef.current) {
+        const rect = nameRef.current.getBoundingClientRect();
+        setNameHoverPos({ x: rect.left, y: rect.bottom + 4 });
+      }
+      setNameHoverVisible(true);
+    }, 500);
+  }, [modelId, cancelHide]);
+
+  const onNameLeave = useCallback(() => {
+    if (nameShowTimer.current) clearTimeout(nameShowTimer.current);
+    scheduleHide();
+  }, [scheduleHide]);
 
   // Initial slot fetch + push updates.
   const handleSlotResponse = useCallback(
@@ -294,9 +327,26 @@ export default function ServerStatusCard({
       onClick={onClick}
     >
       <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-medium tracking-wide text-gray-400">
+        <span
+          ref={nameRef}
+          className="text-xs font-medium tracking-wide text-gray-400"
+          onMouseEnter={onNameEnter}
+          onMouseLeave={onNameLeave}
+        >
           {name}
         </span>
+        {nameHoverVisible && modelId && (
+          <div
+            className="fixed z-50 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 shadow-lg whitespace-nowrap select-text cursor-text"
+            style={{ left: nameHoverPos.x, top: nameHoverPos.y }}
+            onMouseEnter={cancelHide}
+            onMouseLeave={scheduleHide}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <span className="text-xs text-gray-500 mr-2">model id</span>
+            <span className="text-xs font-mono text-gray-200">{modelId}</span>
+          </div>
+        )}
         <button
           title="Properties"
           onClick={(e) => {
