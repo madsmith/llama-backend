@@ -3,6 +3,19 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+from pathlib import Path
+
+
+def _dev_serve(host: str, port: int, log_level: str) -> None:
+    """Entry point for the watchfiles subprocess in dev mode."""
+    import uvicorn
+
+    uvicorn.run(
+        "llama_manager.main:app",
+        host=host,
+        port=port,
+        log_level=log_level,
+    )
 
 
 def main() -> None:
@@ -58,17 +71,26 @@ def main() -> None:
     if not args.dev:
         print(f"[frontend] http://{args.host}:{args.port}")
 
-    import uvicorn
+    if args.dev:
+        from watchfiles import run_process
 
-    uvicorn.run(
-        "llama_manager.main:app",
-        host=args.host,
-        port=args.port,
-        reload=args.dev,
-        reload_dirs=["src/llama_manager"] if args.dev else None,
-        reload_delay=5.0 if args.dev else None,
-        log_level=log_level,
-    )
+        watch_dir = Path(__file__).parent
+        run_process(
+            watch_dir,
+            target=_dev_serve,
+            args=(args.host, args.port, log_level),
+            step=8000,
+            debounce=60000,
+        )
+    else:
+        import uvicorn
+
+        uvicorn.run(
+            "llama_manager.main:app",
+            host=args.host,
+            port=args.port,
+            log_level=log_level,
+        )
 
 
 if __name__ == "__main__":
