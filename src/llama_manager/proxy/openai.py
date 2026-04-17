@@ -71,9 +71,15 @@ class OpenAIAdapter:
             if line.startswith("data: "):
                 try:
                     d = json.loads(line[6:])
-                    c = (d.get("choices") or [{}])[0].get("delta", {}).get("content")
+                    delta = (d.get("choices") or [{}])[0].get("delta", {})
+                    c = delta.get("content") or delta.get("reasoning_content")
                     if c:
                         on_content(c)
+                    else:
+                        for tc in delta.get("tool_calls") or []:
+                            args = (tc.get("function") or {}).get("arguments")
+                            if args:
+                                on_content(args)
                 except (json.JSONDecodeError, IndexError):
                     pass
             yield line + "\n"
