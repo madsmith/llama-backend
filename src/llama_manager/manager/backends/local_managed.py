@@ -134,6 +134,33 @@ class LocalManagedModel(ManagedBackend):
         })
         self._manager.notify_state_change(self._model_config.suid, new.value)
 
+    async def ensure_ready(self, jit_enabled: bool, timeout: float) -> None:
+        has_ttl = self._model_config.model_ttl is not None
+        if not jit_enabled and not has_ttl:
+            return
+
+        if self.state == ServerState.running:
+            return
+        if self.state not in (ServerState.stopped, ServerState.error):
+            return
+        name = self._model_config.name or self.get_suid()
+        self._log(f"JIT: starting (state={self.state.value})")
+        await self.start()
+
+        # Wait for the server to be ready
+        elapsed = 0.0
+        while elapsed < timeout:
+            state = self.state
+            if state == ServerState.running:
+                self._log(f"JIT: ready ({elapsed:.1f}s)")
+                return
+            if state == ServerState.error:
+                raise RuntimeError(f"Model server [{name}] failed to start")
+            await asyncio.sleep(0.5)
+            elapsed += 0.5
+
+        raise RuntimeError(f"Model server [{name}] did not become ready within {timeout}s")
+
     async def start(self) -> None:
         async with self._lock:
             log.debug("start() called, current state=%s", self.state.value)

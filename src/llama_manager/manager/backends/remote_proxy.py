@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 import time
+
+logger = logging.getLogger(__name__)
 
 from llama_manager.util.event_bus import EventBus
 from llama_manager.util.log_buffer import LogBuffer
@@ -105,6 +109,30 @@ class RemoteModelProxy(ManagedBackend):
             "port": self._port if is_running else None,
             "uptime": uptime,
         }
+
+    async def ensure_ready(self, jit_enabled: bool, timeout: float) -> None:
+        if self.state == ServerState.running:
+            return
+
+        name = self.name or self.get_suid()
+        if self.state == ServerState.error:
+            raise RuntimeError(f"Remote model [{name}] is in error state")
+        if self.state == ServerState.stopped:
+            if not jit_enabled:
+                raise RuntimeError(f"Remote model [{name}] is not running")
+            await self.send_command("start")
+
+        # state is starting, or we just sent start — wait for running or error
+        elapsed = 0.0
+        while elapsed < timeout:
+            if self.state == ServerState.running:
+                return
+            if self.state == ServerState.error:
+                raise RuntimeError(f"Remote model [{name}] failed to start")
+            await asyncio.sleep(0.5)
+            elapsed += 0.5
+
+        raise RuntimeError(f"Remote model [{name}] did not become ready within {timeout}s")
 
     async def start(self) -> None:
         await self.send_command("start")

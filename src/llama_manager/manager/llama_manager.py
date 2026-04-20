@@ -179,37 +179,14 @@ class LlamaManager(LlamaManagerProtocol):
         return Path(base).expanduser().resolve() / model_id
 
     async def ensure_server(self, backend: Backend) -> None:
-        """Start model server on-demand if JIT or TTL is enabled."""
-        suid = backend.get_suid()
-        m = self.get_model_config(suid)
-        has_ttl = m is not None and m.model_ttl is not None
-        if not self.config.api_server.jit_model_server and not has_ttl:
-            return
-        local_model = self._local_models.get(suid)
-        if local_model is None:
-            return  # remote model — no local process to start
-        if local_model.state.value == "running":
-            return
-        if local_model.state.value not in ("stopped", "error"):
-            return
+        """Ensure a backend is ready to serve requests.
 
+        Delegates to the backend's own ensure_ready implementation so each
+        backend type can handle its own startup and readiness semantics.
+        """
+        jit_enabled = self.config.api_server.jit_model_server
         timeout = self.config.api_server.jit_timeout or 80
-        name = m.name or suid if m else suid
-        self.proxy.log(f"JIT: model server [{name}] is {local_model.state.value}, starting...")
-        await local_model.start()
-
-        elapsed = 0.0
-        while elapsed < timeout:
-            state = local_model.state.value
-            if state == "running":
-                self.proxy.log(f"JIT: model server [{name}] ready ({elapsed:.1f}s)")
-                return
-            if state == "error":
-                raise RuntimeError(f"Model server [{name}] failed to start")
-            await asyncio.sleep(0.5)
-            elapsed += 0.5
-
-        raise RuntimeError(f"Model server [{name}] did not become ready within {timeout}s")
+        await backend.ensure_ready(jit_enabled, timeout)
 
     async def task_ttl_checker(self) -> None:
         """Background task that stops idle models whose TTL has expired."""

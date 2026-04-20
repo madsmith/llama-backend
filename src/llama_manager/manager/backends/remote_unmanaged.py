@@ -69,3 +69,6 @@ class RemoteUnmanagedModel(Backend):
 
     async def get_health(self) -> dict:
         return await self._manager.get_client_at(self._base_url).get_health() or {"status": "unknown"}
+
+    async def ensure_ready(self, jit_enabled: bool, timeout: float) -> None:
+        return  # unmanaged — lifecycle is not our responsibility
