@@ -71,6 +71,16 @@ class RemoteManagerClient:
                 await self._connect_and_serve()
             except asyncio.CancelledError:
                 break
+            except websockets.ConnectionClosed as exc:
+                # Expected closes (service restart, going away) are informational.
+                # Only warn the first time for codes that indicate a real problem.
+                code = exc.rcvd.code if exc.rcvd is not None else None
+                expected = code in (1000, 1001, 1012)
+                if expected or self._logged_connection_error:
+                    logger.debug("Remote manager [%d] connection closed: %r", self.remote_index, exc)
+                else:
+                    logger.warning("Remote manager [%d] connection error: %r", self.remote_index, exc)
+                    self._logged_connection_error = True
             except Exception as exc:
                 if not self._logged_connection_error:
                     logger.warning("Remote manager [%d] connection error: %r", self.remote_index, exc)
