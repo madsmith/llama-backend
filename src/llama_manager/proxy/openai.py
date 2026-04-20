@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import AsyncGenerator, AsyncIterator, Awaitable, Callable
+
+logger = logging.getLogger(__name__)
 
 from llama_manager.config import ModelConfig
 
@@ -52,36 +55,55 @@ class OpenAIAdapter:
     def error_body(self, status: int, msg: str) -> dict:
         return {"error": {"message": msg, "type": "not_found" if status == 404 else "server_error"}}
 
-    def backend_error_sse(self, msg: str) -> str:
-        return f'data: {json.dumps({"error": {"message": msg, "type": "server_error"}})}\n\n'
+    def backend_error_sse(self, msg: str) -> bytes:
+        return f'data: {json.dumps({"error": {"message": f"llama-manager backend error: {msg}", "type": "server_error"}})}\n\n'.encode()
 
     async def wrap_stream(
         self,
-        lines: AsyncIterator[str],
+        chunks: AsyncIterator[bytes],
         is_cancelled: Callable[[], bool],
         is_disconnected: Callable[[], Awaitable[bool]],
         on_content: Callable[[str], None],
-    ) -> AsyncGenerator[str, None]:
-        async for line in lines:
-            if is_cancelled():
-                yield f'data: {json.dumps({"error": {"message": "Request cancelled: inference terminated by server operator", "type": "capacity_exceeded", "code": "capacity_exceeded"}})}\n\n'
-                return
-            if await is_disconnected():
-                return
-            if line.startswith("data: "):
-                try:
-                    d = json.loads(line[6:])
-                    delta = (d.get("choices") or [{}])[0].get("delta", {})
-                    c = delta.get("content") or delta.get("reasoning_content")
-                    if c:
-                        on_content(c)
-                    else:
-                        for tc in delta.get("tool_calls") or []:
-                            args = (tc.get("function") or {}).get("arguments")
-                            if args:
-                                on_content(args)
-                except (json.JSONDecodeError, IndexError):
-                    pass
-            yield line + "\n"
+    ) -> AsyncGenerator[bytes, None]:
+        # Accumulate raw bytes and split on b"\n" at the byte level.
+        # 0x0A cannot appear inside a UTF-8 multi-byte sequence, so this is
+        # safe and avoids any bytes→str→bytes round-trip that could corrupt
+        # non-ASCII content (e.g. emoji) via encoding replacement errors.
+        buf = b""
+        async for raw in chunks:
+            buf += raw
+            while b"\n" in buf:
+                line_bytes, buf = buf.split(b"\n", 1)
+                if is_cancelled():
+                    yield (
+                        b'data: ' + json.dumps({
+                            "error": {
+                                "message": "Request cancelled: inference terminated by server operator",
+                                "type": "capacity_exceeded",
+                                "code": "capacity_exceeded",
+                            }
+                        }).encode() + b'\n\n'
+                    )
+                    return
+                if await is_disconnected():
+                    return
+                line = line_bytes.decode("utf-8", errors="replace")
+                if line.startswith("data: "):
+                    try:
+                        d = json.loads(line[6:])
+                        delta = (d.get("choices") or [{}])[0].get("delta", {})
+                        c = delta.get("content") or delta.get("reasoning_content")
+                        if c:
+                            on_content(c)
+                        else:
+                            for tc in delta.get("tool_calls") or []:
+                                args = (tc.get("function") or {}).get("arguments")
+                                if args:
+                                    on_content(args)
+                    except (json.JSONDecodeError, IndexError):
+                        logger.warning("SSE line JSON parse error: %r", line[:200])
+                yield line_bytes + b"\n"
+        if buf:
+            yield buf
 
 

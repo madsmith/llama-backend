@@ -48,24 +48,25 @@ class ProtocolAdapter(Protocol):
         """Build a protocol-appropriate error response body."""
         ...
 
-    def backend_error_sse(self, msg: str) -> str:
+    def backend_error_sse(self, msg: str) -> bytes:
         """SSE payload to emit when the backend returns a transport error."""
         ...
 
     async def wrap_stream(
         self,
-        lines: AsyncIterator[str],
+        chunks: AsyncIterator[bytes],
         is_cancelled: Callable[[], bool],
         is_disconnected: Callable[[], Awaitable[bool]],
         on_content: Callable[[str], None],
-    ) -> AsyncGenerator[str, None]:
-        """Yield protocol SSE output from raw upstream SSE lines.
+    ) -> AsyncGenerator[bytes, None]:
+        """Yield raw SSE bytes from upstream byte chunks.
 
         The adapter is responsible for:
+        - Reassembling byte chunks into lines (splitting on b"\\n")
         - Checking is_cancelled() / await is_disconnected() each iteration
         - Emitting the appropriate cancel/disconnect response and returning
-        - Translating upstream lines into protocol-specific SSE events
-        - Calling on_content(text) for each piece of assistant text (for logging)
+        - Decoding each line as UTF-8 for JSON parsing / on_content callbacks
+        - Yielding the original bytes unmodified so no encoding round-trip occurs
         """
         ...
 
@@ -444,17 +445,17 @@ class ProxyHandler:
                         async def _abort_on_disconnect() -> None:
                             while True:
                                 msg = await request._receive()
-                                if msg.get("type") == "HTTPStatus.disconnect":
+                                if msg.get("type") == "http.disconnect":
                                     await resp.aclose()
                                     return
 
                         abort_task = asyncio.create_task(_abort_on_disconnect())
                         try:
                             async for chunk in self._adapter.wrap_stream(
-                                resp.aiter_lines(), is_cancelled, is_disconnected,
+                                resp.aiter_bytes(), is_cancelled, is_disconnected,
                                 accumulated_text.append,
                             ):
-                                total_bytes += len(chunk.encode())
+                                total_bytes += len(chunk)
                                 yield chunk
                         finally:
                             abort_task.cancel()
