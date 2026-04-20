@@ -196,18 +196,23 @@ class SlotStatusService:
                     next_poll[target.suid] = time.monotonic() + 3.0
                     continue
 
-                # Only publish and notify on actual change
-                if slots != last_slots.get(target.suid):
+                has_processing = any(s.get("is_processing") for s in slots)
+                changed = slots != last_slots.get(target.suid)
+                if changed:
                     self._cache[target.suid] = slots
                     self._event_bus.publish({
                         "type": "slots",
                         "id": target.suid,
                         "data": {"slots": slots},
                     })
-                    self._notify(target.suid, slots)
                     last_slots[target.suid] = slots
+                # Always notify subscribers during prompt processing so uplink
+                # subscribers receive freshly annotated prompt_progress each tick,
+                # even when the raw HTTP slot data hasn't changed.
+                if changed or has_processing:
+                    self._notify(target.suid, slots)
 
-                has_active = any(s.get("is_processing") for s in slots) or self.is_active(target.suid)
+                has_active = has_processing or self.is_active(target.suid)
                 next_poll[target.suid] = time.monotonic() + (0.5 if has_active else 3.0)
 
             # Promote any server flagged active via mark_active() to fast polling
