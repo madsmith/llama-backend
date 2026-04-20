@@ -586,7 +586,7 @@ class UplinkConnection:
         slot_handles: list[int] = []
         for suid in model_suids:
             def _on_slots(slots: list[dict], _suid: str = suid) -> None:
-                self._push_json({"type": "slots", "suid": _suid, "slots": slots})
+                self._push_json({"type": "slots", "suid": _suid, "slots": self._annotate_slots(_suid, slots)})
 
             slot_handles.append(self.manager.slot_status.subscribe(suid, _on_slots))
 
@@ -607,6 +607,25 @@ class UplinkConnection:
             for handle in slot_handles:
                 self.manager.slot_status.unsubscribe(handle)
             self.manager.uplink_client_count -= 1
+
+    def _annotate_slots(self, suid: str, slots: list[dict]) -> list[dict]:
+        """Annotate slot dicts with prompt_progress fields from the local model's stdout parser."""
+        local_model = self.manager.get_local_models().get(suid)
+        if local_model is None:
+            return slots
+        progress = local_model.get_prompt_progress()
+        if not progress:
+            return slots
+        result = []
+        for slot in slots:
+            slot = dict(slot)
+            info = progress.get(slot.get("id"))
+            if info:
+                slot["prompt_progress"] = info["progress"]
+                slot["prompt_n_processed"] = info["n_processed"]
+                slot["prompt_n_total"] = info["n_total"]
+            result.append(slot)
+        return result
 
     async def _sender(self) -> None:
         try:
@@ -685,7 +704,7 @@ class UplinkConnection:
                 "type": "slots_response",
                 "suid": suid,
                 "request_id": cmd.get("request_id", ""),
-                "slots": slots,
+                "slots": self._annotate_slots(suid, slots),
             })
         elif t == "get_health":
             client = self.manager.get_client_at(local_model.get_base_url())
