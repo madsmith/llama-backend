@@ -398,7 +398,6 @@ class ProxyHandler:
         cache_save: tuple | None = None,
         request_id: str | None = None,
     ) -> StreamingResponse:
-        adapter = self._adapter
         active_slot_id = body.get("id_slot")
         cancel_event = None
         if suid is not None and active_slot_id is not None:
@@ -451,7 +450,7 @@ class ProxyHandler:
 
                         abort_task = asyncio.create_task(_abort_on_disconnect())
                         try:
-                            async for chunk in adapter.wrap_stream(
+                            async for chunk in self._adapter.wrap_stream(
                                 resp.aiter_lines(), is_cancelled, is_disconnected,
                                 accumulated_text.append,
                             ):
@@ -474,7 +473,7 @@ class ProxyHandler:
                 msg = self._backend_error_msg(exc)
                 self._log_response(server_name, HTTPStatus.BAD_GATEWAY, elapsed=time.monotonic() - t0, request_id=request_id)
                 self._proxy.log(f"[{server_name}] {msg}", request_id=request_id)
-                yield adapter.backend_error_sse(msg)
+                yield self._adapter.backend_error_sse(msg)
                 if request_id:
                     self._proxy.request_log.update(request_id, response_status=HTTPStatus.BAD_GATEWAY, elapsed=time.monotonic() - t0)
             finally:
