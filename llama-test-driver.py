@@ -193,7 +193,7 @@ async def _run_streaming(
                     break
                 chunk = json.loads(payload)
                 delta = chunk.get("choices", [{}])[0].get("delta", {})
-                content = delta.get("content", "")
+                content = delta.get("content", delta.get("reasoning_content", ""))
                 if content:
                     f.write(content)
                     f.flush()
