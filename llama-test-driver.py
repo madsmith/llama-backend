@@ -98,7 +98,7 @@ TOPICS = [
 
 
 def make_prompt(topic: str, words: int) -> str:
-    return f"Generate {words} words about {topic}."
+    return f"Generate approximately {words} words about {topic}."
 
 
 async def run_completion(
