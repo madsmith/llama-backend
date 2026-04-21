@@ -672,6 +672,7 @@ class UplinkConnection:
                         "type": "log",
                         "suid": suid,
                         "id": data.get("id"),
+                        "line_number": data.get("line_number"),
                         "text": text,
                     })
         except asyncio.CancelledError:

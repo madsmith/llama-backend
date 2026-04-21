@@ -175,9 +175,14 @@ class RemoteModelProxy(ManagedBackend):
         """Convenience for simple state-only resets (e.g. error on disconnect)."""
         self.set_status({"state": state_str})
 
-    def feed_log(self, text: str) -> None:
+    def feed_log(self, text: str, line_number: int | None = None) -> None:
         line = self.log_buffer.append(text)
-        self._event_bus.publish({"type": "server_log", "id": self._suid, "data": WireLogRecord.from_buffer(line).model_dump()})
+        data = WireLogRecord.from_buffer(line).model_dump()
+        if line_number is not None:
+            # Use the remote manager's line_number so the frontend's dedup logic
+            # stays consistent with fetch_log, which also returns remote numbers.
+            data["line_number"] = line_number
+        self._event_bus.publish({"type": "server_log", "id": self._suid, "data": data})
 
     def set_slots(self, slots: list) -> None:
         self._cached_slots = slots

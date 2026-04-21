@@ -169,7 +169,7 @@ class RemoteManagerClient:
         elif t == "log":
             proxy = self._get_proxy(msg.get("suid", ""))
             if proxy:
-                proxy.feed_log(msg.get("text") or "")
+                proxy.feed_log(msg.get("text") or "", line_number=msg.get("line_number"))
 
         elif t == "log_response":
             request_id = msg.get("request_id", "")
