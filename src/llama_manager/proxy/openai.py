@@ -89,19 +89,23 @@ class OpenAIAdapter:
                     return
                 line = line_bytes.decode("utf-8", errors="replace")
                 if line.startswith("data: "):
-                    try:
-                        d = json.loads(line[6:])
-                        delta = (d.get("choices") or [{}])[0].get("delta", {})
-                        c = delta.get("content") or delta.get("reasoning_content")
-                        if c:
-                            on_content(c)
-                        else:
-                            for tc in delta.get("tool_calls") or []:
-                                args = (tc.get("function") or {}).get("arguments")
-                                if args:
-                                    on_content(args)
-                    except (json.JSONDecodeError, IndexError):
-                        logger.warning("SSE line JSON parse error: %r", line[:200])
+                    payload = line[6:]
+                    if payload.strip() == "[DONE]":
+                        pass  # normal terminal SSE event
+                    else:
+                        try:
+                            d = json.loads(payload)
+                            delta = (d.get("choices") or [{}])[0].get("delta", {})
+                            c = delta.get("content") or delta.get("reasoning_content")
+                            if c:
+                                on_content(c)
+                            else:
+                                for tc in delta.get("tool_calls") or []:
+                                    args = (tc.get("function") or {}).get("arguments")
+                                    if args:
+                                        on_content(args)
+                        except (json.JSONDecodeError, IndexError):
+                            logger.warning("SSE line JSON parse error: %r", line[:200])
                 yield line_bytes + b"\n"
         if buf:
             yield buf
