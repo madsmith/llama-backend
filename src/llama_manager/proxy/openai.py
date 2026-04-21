@@ -104,8 +104,11 @@ class OpenAIAdapter:
                                     args = (tc.get("function") or {}).get("arguments")
                                     if args:
                                         on_content(args)
-                        except (json.JSONDecodeError, IndexError):
-                            logger.warning("SSE line JSON parse error: %r", line[:200])
+                        except (json.JSONDecodeError, IndexError) as exc:
+                            logger.warning(
+                                "SSE JSON parse error: %s | decoded: %r | hex: %s",
+                                exc, line, line_bytes.hex(" "),
+                            )
                 yield line_bytes + b"\n"
         if buf:
             yield buf
