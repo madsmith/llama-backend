@@ -187,12 +187,9 @@ class WsV2Connection:
                 for slot in slots:
                     info = progress.get(slot.get("id"))
                     if info:
-                        next_token = slot.get("next_token") or []
-                        in_generation = bool(next_token) and (next_token[0] or {}).get("has_next_token")
-                        if not in_generation:
-                            slot["prompt_progress"] = info["progress"]
-                            slot["prompt_n_processed"] = info["n_processed"]
-                            slot["prompt_n_total"] = info["n_total"]
+                        slot["prompt_progress"] = info["progress"]
+                        slot["prompt_n_processed"] = info["n_processed"]
+                        slot["prompt_n_total"] = info["n_total"]
             for slot in slots:
                 slot["cancellable"] = slot.get("id") in cancellable
 
@@ -624,16 +621,9 @@ class UplinkConnection:
             slot = dict(slot)
             info = progress.get(slot.get("id"))
             if info:
-                # Guard against stale progress: if the slot is already generating
-                # tokens (has_next_token=true), the prompt phase is over and any
-                # cached progress value is a remnant from a previous request that
-                # didn't produce a "prompt done" log (e.g. full KV-cache hit).
-                next_token = slot.get("next_token") or []
-                in_generation = bool(next_token) and (next_token[0] or {}).get("has_next_token")
-                if not in_generation:
-                    slot["prompt_progress"] = info["progress"]
-                    slot["prompt_n_processed"] = info["n_processed"]
-                    slot["prompt_n_total"] = info["n_total"]
+                slot["prompt_progress"] = info["progress"]
+                slot["prompt_n_processed"] = info["n_processed"]
+                slot["prompt_n_total"] = info["n_total"]
             result.append(slot)
         return result
 

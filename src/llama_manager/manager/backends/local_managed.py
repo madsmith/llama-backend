@@ -22,7 +22,7 @@ _RE_PROMPT_PROGRESS = re.compile(
     r"slot update_slots: id\s+(\d+) \|.*\| prompt processing progress,"
     r"\s*(?:n_tokens|n_past)\s*=\s*(\d+).*progress\s*=\s*([\d.]+)"
 )
-_RE_PROMPT_DONE = re.compile(r"slot update_slots: id\s+(\d+) \|.*\| prompt done")
+_RE_PROMPT_DONE = re.compile(r"slot update_slots: id\s+(\d+) \|.*\| prompt(?: processing)? done")
 
 log = logging.getLogger(__name__)
 
