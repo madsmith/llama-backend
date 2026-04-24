@@ -132,7 +132,10 @@ class SlotStatusService:
     def _notify(self, suid: ModelSUID, slots: list[dict]) -> None:
         for sub_suid, callback in list(self._subscriptions.values()):
             if sub_suid == suid:
-                callback(slots)
+                try:
+                    callback(slots)
+                except Exception:
+                    logger.exception("Slot subscriber callback raised for suid=%s", suid)
 
     async def _event_loop(self) -> None:
         """Listen for slot events pushed via the event bus (remote models)."""

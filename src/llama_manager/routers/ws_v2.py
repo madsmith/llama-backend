@@ -118,6 +118,25 @@ class WsV2Connection:
     def _push(self, model: BaseModel) -> None:
         self.outgoing.put_nowait(model.model_dump_json())
 
+    def _annotate_slots(self, suid: str, slots: list[dict]) -> list[dict]:
+        """Overlay prompt_progress fields from the local model's stdout parser."""
+        local_model = self.manager.get_local_models().get(suid)
+        if local_model is None:
+            return slots
+        progress = local_model.get_prompt_progress()
+        if not progress:
+            return slots
+        result = []
+        for slot in slots:
+            slot = dict(slot)
+            info = progress.get(slot.get("id"))
+            if info:
+                slot["prompt_progress"] = info["progress"]
+                slot["prompt_n_processed"] = info["n_processed"]
+                slot["prompt_n_total"] = info["n_total"]
+            result.append(slot)
+        return result
+
     # ------------------------------------------------------------------
     # Dispatch
     # ------------------------------------------------------------------
@@ -248,7 +267,7 @@ class WsV2Connection:
         subscription_id = -1
         if suid is not None:
             def _on_change(updated_slots: list[dict], _suid: str = suid) -> None:
-                slots = [dict(s) for s in updated_slots]
+                slots = self._annotate_slots(_suid, [dict(s) for s in updated_slots])
                 if self.manager.get_local_models().get(_suid) is not None:
                     cancellable = set(ActiveRequestManager.list_cancellable(_suid))
                     for slot in slots:
