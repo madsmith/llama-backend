@@ -90,6 +90,13 @@ export default function ConfigEditor({
         <p className="text-xs text-gray-600">
           Changes to log buffer size take effect on next restart.
         </p>
+        <ToggleField
+          label="Filter Slot Queries"
+          checked={config.web_ui.filter_slot_queries ?? false}
+          onChange={(v) => setConfig({ ...config, web_ui: { ...config.web_ui, filter_slot_queries: v } })}
+          tip="Suppress log messages related to slot polling from llama-server backends."
+          bg="gray-800"
+        />
         <TextField
           label="Slot Save Path"
           value={config.web_ui.slot_save_path ?? ""}

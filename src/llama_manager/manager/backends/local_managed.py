@@ -24,6 +24,11 @@ _RE_PROMPT_PROGRESS = re.compile(
 )
 _RE_PROMPT_DONE = re.compile(r"slot update_slots: id\s+(\d+) \|.*\| prompt(?: processing)? done")
 
+_SLOT_QUERY_FILTERS = (
+    "log_server_r: done request: GET /slots",
+    "update_slots: all slots are idle",
+)
+
 log = logging.getLogger(__name__)
 
 
@@ -46,6 +51,7 @@ class LocalManagedModel(ManagedBackend):
         log_buffer_size: int,
         llama_server_path: Path | None,
         slot_save_path: Path | None,
+        filter_slot_queries: bool = False,
     ) -> None:
         self._manager = manager
         self._model_config = model_config
@@ -60,6 +66,7 @@ class LocalManagedModel(ManagedBackend):
         self.port: int = port
         self.started_at: float | None = None
         self.log_buffer = LogBuffer(manager.get_manager_id(), maxlen=log_buffer_size)
+        self._filter_slot_queries = filter_slot_queries
         self._subscribers: list[asyncio.Queue[dict]] = []
         self._reader_task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
@@ -70,11 +77,13 @@ class LocalManagedModel(ManagedBackend):
         model_config: ModelConfig,
         llama_server_path: Path | None,
         slot_save_path: Path | None,
+        filter_slot_queries: bool = False,
     ) -> None:
         """Push updated config to this model. Takes effect on next start."""
         self._model_config = model_config
         self._llama_server_path = llama_server_path
         self._slot_save_path = slot_save_path
+        self._filter_slot_queries = filter_slot_queries
 
     # ------------------------------------------------------------------
     # Backend protocol
@@ -115,6 +124,8 @@ class LocalManagedModel(ManagedBackend):
         return self.log_buffer
 
     def _log(self, text: str) -> None:
+        if self._filter_slot_queries and any(f in text for f in _SLOT_QUERY_FILTERS):
+            return
         line = self.log_buffer.append(text)
         self.event_bus.publish({
             "type": "server_log",

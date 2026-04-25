@@ -52,6 +52,7 @@ export const defaultConfig: ServerConfig = {
   ],
   web_ui: {
     log_buffer_size: 10_000,
+    filter_slot_queries: false,
     slot_save_path: "",
     poll_server_status: null,
     poll_proxy_status: null,

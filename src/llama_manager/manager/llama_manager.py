@@ -229,6 +229,7 @@ class LlamaManager(LlamaManagerProtocol):
             log_buffer_size=config.web_ui.log_buffer_size,
             llama_server_path=llama_server_path,
             slot_save_path=slot_save_path,
+            filter_slot_queries=config.web_ui.filter_slot_queries,
         )
 
     def _update_local_model(self, local_model: LocalManagedModel, idx: int, config: AppConfig) -> None:
@@ -237,7 +238,7 @@ class LlamaManager(LlamaManagerProtocol):
         raw_path = model_config.advanced.llama_server_path or config.api_server.llama_server_path
         llama_server_path = Path(raw_path).expanduser() if raw_path else None
         slot_save_path = resolve_slot_save_path(config, idx)
-        local_model.update_config(model_config, llama_server_path, slot_save_path)
+        local_model.update_config(model_config, llama_server_path, slot_save_path, config.web_ui.filter_slot_queries)
 
     # ------------------------------------------------------------------
     # Model initialisation

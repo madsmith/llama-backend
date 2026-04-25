@@ -89,6 +89,7 @@ class ModelConfig(BaseModel):
 
 class WebUIConfig(BaseModel):
     log_buffer_size: int = 10_000
+    filter_slot_queries: bool = False
     slot_save_path: str = ""
     poll_server_status: int | None = None
     poll_proxy_status: int | None = None
