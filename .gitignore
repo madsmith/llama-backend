@@ -29,3 +29,5 @@ slot_saves
 slot_output/*
 test_output/
 logs/
+logs*/
+logs*.txt
