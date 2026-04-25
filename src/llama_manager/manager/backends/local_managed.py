@@ -220,10 +220,13 @@ class LocalManagedModel(ManagedBackend):
             "--model", str(model_path),
             "--host", host,
             "--port", str(port),
-            "--ctx-size", str(model_config.ctx_size * model_config.parallel),
+            "--ctx-size", str(model_config.ctx_size if model_config.kv_unified else model_config.ctx_size * model_config.parallel),
             "--n-gpu-layers", str(model_config.n_gpu_layers),
             "--parallel", str(model_config.parallel),
         ]
+
+        if model_config.kv_unified:
+            cmd += ["--kv-unified"]
 
         if adv.slot_prompt_similarity is not None:
             cmd += ["--slot-prompt-similarity", str(adv.slot_prompt_similarity)]

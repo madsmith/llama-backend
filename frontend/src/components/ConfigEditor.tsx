@@ -74,7 +74,8 @@ export default function ConfigEditor({
   };
 
 
-  const totalCtx = model.ctx_size * model.parallel;
+  const kvUnified = model.kv_unified ?? true;
+  const totalCtx = kvUnified ? model.ctx_size : model.ctx_size * model.parallel;
 
   if (tab === "manager") {
     return (
@@ -493,6 +494,13 @@ export default function ConfigEditor({
                 sliderMax={8}
               />
 
+              <ToggleField
+                label="Unified KV Cache"
+                checked={kvUnified}
+                onChange={(v) => updateModel({ kv_unified: v })}
+                tip="Pass --kv-unified to llama-server. When enabled, ctx-size is shared across all slots rather than multiplied per slot."
+              />
+
               <SliderField
                 label="Context Size per Slot"
                 value={model.ctx_size}
@@ -500,7 +508,9 @@ export default function ConfigEditor({
                 sliderMin={CTX_MIN}
                 sliderMax={CTX_MAX}
                 snap={1024}
-                note={`Total context: ${totalCtx.toLocaleString()} (${model.ctx_size.toLocaleString()} × ${model.parallel} slots)`}
+                note={kvUnified
+                  ? `Total context: ${totalCtx.toLocaleString()}`
+                  : `Total context: ${totalCtx.toLocaleString()} (${model.ctx_size.toLocaleString()} × ${model.parallel} slots)`}
               />
 
               <IntegerField
