@@ -27,6 +27,17 @@ from dataclasses import dataclass, field
 import httpx
 
 
+# ── Argument helpers ───────────────────────────────────────────────────────────
+
+def parse_token_count(value: str) -> int:
+    """Parse a token/context count with optional k/M/G suffix (binary: 1k=1024)."""
+    s = value.strip()
+    suffixes = {"k": 1024, "m": 1024 ** 2, "g": 1024 ** 3}
+    if s and s[-1].lower() in suffixes:
+        return int(float(s[:-1]) * suffixes[s[-1].lower()])
+    return int(s)
+
+
 # ── Synthetic context ──────────────────────────────────────────────────────────
 
 _SLOT_TOPICS = [
@@ -98,180 +109,180 @@ def make_system_prompt(slot: int, target_tokens: int) -> str:
 
 _SLOT_QUESTIONS: dict[int, list[str]] = {
     1: [  # mathematics, number theory, and formal logic
-        "What is the Riemann hypothesis and why does it matter?",
-        "Explain Gödel's incompleteness theorems and their implications.",
-        "What is the difference between proof by induction and proof by contradiction?",
-        "How does the Euclidean algorithm for finding GCDs work?",
-        "Why are prime numbers important in cryptography?",
-        "Explain the P vs NP problem.",
-        "What is the significance of Euler's identity?",
-        "How do transfinite numbers work?",
-        "What is a formal language and how does it relate to computation?",
-        "Explain the four-color theorem.",
-        "What is the Collatz conjecture?",
-        "How does modular arithmetic work?",
-        "What is the relationship between Fibonacci numbers and the golden ratio?",
-        "Explain the concept of mathematical infinity.",
-        "What is a group in abstract algebra?",
-        "How does Fermat's Last Theorem differ from Fermat's Little Theorem?",
-        "Explain what a mathematical proof is and why rigor matters.",
-        "What is the pigeonhole principle? Give an example.",
-        "How does Boolean algebra relate to computer logic?",
-        "What is the halting problem and why is it unsolvable?",
+        "Why does 0.999... equal exactly 1, and what's the cleanest proof?",
+        "What's the key difference between proof by contradiction and proof by contrapositive?",
+        "Why is 1 not considered a prime number?",
+        "What's the core insight behind Euclid's proof that there are infinitely many primes?",
+        "Why can't you trisect an arbitrary angle using only compass and straightedge?",
+        "What's the difference between an axiom and a theorem?",
+        "Why does multiplying two negative numbers give a positive result?",
+        "What's a bijection and why does it matter when comparing infinite sets?",
+        "Why is √2 irrational? Sketch the proof.",
+        "What's the difference between necessary and sufficient conditions? Give a concrete example.",
+        "Why does induction work, and what assumption does it actually rely on?",
+        "What makes the pigeonhole principle surprising despite being obvious?",
+        "Why does the sum of angles in a triangle differ between flat and spherical geometry?",
+        "What's the difference between syntax and semantics in formal logic?",
+        "Why is the empty set considered a subset of every set?",
+        "What makes two logical statements equivalent rather than just both true?",
+        "Why do mathematicians care about whether a proof is constructive?",
+        "What's the difference between a tautology and a theorem?",
+        "Why does casting out nines work as a quick arithmetic check?",
+        "What's a counterexample, and why can a single one disprove a universal claim?",
     ],
     2: [  # world history, political philosophy, and geopolitics
-        "What were the main causes of the First World War?",
-        "How did the fall of Rome shape medieval Europe?",
-        "Explain the core ideas of Machiavelli's The Prince.",
-        "What is social contract theory and who were its main proponents?",
-        "How did the Industrial Revolution transform society?",
-        "What factors led to the collapse of the Soviet Union?",
-        "Explain the concept of hegemony in international relations.",
-        "How did colonialism shape the modern world?",
-        "What are the key differences between realism and liberalism in geopolitics?",
-        "How did the Black Death affect European civilization?",
-        "What was the Enlightenment and why was it significant?",
-        "Explain the causes and consequences of the French Revolution.",
-        "How does the concept of sovereignty shape modern nation-states?",
-        "What role did geography play in the rise of ancient civilizations?",
-        "Explain the balance-of-power theory in international relations.",
-        "How did the Cold War reshape global politics?",
-        "What are the origins of democracy in ancient Athens?",
-        "How did the Silk Road influence global trade and culture?",
-        "Explain the philosophical differences between liberalism and conservatism.",
-        "What factors determine whether a democracy succeeds or fails?",
+        "What single decision do historians most often blame for prolonging WWI?",
+        "Why did Gorbachev's reforms accelerate rather than prevent the Soviet collapse?",
+        "What's the key difference between Hobbes' and Locke's views on the state of nature?",
+        "Why did WWI reparations on Germany contribute to WWII rather than prevent it?",
+        "What made the Marshall Plan unusual compared to typical post-war policy?",
+        "Why did Napoleon's Russian campaign fail despite his earlier successes?",
+        "What's the difference between soft power and hard power? Give a concrete example of each.",
+        "What distinguishes a coup from a revolution?",
+        "Why did the printing press shift political power in early modern Europe?",
+        "What's the core tension in Rousseau's concept of the 'general will'?",
+        "What distinguishes a federation from a confederation?",
+        "Why did British decolonization accelerate after WWII compared to before it?",
+        "What made the Cuban Missile Crisis resolve peacefully when other standoffs didn't?",
+        "Why do historians debate whether the atomic bombings of Japan were militarily necessary?",
+        "What's the difference between nationalism and patriotism?",
+        "Why did the League of Nations fail where the UN has had more success?",
+        "What's 'Thucydides' Trap' and which historical case best illustrates it?",
+        "Why did Rome transition from republic to empire rather than strengthen its institutions?",
+        "What's the difference between direct and representative democracy in practice?",
+        "Why do authoritarian regimes often hold elections they control rather than abolish them?",
     ],
     3: [  # software engineering, distributed systems, and compilers
-        "What is the CAP theorem and why does it matter?",
-        "Explain how a garbage collector works in modern runtimes.",
-        "What is the difference between optimistic and pessimistic concurrency control?",
-        "How does a compiler transform source code into machine instructions?",
-        "Explain the concept of eventual consistency.",
-        "What is the difference between a process and a thread?",
-        "How does the Paxos consensus algorithm work?",
-        "What is a memory barrier and why is it needed?",
-        "Explain the concept of a type system and its benefits.",
-        "What are the trade-offs between microservices and monolithic architectures?",
-        "How does register allocation work in a compiler?",
-        "What is a distributed hash table and how is it used?",
-        "Explain tail-call optimization.",
-        "How do lock-free data structures work?",
-        "What is a Bloom filter and when would you use one?",
-        "Explain the difference between eager and lazy evaluation.",
-        "How does a linker differ from a compiler?",
-        "What is the actor model of concurrency?",
-        "Explain how consistent hashing works.",
-        "What are the main differences between SQL and NoSQL databases?",
+        "What's the difference between a race condition and a deadlock?",
+        "Why does TCP use a three-way handshake rather than two?",
+        "What's the key trade-off between a mutex and a spinlock?",
+        "Why can't a Bloom filter tell you definitively that an element is in a set?",
+        "What's the difference between memoization and caching?",
+        "Why does tail recursion matter in a language without tail-call optimization?",
+        "What's the key difference between stack and heap allocation?",
+        "Why is O(n log n) the lower bound for comparison-based sorting?",
+        "What does 'thread-safe' mean? Give a minimal concrete example of code that isn't.",
+        "Why does copy-on-write make fork() efficient despite duplicating a process?",
+        "What's the difference between a syntax error and a semantic error in a compiler?",
+        "What's the key insight behind consistent hashing?",
+        "Why do garbage collectors sometimes cause pause times despite running in the background?",
+        "What's the difference between horizontal and vertical scaling?",
+        "Why is a foreign key constraint more than just a naming convention?",
+        "What's the difference between idempotency and determinism?",
+        "Why does eventual consistency make distributed systems hard to reason about?",
+        "What's the difference between parse time and runtime?",
+        "Why can't the two-generals problem be solved over an unreliable channel?",
+        "What makes an API 'RESTful' versus just HTTP-based?",
     ],
     4: [  # biology, genetics, and evolutionary ecology
-        "How does natural selection drive evolution?",
-        "Explain the structure and function of DNA.",
-        "What is the central dogma of molecular biology?",
-        "How do CRISPR-Cas9 systems work for gene editing?",
-        "Explain the concept of genetic drift.",
-        "What is symbiosis and what are its different forms?",
-        "How do ecosystems maintain balance through feedback loops?",
-        "What is the role of mitochondria in the cell?",
-        "How does the immune system distinguish self from non-self?",
-        "What is horizontal gene transfer and why is it important?",
-        "How do viruses replicate inside host cells?",
-        "Explain the concept of a keystone species.",
-        "What is epigenetics and how does it differ from genetics?",
-        "How did the Cambrian explosion shape animal diversity?",
-        "What are the mechanisms of speciation?",
-        "Explain how protein folding works.",
-        "What is the nitrogen cycle and why is it important?",
-        "How do invasive species affect ecosystems?",
-        "What is the endosymbiotic theory of mitochondrial origins?",
-        "Explain the difference between sexual and asexual reproduction.",
+        "Why do antibiotic-resistant bacteria evolve faster in hospitals than in the wild?",
+        "What's the difference between a gene, an allele, and a locus?",
+        "Why do liver and eye cells behave differently despite containing the same DNA?",
+        "Why did sexual reproduction evolve when asexual reproduction is more efficient?",
+        "Why does removing an apex predator sometimes cause prey populations to collapse rather than grow?",
+        "What's the difference between a dominant and a recessive trait? Give a concrete example.",
+        "Why does CRISPR cut at a specific location rather than randomly throughout the genome?",
+        "What makes a species 'invasive' as opposed to simply non-native?",
+        "Why do mitochondria have their own DNA separate from the cell nucleus?",
+        "What's the difference between natural selection and genetic drift?",
+        "Why can two unrelated species evolve similar structures like wings independently?",
+        "What's the difference between mitosis and meiosis in terms of their purpose?",
+        "Why does genetic diversity within a population matter for long-term survival?",
+        "What makes a protein misfolded, and why is that dangerous?",
+        "Why do some genes appear in nearly identical form across widely separated species?",
+        "What's the difference between a mutation and a genetic variation?",
+        "Why can't viruses survive long outside a host without special conditions?",
+        "What's the key difference between a virus and a bacterium in terms of how they're treated medically?",
+        "Why do humans have a blind spot in their vision, and what's the evolutionary explanation?",
+        "What's the difference between an ecosystem and a biome?",
     ],
     5: [  # physics, quantum mechanics, and cosmology
-        "What is wave-particle duality?",
-        "Explain the Heisenberg uncertainty principle.",
-        "How does quantum entanglement work?",
-        "What is dark matter and what evidence do we have for it?",
-        "Explain the Big Bang theory.",
-        "What is the difference between general and special relativity?",
-        "How does a black hole form and what happens at the event horizon?",
-        "What is the Schrödinger equation and what does it describe?",
-        "Explain the concept of entropy in thermodynamics.",
-        "What is the standard model of particle physics?",
-        "How does nuclear fusion power the sun?",
-        "What is quantum decoherence?",
-        "Explain the concept of spacetime curvature.",
-        "What is the cosmological constant problem?",
-        "How do quantum computers differ from classical computers?",
-        "What is Hawking radiation?",
-        "Explain the double-slit experiment and its significance.",
-        "What is the multiverse hypothesis?",
-        "How does the photoelectric effect work?",
-        "What is the role of symmetry in physics?",
+        "Why does the double-slit experiment produce an interference pattern even when fired one photon at a time?",
+        "Why does time pass more slowly near a massive object?",
+        "Why can't anything escape a black hole if light has no mass to be pulled by gravity?",
+        "What's the difference between nuclear fission and fusion in terms of where the energy comes from?",
+        "Why does entropy always increase even though individual particle interactions are reversible?",
+        "What's the key difference between dark matter and dark energy?",
+        "Why does quantum tunneling allow alpha particles to escape atomic nuclei?",
+        "What's the significance of the Planck constant?",
+        "Why does adding mass to a neutron star eventually cause it to collapse into a black hole?",
+        "What's the key insight of the equivalence principle in general relativity?",
+        "Why is quantum mechanics described as probabilistic rather than just 'we don't know yet'?",
+        "What physical reason makes absolute zero unattainable?",
+        "What makes a laser different from an ordinary light source?",
+        "Why does glass transmit visible light but block UV?",
+        "What's the difference between speed and velocity, and why does it matter?",
+        "Why did the Michelson-Morley experiment matter for special relativity?",
+        "What's the difference between a fermion and a boson, and why does it matter?",
+        "Why does the cosmic microwave background give us information about the early universe?",
+        "What's the physical meaning of a wavefunction collapsing?",
+        "Why does a spinning top resist falling over?",
     ],
     6: [  # literature, linguistics, and narrative craft
-        "What is the hero's journey and how is it used in storytelling?",
-        "Explain the concept of an unreliable narrator.",
-        "How does point of view affect a story's meaning?",
-        "What is the difference between syntax and semantics in linguistics?",
-        "How do metaphors shape our understanding of abstract concepts?",
-        "What makes a character feel real to a reader?",
-        "Explain the Sapir-Whorf hypothesis.",
-        "How does stream-of-consciousness narration work?",
-        "What is the difference between showing and telling in fiction?",
-        "How do poetic meter and rhythm create meaning?",
-        "What is intertextuality and how does it work?",
-        "How does language change over time?",
-        "How does genre shape reader expectations?",
-        "What is magical realism as a literary mode?",
-        "How does dialogue reveal character in fiction?",
-        "What is the role of ambiguity in literary interpretation?",
-        "Explain Chomsky's theory of universal grammar.",
-        "How does narrative structure differ across cultures?",
-        "What is the difference between theme and motif?",
-        "How does irony function in literature?",
+        "What makes an unreliable narrator different from one who is simply mistaken?",
+        "Why does changing a story from first to third person change more than just the pronouns?",
+        "What's the difference between a plot twist and a deus ex machina?",
+        "Why do genre conventions constrain writers while also enabling them?",
+        "What's the key difference between showing and telling, and when is telling actually better?",
+        "What makes dialogue feel unnatural in a story?",
+        "Why does sentence rhythm affect how readers experience tension?",
+        "What's the difference between a motif and a symbol in literary analysis?",
+        "Why does the opening sentence of a novel carry disproportionate weight?",
+        "What makes satire different from simple criticism or mockery?",
+        "Why does repetition in poetry create meaning rather than just redundancy?",
+        "What's the difference between theme and moral in a story?",
+        "Why do some languages lack a word for a concept that another language expresses easily?",
+        "What makes foreshadowing effective versus heavy-handed?",
+        "What's the difference between dialect and accent in written dialogue?",
+        "Why does the choice of tense affect the reader's sense of distance from events?",
+        "What's the difference between diegetic and non-diegetic elements in storytelling?",
+        "What makes metaphor fundamentally different from simile beyond just omitting 'like'?",
+        "Why do stories built around conflict feel more compelling than those built around description?",
+        "What's the difference between irony and sarcasm?",
     ],
     7: [  # macroeconomics, market dynamics, and monetary theory
-        "What is the quantity theory of money?",
-        "Explain the concept of opportunity cost.",
-        "How does inflation affect purchasing power?",
-        "What is the difference between fiscal and monetary policy?",
-        "Explain the Phillips curve and its limitations.",
-        "How do central banks control the money supply?",
-        "What is a market bubble and how does it form?",
-        "Explain the concept of comparative advantage.",
-        "How does the interest rate affect investment and consumption?",
-        "What is the difference between GDP and GNP?",
-        "Explain the concept of moral hazard in finance.",
-        "How do exchange rates affect international trade?",
-        "What is the liquidity trap?",
-        "Explain the concept of externalities and market failure.",
-        "How does Keynesian economics differ from monetarism?",
-        "What is quantitative easing and how does it work?",
-        "Explain game theory's role in economics.",
-        "What is the role of trust in financial systems?",
-        "How does income inequality affect economic growth?",
-        "What is the efficient market hypothesis?",
+        "Why does printing more money cause inflation rather than making everyone wealthier?",
+        "Why do central banks target 2% inflation rather than zero?",
+        "What's the key difference between a stock and a bond as investments?",
+        "Why does comparative advantage lead to trade even when one country is better at everything?",
+        "What makes a currency peg difficult to maintain during a financial crisis?",
+        "Why does raising interest rates slow inflation?",
+        "Why do bank runs happen and how does deposit insurance prevent them?",
+        "What's the difference between cost-push and demand-pull inflation?",
+        "Why does purchasing power parity not hold perfectly in practice?",
+        "What's moral hazard? Give a concrete example from the 2008 financial crisis.",
+        "Why does GDP growth not always correlate with rising living standards?",
+        "What's the difference between nominal and real interest rates?",
+        "Why do monopolies tend to produce less and charge more than competitive markets?",
+        "What's the difference between a recession and a depression?",
+        "Why can a government deficit sometimes be beneficial rather than harmful?",
+        "What's the difference between the money supply measures M1 and M2?",
+        "Why does the velocity of money matter for inflation?",
+        "What makes a tax regressive versus progressive?",
+        "What's the key insight of the prisoner's dilemma for market competition?",
+        "Why does a trade surplus not automatically mean an economy is doing well?",
     ],
     8: [  # philosophy of mind, ethics, and epistemology
-        "What is the mind-body problem?",
-        "Explain Descartes' cogito ergo sum.",
-        "What is the difference between deontological and consequentialist ethics?",
-        "How does Kant's categorical imperative work?",
-        "What is the trolley problem and what does it reveal about moral intuitions?",
-        "Explain the concept of qualia in philosophy of mind.",
-        "What is the difference between knowledge and belief?",
-        "How does Plato's allegory of the cave relate to epistemology?",
-        "What is functionalism in philosophy of mind?",
-        "Explain the Gettier problem.",
-        "What is the difference between free will and determinism?",
-        "How does utilitarianism handle conflicts between individual and group welfare?",
-        "What is the Chinese Room argument?",
-        "Explain the concept of epistemic justification.",
-        "How does virtue ethics differ from rule-based ethics?",
-        "What is the hard problem of consciousness?",
-        "Explain the concept of moral relativism.",
-        "How do we justify inductive reasoning?",
-        "What is the problem of other minds?",
-        "How does Rawls' veil of ignorance work?",
+        "Why does the trolley problem produce different intuitions when you push someone versus pull a lever?",
+        "What's the key difference between Kant's categorical imperative and a simple golden rule?",
+        "What's the difference between justified true belief and knowledge, per the Gettier problem?",
+        "Why does Descartes conclude 'I think therefore I am' rather than 'I breathe therefore I am'?",
+        "Why does free will seem incompatible with determinism?",
+        "What's the difference between moral relativism and moral subjectivism?",
+        "Why does utilitarianism struggle with the repugnant conclusion?",
+        "What's the difference between phenomenal and access consciousness?",
+        "Why is the problem of induction hard to resolve without circular reasoning?",
+        "What's the difference between an argument being valid and being sound?",
+        "What's the key difference between strong and weak AI in philosophical terms?",
+        "Why does the Chinese Room argument challenge machine consciousness?",
+        "What's the difference between personal identity and psychological continuity?",
+        "Why does the concept of consciousness create difficulties for physicalism?",
+        "What's the key objection to ethical egoism as a moral theory?",
+        "Why does Rawls argue rational people behind a veil of ignorance would choose equal distribution?",
+        "What makes a thought experiment useful in philosophy when it describes an impossible scenario?",
+        "What's the difference between moral realism and moral anti-realism?",
+        "Why does the existence of evil present a specific problem for the argument from design?",
+        "What's the difference between an empirical claim and a normative claim?",
     ],
 }
 
@@ -314,11 +325,12 @@ class StreamResult:
     text: str
     ttft: float
     elapsed: float
+    gen_elapsed: float
     completion_tokens: int
     prompt_tokens: int
 
     def format_stats(self) -> str:
-        tps = self.completion_tokens / self.elapsed if self.elapsed > 0 else 0.0
+        tps = self.completion_tokens / self.gen_elapsed if self.gen_elapsed > 0 else 0.0
         parts = [
             f"ttft={self.ttft * 1000:.0f}ms",
             f"total={self.elapsed:.2f}s",
@@ -362,6 +374,7 @@ class CompletionClient:
         parts: list[str] = []
         t0 = time.monotonic()
         t_first: float | None = None
+        t_last: float | None = None
         completion_tokens = 0
         prompt_tokens = 0
 
@@ -373,7 +386,7 @@ class CompletionClient:
             if resp.status_code != 200:
                 resp.read()
                 print(f"\n[ERROR {resp.status_code}] {resp.text[:200]}")
-                return StreamResult("", 0.0, 0.0, 0, 0)
+                return StreamResult("", 0.0, 0.0, 0.0, 0, 0)
 
             for line in resp.iter_lines():
                 if not line.startswith("data: "):
@@ -396,14 +409,16 @@ class CompletionClient:
                 delta = (chunk.get("choices") or [{}])[0].get("delta", {})
                 token = delta.get("content") or delta.get("reasoning_content") or ""
                 if token:
+                    t_last = time.monotonic()
                     if t_first is None:
-                        t_first = time.monotonic()
+                        t_first = t_last
                     parts.append(token)
                     sys.stdout.write(token)
                     sys.stdout.flush()
 
         elapsed = time.monotonic() - t0
         ttft = (t_first - t0) if t_first is not None else elapsed
+        gen_elapsed = (t_last - t_first) if (t_first is not None and t_last is not None and t_last > t_first) else 0.0
 
         if completion_tokens == 0:
             completion_tokens = len(parts)
@@ -412,6 +427,7 @@ class CompletionClient:
             text="".join(parts),
             ttft=ttft,
             elapsed=elapsed,
+            gen_elapsed=gen_elapsed,
             completion_tokens=completion_tokens,
             prompt_tokens=prompt_tokens,
         )
@@ -586,14 +602,14 @@ def main() -> None:
     )
     parser.add_argument("server", help="server base URL, e.g. http://127.0.0.1:8080")
     parser.add_argument(
-        "--context-size", "--cs",
-        type=int, default=8192, metavar="TOKENS",
+        "--context-size", "--ctx",
+        type=parse_token_count, default=8192, metavar="TOKENS",
         help="approximate system-prompt size in tokens per slot (default: 8192)",
     )
     parser.add_argument(
         "--max-tokens",
-        type=int, default=512, metavar="N",
-        help="max completion tokens per response (default: 512)",
+        type=parse_token_count, default=2048, metavar="N",
+        help="max completion tokens per response (default: 2048)",
     )
     parser.add_argument(
         "--model", "-m",
