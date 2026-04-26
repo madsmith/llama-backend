@@ -40,7 +40,7 @@ export interface ModelConfig {
   model_ttl: number | null;
   allow_proxy?: boolean;
   priority: number;
-  kv_unified?: boolean;
+  kv_unified?: boolean | null;
   advanced: ModelAdvanced;
   remote_address?: string;
   remote_model_id?: string | null;

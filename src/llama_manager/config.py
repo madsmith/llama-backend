@@ -51,7 +51,7 @@ class ModelConfig(BaseModel):
     model_ttl: int | None = None
     allow_proxy: bool = True
     priority: int = 1
-    kv_unified: bool = True
+    kv_unified: bool | None = None
     advanced: ModelAdvanced = ModelAdvanced()
     remote_address: str = ""
     remote_model_id: str | None = None

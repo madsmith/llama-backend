@@ -25,7 +25,7 @@ export const defaultConfig: ServerConfig = {
       auto_start: false,
       model_ttl: null,
       priority: 1,
-      kv_unified: true,
+      kv_unified: null,
       advanced: {
         llama_server_path: "",
         stream: true,

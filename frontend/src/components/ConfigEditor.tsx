@@ -74,7 +74,7 @@ export default function ConfigEditor({
   };
 
 
-  const kvUnified = model.kv_unified ?? true;
+  const kvUnified = model.kv_unified ?? false;
   const totalCtx = kvUnified ? model.ctx_size : model.ctx_size * model.parallel;
 
   if (tab === "manager") {
@@ -504,7 +504,7 @@ export default function ConfigEditor({
               <ToggleField
                 label="Unified KV Cache"
                 checked={kvUnified}
-                onChange={(v) => updateModel({ kv_unified: v })}
+                onChange={(v) => updateModel({ kv_unified: v || null })}
                 tip="Pass --kv-unified to llama-server. When enabled, ctx-size is shared across all slots rather than multiplied per slot."
               />
 
