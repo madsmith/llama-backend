@@ -24,10 +24,15 @@ class FsRoutes:
         try:
             raw = list(target.iterdir())
             raw.sort(key=lambda e: (not e.is_dir(), e.name.lower()))
-            entries = [
-                {"name": e.name, "type": "dir" if e.is_dir() else "file"}
-                for e in raw
-            ]
+            entries = []
+            for e in raw:
+                entry: dict = {"name": e.name, "type": "dir" if e.is_dir() else "file"}
+                if e.is_file():
+                    try:
+                        entry["size"] = e.stat().st_size
+                    except OSError:
+                        entry["size"] = None
+                entries.append(entry)
             return {"path": str(target), "entries": entries}
         except PermissionError:
             return JSONResponse({"error": "Permission denied"}, status_code=403)

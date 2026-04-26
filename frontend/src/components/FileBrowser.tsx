@@ -4,6 +4,14 @@ import { api } from "../api/client";
 interface Entry {
   name: string;
   type: "dir" | "file";
+  size?: number | null;
+}
+
+function formatSize(bytes: number): string {
+  if (bytes >= 1024 ** 3) return (bytes / 1024 ** 3).toFixed(1) + " GiB";
+  if (bytes >= 1024 ** 2) return (bytes / 1024 ** 2).toFixed(1) + " MiB";
+  if (bytes >= 1024)      return (bytes / 1024).toFixed(1) + " KiB";
+  return bytes + " B";
 }
 
 interface Props {
@@ -154,6 +162,9 @@ export default function FileBrowser({ initialPath, onConfirm, onClose }: Props) 
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-600">
                     Name
                   </th>
+                  <th className="px-5 py-2 text-right text-xs font-medium text-gray-600 w-24">
+                    Size
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -166,6 +177,7 @@ export default function FileBrowser({ initialPath, onConfirm, onClose }: Props) 
                       <UpIcon />
                     </td>
                     <td className="px-3 py-2 text-gray-400">..</td>
+                    <td />
                   </tr>
                 )}
                 {visibleEntries.map((entry) => {
@@ -207,13 +219,16 @@ export default function FileBrowser({ initialPath, onConfirm, onClose }: Props) 
                       >
                         {entry.name}
                       </td>
+                      <td className="px-5 py-2 text-right text-xs text-gray-500 tabular-nums">
+                        {entry.type === "file" && entry.size != null ? formatSize(entry.size) : ""}
+                      </td>
                     </tr>
                   );
                 })}
                 {visibleEntries.length === 0 && !loading && (
                   <tr>
                     <td
-                      colSpan={2}
+                      colSpan={3}
                       className="px-5 py-8 text-center text-sm text-gray-600"
                     >
                       {showAll
