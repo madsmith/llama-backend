@@ -328,6 +328,7 @@ class LlamaManager(LlamaManagerProtocol):
 
         save_config(config)
         self.config = config
+        self.event_bus.publish({"type": "config_changed"})
 
         local_models = self._local_models
         unmanaged = self._remote_unmanaged

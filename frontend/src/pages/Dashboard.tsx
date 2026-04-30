@@ -103,11 +103,13 @@ function ModelPanel({
 
 function RemoteModelPanel({
   modelSuid,
+  modelId,
   name,
   allowProxy,
   proxyBaseUrl,
 }: {
   modelSuid: string;
+  modelId: string;
   name: string;
   allowProxy: boolean;
   proxyBaseUrl: string;
@@ -120,6 +122,7 @@ function RemoteModelPanel({
     <div className="space-y-4">
       <ServerStatusCard
         name={name}
+        modelId={modelId}
         modelSuid={modelSuid}
         status={statusOrUnknown}
         onClick={() => navigate(`/logs/${modelSuid}`)}
@@ -158,6 +161,7 @@ function RemoteManagerSection({ rm, proxyBaseUrl }: { rm: RemoteManagerStatus; p
             <RemoteModelPanel
               key={m.suid}
               modelSuid={m.suid}
+              modelId={m.model_id}
               name={m.name ?? "Remote Model"}
               allowProxy={m.allow_proxy ?? true}
               proxyBaseUrl={proxyBaseUrl}

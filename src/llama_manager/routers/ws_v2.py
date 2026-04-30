@@ -538,6 +538,33 @@ class UplinkConnection:
     def _push_json(self, data: dict) -> None:
         self.outgoing.put_nowait(json.dumps(data))
 
+    def _build_snapshot(self) -> dict:
+        config = self.manager.config
+        local_models_dict = self.manager.get_local_models()
+        suid_to_cfg = {m.suid: m for m in config.models}
+        local_models = [
+            (m.suid, local_models_dict[m.suid])
+            for m in config.models
+            if m.suid in local_models_dict
+        ]
+        return {
+            "type": "snapshot",
+            "proxy_port": config.api_server.port,
+            "models": [
+                {
+                    "suid": suid,
+                    "name": lm.get_name(),
+                    "model_id": lm.get_model_ids()[0],
+                    **lm.get_status(),
+                    "llama_port": lm.port,
+                    "auto_start": suid_to_cfg[suid].auto_start,
+                    "has_ttl": suid_to_cfg[suid].model_ttl is not None,
+                    "allow_proxy": suid_to_cfg[suid].allow_proxy,
+                }
+                for suid, lm in local_models
+            ],
+        }
+
     async def run(self) -> None:
         config = self.manager.config
 
@@ -566,33 +593,14 @@ class UplinkConnection:
         })
 
         local_models_dict = self.manager.get_local_models()
-        local_models: list[tuple[str, LocalManagedModel]] = [
-            (m.suid, local_models_dict[m.suid])
+        suid_to_model: dict[str, LocalManagedModel] = {
+            m.suid: local_models_dict[m.suid]
             for m in config.models
             if m.suid in local_models_dict
-        ]
-        suid_to_cfg = {m.suid: m for m in config.models}
-        suid_to_model: dict[str, LocalManagedModel] = {suid: lm for suid, lm in local_models}
+        }
         model_suids: set[str] = set(suid_to_model)
 
-        # Snapshot
-        await self.ws.send_json({
-            "type": "snapshot",
-            "proxy_port": config.api_server.port,
-            "models": [
-                {
-                    "suid": suid,
-                    "name": lm.get_name(),
-                    "model_id": lm.get_model_ids()[0],
-                    **lm.get_status(),
-                    "llama_port": lm.port,
-                    "auto_start": suid_to_cfg[suid].auto_start,
-                    "has_ttl": suid_to_cfg[suid].model_ttl is not None,
-                    "allow_proxy": suid_to_cfg[suid].allow_proxy,
-                }
-                for suid, lm in local_models
-            ],
-        })
+        await self.ws.send_json(self._build_snapshot())
 
         self.manager.uplink_client_count += 1
 
@@ -601,6 +609,7 @@ class UplinkConnection:
             asyncio.create_task(self._listen_server_status(model_suids)),
             asyncio.create_task(self._listen_server_log(model_suids)),
             asyncio.create_task(self._listen_health(model_suids)),
+            asyncio.create_task(self._listen_config_changed()),
         ]
         slot_handles: list[int] = []
         for suid in model_suids:
@@ -701,6 +710,17 @@ class UplinkConnection:
                         "suid": suid,
                         "health": event.get("data", {}).get("health"),
                     })
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self.manager.event_bus.unsubscribe(q)
+
+    async def _listen_config_changed(self) -> None:
+        q = self.manager.event_bus.subscribe("config_changed")
+        try:
+            while True:
+                await q.get()
+                self._push_json(self._build_snapshot())
         except asyncio.CancelledError:
             pass
         finally:
