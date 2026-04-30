@@ -68,16 +68,16 @@ class ModelConfig(BaseModel):
 
     @property
     def effective_id(self) -> str:
-        """Return explicit id, or derive from model_path/remote info."""
+        """Return explicit id, or derive from model_path/remote info. Always lowercase."""
         if self.id:
-            return self.id
+            return self.id.lower()
         if self.type == "remote":
             if self.remote_model_id:
-                return self.remote_model_id
+                return self.remote_model_id.lower()
             if self.remote_address:
                 return (
                     self.remote_address.rstrip("/").rsplit("/", 1)[-1].rsplit(":", 1)[0]
-                )
+                ).lower()
             return ""
         if self.model_path:
             from pathlib import PurePosixPath

@@ -102,6 +102,8 @@ class ProxyHandler:
             if method == "POST":
                 body = await request.json()
                 model_id = body.get("model")
+                if isinstance(model_id, str):
+                    model_id = model_id.lower()
 
                 candidates = self._manager.find_backends(model_id)
                 if not candidates:
