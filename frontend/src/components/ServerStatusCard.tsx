@@ -343,8 +343,17 @@ export default function ServerStatusCard({
             onMouseLeave={scheduleHide}
             onClick={(e) => e.stopPropagation()}
           >
-            <span className="text-xs text-gray-500 mr-2">model id</span>
-            <span className="text-xs font-mono text-gray-200">{modelId}</span>
+            <span className="text-xs text-gray-500 mr-2">model id:</span>
+            <span
+              className="text-xs font-mono text-gray-200"
+              onDoubleClick={(e) => {
+                const range = document.createRange();
+                range.selectNodeContents(e.currentTarget);
+                const sel = window.getSelection();
+                sel?.removeAllRanges();
+                sel?.addRange(range);
+              }}
+            >{modelId}</span>
           </div>
         )}
         <button
