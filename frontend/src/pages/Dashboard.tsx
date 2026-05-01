@@ -140,16 +140,26 @@ function connectionDot(state: RemoteManagerStatus["connection_state"]) {
   return "bg-gray-600";
 }
 
+function remoteHref(url: string) {
+  return /^https?:\/\//i.test(url) ? url : `http://${url}`;
+}
+
 function RemoteManagerSection({ rm, proxyBaseUrl }: { rm: RemoteManagerStatus; proxyBaseUrl: string }) {
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2 mt-2">
         <span className={`h-2 w-2 rounded-full flex-shrink-0 ${connectionDot(rm.connection_state)}`} />
         <span className="text-sm font-medium text-gray-300">
-          {rm.name ?? rm.url}
+          {rm.name ?? (
+            <a href={remoteHref(rm.url)} target="_blank" rel="noreferrer" className="hover:text-gray-100">
+              {rm.url}
+            </a>
+          )}
         </span>
         {rm.name && (
-          <span className="text-xs text-gray-600">{rm.url}</span>
+          <a href={remoteHref(rm.url)} target="_blank" rel="noreferrer" className="text-xs text-gray-600 hover:text-gray-400">
+            {rm.url}
+          </a>
         )}
         {rm.connection_state !== "connected" && (
           <span className="text-xs text-gray-600 capitalize">{rm.connection_state}</span>
