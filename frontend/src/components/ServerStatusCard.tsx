@@ -219,7 +219,7 @@ function remoteDisplay(health: HealthStatus | null): {
 
 interface Props {
   name: string;
-  modelId?: string;
+  modelId?: string | null;
   modelSuid?: string;
   status: ServerStatus;
   onClick?: () => void;
