@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 from llama_manager.manager.backends.remote_proxy import RemoteModelProxy
 from .handler import ProxyHandler
 from .openai import OpenAIAdapter
+from .anthropic import AnthropicAdapter
 from .request_log import RequestLog
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,12 @@ class ProxyServer:
         )
         self.app.middleware("http")(self._request_id_middleware)
         self._slot_resolve_locks: dict[str, asyncio.Lock] = {}
+
+        # Anthropic /v1/messages must be registered before the OpenAI catch-all.
+        self.app.api_route(
+            "/v1/messages", methods=["POST"],
+            response_model=None,
+        )(self._anthropic_handle())
 
         self.app.api_route(
             "/v1/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
@@ -93,6 +100,14 @@ class ProxyServer:
 
     def _openai_handle(self) -> ProxyHandler:
         return ProxyHandler(self._manager, OpenAIAdapter(), self)
+
+    def _anthropic_handle(self):
+        handler = ProxyHandler(self._manager, AnthropicAdapter(), self)
+
+        async def _handle(request: Request):
+            return await handler.handle("chat/completions", request)
+
+        return _handle
 
     async def _direct_proxy(self, suid: str, path: str, request: Request) -> Response:
         model_config = next((m for m in self._manager.config.models if m.suid == suid), None)
