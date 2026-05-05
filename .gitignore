@@ -31,3 +31,4 @@ test_output/
 logs/
 logs*/
 logs*.txt
+*.log
