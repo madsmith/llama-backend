@@ -11,7 +11,7 @@ import httpx
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 from typing import Any, overload
 
 from typing import TYPE_CHECKING
@@ -46,6 +46,17 @@ class ProxyServer:
         )
         self.app.middleware("http")(self._request_id_middleware)
         self._slot_resolve_locks: dict[str, asyncio.Lock] = {}
+
+        # /v1/models routes must be registered before the OpenAI catch-all.
+        self.app.api_route(
+            "/v1/models", methods=["GET"],
+            response_model=None,
+        )(self._models_list())
+        
+        self.app.api_route(
+            "/v1/models/{model_id}", methods=["GET"],
+            response_model=None,
+        )(self._model_detail())
 
         # Anthropic /v1/messages must be registered before the OpenAI catch-all.
         self.app.api_route(
@@ -97,6 +108,57 @@ class ProxyServer:
         if suid not in self._slot_resolve_locks:
             self._slot_resolve_locks[suid] = asyncio.Lock()
         return self._slot_resolve_locks[suid]
+
+    def _models_list(self):
+        async def _handle(request: Request) -> JSONResponse:
+            seen: set[str] = set()
+            data = []
+            created = int(time.time())
+
+            all_backends = (
+                list(self._manager.get_remote_models())
+                + list(self._manager.get_local_models().values())
+                + list(self._manager.get_remote_unmanaged().values())
+            )
+
+            for backend in all_backends:
+                for model_id in backend.get_model_ids():
+                    if model_id and model_id not in seen:
+                        seen.add(model_id)
+                        data.append({
+                            "id": model_id,
+                            "object": "model",
+                            "created": created,
+                            "owned_by": "system",
+                        })
+
+            return JSONResponse({"object": "list", "data": data})
+
+        return _handle
+
+    def _model_detail(self):
+        async def _handle(model_id: str) -> JSONResponse:
+            all_backends = (
+                list(self._manager.get_remote_models())
+                + list(self._manager.get_local_models().values())
+                + list(self._manager.get_remote_unmanaged().values())
+            )
+
+            for backend in all_backends:
+                if model_id in backend.get_model_ids():
+                    return JSONResponse({
+                        "id": model_id,
+                        "object": "model",
+                        "created": int(time.time()),
+                        "owned_by": "system",
+                    })
+
+            return JSONResponse(
+                {"error": {"message": f"Model '{model_id}' not found", "type": "invalid_request_error", "code": "model_not_found"}},
+                status_code=404,
+            )
+
+        return _handle
 
     def _openai_handle(self) -> ProxyHandler:
         return ProxyHandler(self._manager, OpenAIAdapter(), self)
