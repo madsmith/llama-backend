@@ -285,6 +285,13 @@ class LlamaManager(LlamaManagerProtocol):
         await self.slot_status.start()
 
     async def _stop(self, vite: DevViteService | None) -> None:
+        # Kill Vite first — before any slow model/proxy teardown.  In dev mode
+        # watchfiles sends SIGTERM then waits 5 s before escalating to SIGKILL;
+        # if model cleanup exceeds that window the subprocess is SIGKILLed and
+        # Python's atexit handlers never run, leaving Vite orphaned.
+        if vite is not None:
+            await vite.stop()
+
         if self._data_publisher_task is not None:
             self._data_publisher_task.cancel()
             self._data_publisher_task = None
@@ -302,9 +309,6 @@ class LlamaManager(LlamaManagerProtocol):
 
         for local_model in self._local_models.values():
             await local_model.stop()
-
-        if vite is not None:
-            await vite.stop()
 
     def get_lifespan(self, vite: DevViteService | None = None):
         @asynccontextmanager
