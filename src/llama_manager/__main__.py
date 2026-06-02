@@ -10,11 +10,35 @@ def _dev_serve(host: str, port: int, log_level: str) -> None:
     """Entry point for the watchfiles subprocess in dev mode."""
     import uvicorn
 
+    # In dev mode Vite and uvicorn share the terminal, so crash output gets
+    # scrolled away. Mirror all logs to dev.log so there's always a record.
+    log_path = Path(__file__).resolve().parent.parent.parent / "dev.log"
+    file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    logging.root.addHandler(file_handler)
+
     uvicorn.run(
         "llama_manager.main:app",
         host=host,
         port=port,
         log_level=log_level,
+        log_config={
+            "version": 1,
+            "disable_existing_loggers": False,
+            "handlers": {
+                "default": {"class": "logging.StreamHandler", "stream": "ext://sys.stderr"},
+                "file": {"class": "logging.FileHandler", "filename": str(log_path), "encoding": "utf-8",
+                         "formatter": "default"},
+            },
+            "formatters": {
+                "default": {"format": "%(asctime)s %(levelname)s %(name)s: %(message)s"},
+            },
+            "loggers": {
+                "uvicorn": {"handlers": ["default", "file"], "level": log_level.upper(), "propagate": False},
+                "uvicorn.error": {"handlers": ["default", "file"], "level": log_level.upper(), "propagate": False},
+                "uvicorn.access": {"handlers": ["default", "file"], "level": log_level.upper(), "propagate": False},
+            },
+        },
     )
 
 
