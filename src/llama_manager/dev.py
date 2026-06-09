@@ -46,23 +46,11 @@ class DevViteService:
         # Claim ownership of the pgid; atexit becomes a no-op once we take over.
         pgid, self._pgid = self._pgid, None
         try:
-            os.killpg(pgid, signal.SIGTERM)
+            os.killpg(pgid, signal.SIGKILL)
         except ProcessLookupError:
             pass
         try:
-            await asyncio.wait_for(self._proc.wait(), timeout=5)
-        except asyncio.TimeoutError:
-            try:
-                os.killpg(pgid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
             await self._proc.wait()
         except asyncio.CancelledError:
-            # Event loop is shutting down (e.g. Ctrl-C). SIGTERM was already sent;
-            # escalate to SIGKILL so Vite doesn't outlive this process.
-            try:
-                os.killpg(pgid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            raise
+            pass
         logger.info("[dev] Vite dev server stopped")
