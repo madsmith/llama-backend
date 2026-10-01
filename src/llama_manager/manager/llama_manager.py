@@ -11,7 +11,7 @@ from fastapi import FastAPI
 
 from llama_manager.config import AppConfig, ModelConfig, save_config
 from llama_manager.dev import DevViteService
-from llama_manager.kv_cache import resolve_slot_save_path
+from llama_manager.kv_cache import PrunedFile, prune_slot_storage, resolve_slot_save_path
 from llama_manager.protocol.backend import Backend, LlamaManagerProtocol
 from llama_manager.proxy import ProxyServer, SlotStatusService
 from llama_manager.util.event_bus import EventBus
@@ -183,6 +183,17 @@ class LlamaManager(LlamaManagerProtocol):
         base = self.config.web_ui.slot_save_path or "./slot_saves"
         model_id = m.effective_id or suid
         return Path(base).expanduser().resolve() / model_id
+
+    def prune_slot_storage(self, keep: Path) -> list[PrunedFile]:
+        """Enforce web_ui.slot_storage_limit across all models' slot save dirs.
+
+        Call after saving ``keep``; returns the files deleted to make room.
+        """
+        limit_gb = self.config.web_ui.slot_storage_limit
+        if limit_gb is None:
+            return []
+        dirs = {p for m in self.config.models if (p := self.get_slot_save_path(m.suid)) is not None}
+        return prune_slot_storage(dirs, limit_gb * 1024**3, keep)
 
     async def ensure_server(self, backend: Backend) -> None:
         """Ensure a backend is ready to serve requests.

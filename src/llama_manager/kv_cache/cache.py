@@ -113,6 +113,20 @@ class KVCache:
             entry["last_slot_id"] = slot_id
             self._save()
 
+    def slot_file(self, cache_id: str) -> Path:
+        """Return the path llama-server writes a conversation's slot file to."""
+        return self._dir / f"{cache_id}.bin"
+
+    def time_accessed(self, cache_id: str) -> float | None:
+        """Return when a conversation was last saved or restored, if tracked."""
+        entry = self._entries.get(cache_id)
+        return entry["time_accessed"] if entry is not None else None
+
+    def forget(self, cache_id: str) -> None:
+        """Drop a conversation whose slot file has been deleted."""
+        if self._entries.pop(cache_id, None) is not None:
+            self._save()
+
 
 # ---------------------------------------------------------------------------
 # KVCacheProvider — singleton per slot_save_path

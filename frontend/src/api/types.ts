@@ -50,6 +50,7 @@ export interface WebUIConfig {
   log_buffer_size: number;
   filter_slot_queries?: boolean;
   slot_save_path?: string;
+  slot_storage_limit?: number | null;
   poll_server_status?: number | null;
   poll_proxy_status?: number | null;
   poll_health?: number | null;

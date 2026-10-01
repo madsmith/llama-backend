@@ -105,6 +105,16 @@ export default function ConfigEditor({
           note="Base directory for KV cache saves. Each model gets a subdirectory by model ID."
           bg="gray-800"
         />
+        <SliderField
+          label="Slot Storage Limit"
+          value={config.web_ui.slot_storage_limit ?? null}
+          onChange={(v) => setConfig({ ...config, web_ui: { ...config.web_ui, slot_storage_limit: v } })}
+          sliderMin={1}
+          sliderMax={100}
+          placeholder="unlimited"
+          tip="Total disk space, in GB, for KV cache slot saves across all models. After each save, the least recently used saves are deleted until the total is back under the limit. Clear for no limit."
+          bg="gray-800"
+        />
         <div className="border-t border-gray-700 pt-4 space-y-3">
           <span className="text-sm font-medium text-gray-300">Manager Uplink</span>
           <p className="text-xs text-gray-600">

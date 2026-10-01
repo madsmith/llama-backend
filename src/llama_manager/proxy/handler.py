@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import time
 from typing import TYPE_CHECKING, AsyncGenerator, AsyncIterator, Awaitable, Callable, Protocol
@@ -19,6 +18,7 @@ from llama_manager.config import ModelConfig
 from llama_manager.kv_cache import (
     CacheHit,
     CacheMiss,
+    KVCache,
     KVCacheProvider,
     SlotAvailabilityProvider,
 )
@@ -255,8 +255,7 @@ class ProxyHandler:
                         cache_id = result.get_cache_id()
                         client = self._manager.get_client_at(backend_url)
                         if await client.slot_save(slot_id, f"{cache_id}.bin"):
-                            self._proxy.log(f"KV cache: saved slot {slot_id} as {cache_id}.bin", request_id=request_id)
-                            kv.record_save(cache_id, slot_id)
+                            self._record_slot_save(kv, cache_id, slot_id, request_id)
 
                     resp_json = adapter.translate_response(resp.json())
                     if request_id:
@@ -355,6 +354,16 @@ class ProxyHandler:
             elapsed=elapsed, size=size,
             server_name=server_name, request_id=request_id,
         ))
+
+    def _record_slot_save(self, kv: KVCache, cache_id: str, slot_id: int, request_id: str | None) -> None:
+        """Record a successful slot save, then prune old saves over the storage limit."""
+        self._proxy.log(f"KV cache: saved slot {slot_id} as {cache_id}.bin", request_id=request_id)
+        kv.record_save(cache_id, slot_id)
+        for p in self._manager.prune_slot_storage(kv.slot_file(cache_id)):
+            self._proxy.log(
+                f"KV cache: pruned {p.path.parent.name}/{p.path.name} ({p.size / 1024**2:.0f} MB) to stay under storage limit",
+                request_id=request_id,
+            )
 
     @staticmethod
     def _rewrite_body(body: dict, model_id: str | None, backend: Backend) -> dict:
@@ -490,8 +499,7 @@ class ProxyHandler:
                 if stream_ok:
                     client = self._manager.get_client_at(backend_url)
                     if await client.slot_save(slot_id, f"{cache_id}.bin"):
-                        self._proxy.log(f"KV cache: saved slot {slot_id} as {cache_id}.bin", request_id=request_id)
-                        kv.record_save(cache_id, slot_id)
+                        self._record_slot_save(kv, cache_id, slot_id, request_id)
                 await slots.free(slot_id, cache_id)
 
         return StreamingResponse(response_generator(), media_type="text/event-stream")
