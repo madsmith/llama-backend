@@ -24,7 +24,12 @@ logger = logging.getLogger(__name__)
 
 type LocalModelIdentifier = str
 
-BACKEND_PENALTY_SECONDS = 600  # 10 minutes
+# How long a local model is deprioritized in routing after entering the error
+# state (e.g. crash, OOM). Keyed per model suid, not per manager. Penalized
+# backends are still tried as a last resort so JIT can restart them; this only
+# lets healthy alternatives serving the same model id go first. Cleared early
+# when the model reaches running or stopped.
+BACKEND_PENALTY_SECONDS = 60
 
 
 class LlamaManager(LlamaManagerProtocol):
@@ -108,10 +113,12 @@ class LlamaManager(LlamaManagerProtocol):
     # ------------------------------------------------------------------
 
     def find_backends(self, model_id: str | None) -> list[Backend]:
-        """Return all non-penalized backends matching model_id, best first.
+        """Return all backends matching model_id, best first.
 
         Remote proxies (uplink) come first, then local/unmanaged sorted by
-        priority descending.
+        priority descending. Penalized backends are kept as a last resort
+        (after all healthy ones) so a crashed model can still be JIT-restarted
+        when nothing else serves it.
         """
         result: list[Backend] = []
 
@@ -120,26 +127,25 @@ class LlamaManager(LlamaManagerProtocol):
             if model_id is None or model_id in proxy.get_model_ids():
                 result.append(proxy)
 
-        def _priority(b: Backend) -> int:
+        def _rank(b: Backend) -> tuple[bool, int]:
             m = self.get_model_config(b.get_suid())
-            return m.priority if m is not None else 1
+            priority = m.priority if m is not None else 1
+            return (not self.is_penalized(b.get_suid()), priority)
 
         candidates: list[Backend] = []
         for m in self._local_models.values():
             if model_id is None or model_id in m.get_model_ids():
-                if not self.is_penalized(m.get_suid()):
-                    candidates.append(m)
+                candidates.append(m)
         for m in self._remote_unmanaged.values():
             if model_id is None or model_id in m.get_model_ids():
-                if not self.is_penalized(m.get_suid()):
-                    candidates.append(m)
+                candidates.append(m)
 
-        candidates.sort(key=_priority, reverse=True)
+        candidates.sort(key=_rank, reverse=True)
         result.extend(candidates)
         return result
 
     def find_backend(self, model_id: str | None) -> Backend | None:
-        """Return the best non-penalized backend for model_id, or None."""
+        """Return the best backend for model_id (penalized last), or None."""
         backends = self.find_backends(model_id)
         return backends[0] if backends else None
 
