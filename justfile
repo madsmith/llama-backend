@@ -1,0 +1,2 @@
+default:
+	llama-manager --dev
