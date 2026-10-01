@@ -1,4 +1,4 @@
-export { Tip } from "./Tip";
+export { Tip, TipFlag } from "./Tip";
 export { default as ToggleField } from "./ToggleField";
 export { default as IntegerField } from "./IntegerField";
 export { default as SliderField } from "./SliderField";

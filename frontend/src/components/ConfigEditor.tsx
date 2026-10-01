@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { api } from "../api/client";
 import type { ServerConfig, ModelConfig, ModelAdvanced, RemoteManagerConfig } from "../api/types";
 import type { SettingsTab } from "./config-defaults";
-import { ToggleField, IntegerField, SliderField, TextField, PathField } from "./inputs";
+import { ToggleField, IntegerField, SliderField, TextField, PathField, TipFlag } from "./inputs";
 
 const CTX_MIN = 1;
 const CTX_MAX = 1_000_000;
@@ -499,6 +499,7 @@ export default function ConfigEditor({
                 onChange={(v) => updateModel({ parallel: v! })}
                 sliderMin={1}
                 sliderMax={8}
+                tip={<>Number of requests this server can process concurrently. Each slot gets its own context unless Unified KV Cache is on, so more slots use more memory.<TipFlag>--parallel</TipFlag></>}
               />
 
               <ToggleField
@@ -527,22 +528,26 @@ export default function ConfigEditor({
                 min={0}
                 placeholder="-1"
                 nullable
+                tip={<>Number of model layers to offload to the GPU. 0 runs entirely on CPU. Clear to use -1 (offload all layers).<TipFlag>--n-gpu-layers</TipFlag></>}
               />
 
               <ToggleField
                 label="Auto Start"
                 checked={model.auto_start}
                 onChange={(v) => updateModel({ auto_start: v })}
+                tip="Start this model's server automatically when Llama Manager launches."
               />
 
               <ToggleField
                 label="Allow Proxy"
                 checked={model.allow_proxy ?? true}
                 onChange={(v) => updateModel({ allow_proxy: v })}
+                tip={<>Allow direct access to this model's llama-server (web UI, <code>/slots</code>, <code>/props</code>, etc.) through the proxy at <code>/proxy/&lt;id&gt;/</code>. Does not affect <code>/v1</code> API routing.</>}
               />
 
               <IntegerField
                 label="Model TTL"
+                tip="Stop the server after this many minutes without requests. A model with a TTL is started on demand when a request arrives, even if JIT start is disabled. Clear to keep it running indefinitely."
                 unit="minutes"
                 value={model.model_ttl}
                 onChange={(v) => updateModel({ model_ttl: v })}
@@ -593,14 +598,14 @@ export default function ConfigEditor({
 
                   <ToggleField
                     label="Use Chat Template"
-                    tip={<>Apply the model's built-in Jinja2 chat template. Recommended for most models.<div className="mt-1 font-mono text-gray-400">--jinja</div></>}
+                    tip={<>Apply the model's built-in Jinja2 chat template. Recommended for most models.<TipFlag>--jinja</TipFlag></>}
                     checked={adv.use_jinja ?? true}
                     onChange={(v) => updateAdv({ use_jinja: v })}
                   />
 
                   <IntegerField
                     label="Max Prediction Tokens"
-                    tip={<>Cap the number of tokens generated per request. Clear to use the server default.<div className="mt-1 font-mono text-gray-400">--n-predict</div></>}
+                    tip={<>Cap the number of tokens generated per request. Clear to use the server default.<TipFlag>--n-predict</TipFlag></>}
                     value={adv.max_prediction_tokens}
                     onChange={(v) => updateAdv({ max_prediction_tokens: v })}
                     nullable
@@ -610,7 +615,7 @@ export default function ConfigEditor({
 
                   <TextField
                     label="Stop Token"
-                    tip={<>Halt generation when this string appears in the output.<div className="mt-1 font-mono text-gray-400">--stop</div></>}
+                    tip={<>Halt generation when this string appears in the output.<TipFlag>--stop</TipFlag></>}
                     value={adv.stop ?? ""}
                     placeholder="e.g. </s>"
                     onChange={(v) => updateAdv({ stop: v || null })}
@@ -620,7 +625,7 @@ export default function ConfigEditor({
                   {/* ── Sampling ── */}
                   <SliderField
                     label="Temperature"
-                    tip={<>Randomness of token selection. Lower = more focused, higher = more creative. Clear to use the server default.<div className="mt-1 font-mono text-gray-400">--temp</div><div className="mt-1 text-gray-500">Range: 0.0–1.5 · Default: 0.8</div></>}
+                    tip={<>Randomness of token selection. Lower = more focused, higher = more creative. Clear to use the server default.<TipFlag>--temp</TipFlag><div className="mt-1 text-gray-500">Range: 0.0–1.5 · Default: 0.8</div></>}
                     value={adv.temperature}
                     onChange={(v) => updateAdv({ temperature: v })}
                     sliderMin={0}
@@ -633,7 +638,7 @@ export default function ConfigEditor({
 
                   <SliderField
                     label="Nucleus Sampling (Top-P)"
-                    tip={<>Restrict selection to the smallest token set whose cumulative probability exceeds P. Lower values produce more focused output. Clear to use the server default.<div className="mt-1 font-mono text-gray-400">--top-p</div><div className="mt-1 text-gray-500">Recommended: 0.8–0.99 · Default: 0.95</div></>}
+                    tip={<>Restrict selection to the smallest token set whose cumulative probability exceeds P. Lower values produce more focused output. Clear to use the server default.<TipFlag>--top-p</TipFlag><div className="mt-1 text-gray-500">Recommended: 0.8–0.99 · Default: 0.95</div></>}
                     value={adv.top_p}
                     onChange={(v) => updateAdv({ top_p: v })}
                     sliderMin={5}
@@ -646,7 +651,7 @@ export default function ConfigEditor({
 
                   <SliderField
                     label="Top-K Sampling"
-                    tip={<>Limit selection to the K highest-probability tokens. 0 disables the filter. Clear to use the server default.<div className="mt-1 font-mono text-gray-400">--top-k</div><div className="mt-1 text-gray-500">Range: 0–200 · Default: 40</div></>}
+                    tip={<>Limit selection to the K highest-probability tokens. 0 disables the filter. Clear to use the server default.<TipFlag>--top-k</TipFlag><div className="mt-1 text-gray-500">Range: 0–200 · Default: 40</div></>}
                     value={adv.top_k}
                     onChange={(v) => updateAdv({ top_k: v })}
                     sliderMin={0}
@@ -657,7 +662,7 @@ export default function ConfigEditor({
 
                   <SliderField
                     label="Min-P Filter"
-                    tip={<>Remove tokens whose probability falls below min_p × P(top token). Clear to use the server default.<div className="mt-1 font-mono text-gray-400">--min-p</div><div className="mt-1 text-gray-500">Recommended: 0.0–0.05 · Default: 0.05</div></>}
+                    tip={<>Remove tokens whose probability falls below min_p × P(top token). Clear to use the server default.<TipFlag>--min-p</TipFlag><div className="mt-1 text-gray-500">Recommended: 0.0–0.05 · Default: 0.05</div></>}
                     value={adv.min_p}
                     onChange={(v) => updateAdv({ min_p: v })}
                     sliderMin={0}
@@ -670,7 +675,7 @@ export default function ConfigEditor({
 
                   <SliderField
                     label="Repeat Penalty"
-                    tip={<>Penalise tokens that have already appeared to reduce repetition. 1.0 disables. Clear to use the server default.<div className="mt-1 font-mono text-gray-400">--repeat-penalty</div><div className="mt-1 text-gray-500">Range: 1.0–2.0 · 1.0 = disabled</div></>}
+                    tip={<>Penalise tokens that have already appeared to reduce repetition. 1.0 disables. Clear to use the server default.<TipFlag>--repeat-penalty</TipFlag><div className="mt-1 text-gray-500">Range: 1.0–2.0 · 1.0 = disabled</div></>}
                     value={adv.repeat_penalty}
                     onChange={(v) => updateAdv({ repeat_penalty: v })}
                     sliderMin={0}
@@ -685,7 +690,7 @@ export default function ConfigEditor({
 
                   <SliderField
                     label="Repeat Last N"
-                    tip={<>Number of recent tokens considered when applying repeat penalty. Clear to use the server default.<div className="mt-1 font-mono text-gray-400">--repeat-last-n</div><div className="mt-1 text-gray-500">Range: 0–4096 · −1 = ctx size · Default: 64</div></>}
+                    tip={<>Number of recent tokens considered when applying repeat penalty. Clear to use the server default.<TipFlag>--repeat-last-n</TipFlag><div className="mt-1 text-gray-500">Range: 0–4096 · −1 = ctx size · Default: 64</div></>}
                     value={adv.repeat_last_n}
                     onChange={(v) => updateAdv({ repeat_last_n: v })}
                     sliderMin={-1}
@@ -697,7 +702,7 @@ export default function ConfigEditor({
                   {/* ── Slot / KV cache ── */}
                   <SliderField
                     label="Slot Prompt Similarity"
-                    tip={<>Reuse a cached slot whose stored prompt matches at least this fraction of the incoming prompt. Clear to disable slot reuse.<div className="mt-1 font-mono text-gray-400">--slot-prompt-similarity</div><div className="mt-1 text-gray-500">Range: 0.0–1.0</div></>}
+                    tip={<>Reuse a cached slot whose stored prompt matches at least this fraction of the incoming prompt. Clear to disable slot reuse.<TipFlag>--slot-prompt-similarity</TipFlag><div className="mt-1 text-gray-500">Range: 0.0–1.0</div></>}
                     value={adv.slot_prompt_similarity}
                     onChange={(v) => updateAdv({ slot_prompt_similarity: v })}
                     sliderMin={0}
@@ -710,21 +715,21 @@ export default function ConfigEditor({
 
                   <ToggleField
                     label="Auto-Fit Memory"
-                    tip={<>Automatically reduce unset parameters (e.g. context size) to fit in available device memory. Disable when using KV cache slot save/restore — if the model starts with different parameters than when the slot was saved, the slot file will be incompatible.<div className="mt-1 font-mono text-gray-400">--fit on|off</div><div className="mt-1 text-gray-500">Default: on</div></>}
+                    tip={<>Automatically reduce unset parameters (e.g. context size) to fit in available device memory. Disable when using KV cache slot save/restore — if the model starts with different parameters than when the slot was saved, the slot file will be incompatible.<TipFlag>--fit on|off</TipFlag><div className="mt-1 text-gray-500">Default: on</div></>}
                     checked={adv.fit ?? true}
                     onChange={(v) => updateAdv({ fit: v })}
                   />
 
                   <ToggleField
                     label="KV Cache"
-                    tip={<>Persist and restore slot KV state between requests. Experimental.<div className="mt-1 font-mono text-gray-400">--slots</div></>}
+                    tip={<>Persist and restore slot KV state between requests. Experimental.<TipFlag>--slots</TipFlag></>}
                     checked={adv.kv_cache}
                     onChange={(v) => updateAdv({ kv_cache: v })}
                   />
 
                   <TextField
                     label="Slot Save Path"
-                    tip={<>Directory for KV cache slot files. Blank uses the global path from the Manager tab.<div className="mt-1 font-mono text-gray-400">--slot-save-path</div></>}
+                    tip={<>Directory for KV cache slot files. Blank uses the global path from the Manager tab.<TipFlag>--slot-save-path</TipFlag></>}
                     value={adv.slot_save_path}
                     placeholder="/tmp/llama-slots"
                     onChange={(v) => updateAdv({ slot_save_path: v })}
@@ -732,7 +737,7 @@ export default function ConfigEditor({
 
                   <ToggleField
                     label="SWA Full Cache"
-                    tip={<>Use a full-size KV cache instead of sliding window attention. Required for Gemma 2/3 when context exceeds the model's window size.<div className="mt-1 font-mono text-gray-400">--swa-full</div></>}
+                    tip={<>Use a full-size KV cache instead of sliding window attention. Required for Gemma 2/3 when context exceeds the model's window size.<TipFlag>--swa-full</TipFlag></>}
                     checked={adv.swa_full}
                     onChange={(v) => updateAdv({ swa_full: v })}
                   />

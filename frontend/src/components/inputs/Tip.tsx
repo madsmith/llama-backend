@@ -1,5 +1,10 @@
 import { useState } from "react";
 
+/** llama-server CLI flag shown on its own line inside a Tip. */
+export function TipFlag({ children }: { children: React.ReactNode }) {
+  return <div className="mt-1 font-mono text-gray-400">{children}</div>;
+}
+
 export function Tip({ children }: { children: React.ReactNode }) {
   const [visible, setVisible] = useState(false);
   const [pos, setPos] = useState({ x: 0, y: 0 });
