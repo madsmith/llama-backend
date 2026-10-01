@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { api } from "../api/client";
 import type { ServerConfig } from "../api/types";
@@ -140,7 +140,7 @@ export default function Logs() {
   }, []);
 
   const remotes = useRemotes();
-  const models = config?.models ?? [];
+  const models = useMemo(() => config?.models ?? [], [config]);
   const localModels = models
     .map((m, i) => ({ model: m, index: i }))
     .filter(({ model }) => (model.type ?? "local") !== "remote");

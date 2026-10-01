@@ -46,7 +46,12 @@ export default function RequestDetail({ entry: initial, onClose, requestIds = []
     localStorage.setItem("pref:chatMode", chatMode ? "chat" : "raw");
   }, [chatMode]);
 
-  useEffect(() => setEntry(initial), [initial]);
+  // Reset to the new entry when the parent passes a different one.
+  const [prevInitial, setPrevInitial] = useState(initial);
+  if (initial !== prevInitial) {
+    setPrevInitial(initial);
+    setEntry(initial);
+  }
 
   useEffect(() => {
     if (!toast) return;

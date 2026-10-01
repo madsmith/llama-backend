@@ -10,7 +10,7 @@ export default function Slots() {
   const [slots, setSlots] = useState<SlotInfo[] | null>(null);
 
   useEffect(() => { document.title = "Llama Manager - Slots"; }, []);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(Boolean(modelSuid));
   const [error, setError] = useState("");
   const [modelName, setModelName] = useState<string | null>(null);
 
@@ -22,13 +22,15 @@ export default function Slots() {
     }).catch(() => {});
   }, [modelSuid]);
 
-  const refresh = useCallback(() => {
+  // Only sets state from async callbacks, so it is safe to call from an effect.
+  const load = useCallback(() => {
     if (!modelSuid) return;
-    setLoading(true);
-    setError("");
     api
       .getSlots(modelSuid)
-      .then(setSlots)
+      .then((s) => {
+        setSlots(s);
+        setError("");
+      })
       .catch(() => {
         setSlots(null);
         setError("Could not fetch slots. Is the server running?");
@@ -37,8 +39,14 @@ export default function Slots() {
   }, [modelSuid]);
 
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    load();
+  }, [load]);
+
+  const refresh = () => {
+    setLoading(true);
+    setError("");
+    load();
+  };
 
   const title = `${modelName ?? "Server"} Slots`;
 

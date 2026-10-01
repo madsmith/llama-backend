@@ -313,11 +313,13 @@ export default function ServerStatusCard({
   }, [status.state, requestSlots]);
 
   // Clear slots when server stops.
-  useEffect(() => {
+  const [prevState, setPrevState] = useState(status.state);
+  if (status.state !== prevState) {
+    setPrevState(status.state);
     if (status.state !== "running" && status.state !== "remote") {
       setSlots([]);
     }
-  }, [status.state]);
+  }
 
   const isRemote = status.state === "remote";
   const remote = isRemote ? remoteDisplay(health ?? null) : null;

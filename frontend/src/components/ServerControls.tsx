@@ -23,8 +23,7 @@ export default function ServerControls({ status, modelSuid, onAction }: Props) {
           unsub();
           reject(new Error("Timeout waiting for server response"));
         }, 10000);
-        let unsub: () => void;
-        unsub = ws.subscribe("server_control_response", (msg) => {
+        const unsub = ws.subscribe("server_control_response", (msg) => {
           if (msg.suid !== modelSuid) return;
           clearTimeout(timeout);
           unsub();

@@ -11,7 +11,7 @@ export default function Properties() {
   const [props, setProps] = useState<ModelProps | null>(null);
 
   useEffect(() => { document.title = "Llama Manager - Properties"; }, []);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(Boolean(modelSuid));
   const [error, setError] = useState("");
   const [modelName, setModelName] = useState<string | null>(null);
 
@@ -23,10 +23,9 @@ export default function Properties() {
     }).catch(() => {});
   }, [modelSuid]);
 
-  const refresh = useCallback(() => {
+  // Only sets state from async callbacks, so it is safe to call from an effect.
+  const load = useCallback(() => {
     if (!modelSuid) return;
-    setLoading(true);
-    setError("");
     getWsV2()
       .sendRequest<{ suid: string; props: ModelProps | null }>(
         { msg: "props", suid: modelSuid },
@@ -38,6 +37,7 @@ export default function Properties() {
           setError("Could not fetch properties. Is the server running?");
         } else {
           setProps(res.props);
+          setError("");
         }
       })
       .catch(() => {
@@ -48,8 +48,14 @@ export default function Properties() {
   }, [modelSuid]);
 
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    load();
+  }, [load]);
+
+  const refresh = () => {
+    setLoading(true);
+    setError("");
+    load();
+  };
 
   const title = `${modelName ?? "Server"} Properties`;
 
