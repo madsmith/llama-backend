@@ -752,6 +752,33 @@ export default function ConfigEditor({
                     onChange={(v) => updateAdv({ swa_full: v })}
                   />
 
+                  {/* ── Multimodal / speculative ── */}
+                  <PathField
+                    label="Multimodal Projector"
+                    tip={<>Projector file that lets the model accept images. Usually shipped alongside vision-capable GGUFs as <code>mmproj-*.gguf</code>. Blank for text only.<TipFlag>--mmproj</TipFlag></>}
+                    value={adv.mmproj_path ?? ""}
+                    onChange={(v) => updateAdv({ mmproj_path: v })}
+                  />
+
+                  <PathField
+                    label="Draft Model"
+                    tip={<>Smaller model used for speculative decoding: it drafts tokens that the main model then verifies, which speeds up generation. Must share the main model's vocabulary. Blank to disable.<TipFlag>--model-draft</TipFlag></>}
+                    value={adv.draft_model_path ?? ""}
+                    onChange={(v) => updateAdv({ draft_model_path: v })}
+                  />
+
+                  {adv.draft_model_path && (
+                    <IntegerField
+                      label="Draft GPU Layers"
+                      tip={<>Number of draft model layers to offload to the GPU. 0 runs the draft model on CPU. Clear to use the server default.<TipFlag>--n-gpu-layers-draft</TipFlag></>}
+                      value={adv.n_gpu_layers_draft ?? null}
+                      onChange={(v) => updateAdv({ n_gpu_layers_draft: v })}
+                      min={0}
+                      placeholder="default"
+                      nullable
+                    />
+                  )}
+
                   {/* ── Binary / misc ── */}
                   <TextField
                     label="llama-server Path Override"

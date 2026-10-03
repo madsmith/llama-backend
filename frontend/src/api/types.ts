@@ -25,6 +25,9 @@ export interface ModelAdvanced {
   top_k: number | null;
   min_p: number | null;
   stop: string | null;
+  mmproj_path?: string;
+  draft_model_path?: string;
+  n_gpu_layers_draft?: number | null;
 }
 
 export interface ModelConfig {

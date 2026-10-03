@@ -36,6 +36,9 @@ class ModelAdvanced(BaseModel):
     top_k: int | None = None
     min_p: float | None = None
     stop: str | None = None
+    mmproj_path: str = ""
+    draft_model_path: str = ""
+    n_gpu_layers_draft: int | None = None
 
 
 class ModelConfig(BaseModel):

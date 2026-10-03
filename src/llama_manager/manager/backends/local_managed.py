@@ -191,6 +191,9 @@ class LocalManagedModel(ManagedBackend):
 
             try:
                 model_path = self._resolve_model_path(self._model_config)
+                adv = self._model_config.advanced
+                self._check_optional_path(adv.mmproj_path, "multimodal projector")
+                self._check_optional_path(adv.draft_model_path, "draft model")
             except FileNotFoundError as exc:
                 self._fail(str(exc))
                 return
@@ -215,6 +218,11 @@ class LocalManagedModel(ManagedBackend):
         if not path.exists():
             raise FileNotFoundError(f"model not found: {path}")
         return path
+
+    @staticmethod
+    def _check_optional_path(value: str, what: str) -> None:
+        if value and not Path(value).expanduser().exists():
+            raise FileNotFoundError(f"{what} not found: {Path(value).expanduser()}")
 
     @staticmethod
     def _build_command(
@@ -281,6 +289,14 @@ class LocalManagedModel(ManagedBackend):
 
         if adv.stop:
             cmd += ["--stop", adv.stop]
+
+        if adv.mmproj_path:
+            cmd += ["--mmproj", str(Path(adv.mmproj_path).expanduser())]
+
+        if adv.draft_model_path:
+            cmd += ["--model-draft", str(Path(adv.draft_model_path).expanduser())]
+            if adv.n_gpu_layers_draft is not None:
+                cmd += ["--n-gpu-layers-draft", str(adv.n_gpu_layers_draft)]
 
         cmd += adv.extra_args
         return cmd
