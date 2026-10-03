@@ -105,6 +105,9 @@ def main() -> None:
             args=(args.host, args.port, log_level),
             step=8000,
             debounce=60000,
+            # Time allowed for graceful shutdown (stopping llama-servers) before
+            # SIGKILL. The default 5s is too short for large models to exit.
+            sigint_timeout=30,
         )
     else:
         import uvicorn

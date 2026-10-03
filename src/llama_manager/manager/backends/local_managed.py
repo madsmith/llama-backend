@@ -14,6 +14,8 @@ from llama_manager.util.log_buffer import LogBuffer
 from llama_manager.protocol.ws_messages import LogRecord as WireLogRecord
 from llama_manager.protocol.backend import LlamaManagerProtocol, ManagedBackend
 
+from .orphans import OrphanProcessManager
+
 # Regexes for parsing prompt processing progress from llama-server logs
 _RE_NEW_PROMPT = re.compile(
     r"slot update_slots: id\s+(\d+) \|.*\| new prompt,.*n_tokens\s*=\s*(\d+)"
@@ -51,9 +53,11 @@ class LocalManagedModel(ManagedBackend):
         log_buffer_size: int,
         llama_server_path: Path | None,
         slot_save_path: Path | None,
+        orphans: OrphanProcessManager,
         filter_slot_queries: bool = False,
     ) -> None:
         self._manager = manager
+        self._orphans = orphans
         self._model_config = model_config
         self._llama_server_path = llama_server_path
         self._slot_save_path = slot_save_path
@@ -315,6 +319,7 @@ class LocalManagedModel(ManagedBackend):
 
         self.pid = self.process.pid
         self.started_at = time.time()
+        self._orphans.record(self.pid, Path(cmd[0]))
         self._log(f"spawned pid {self.pid}")
         self._reader_task = asyncio.create_task(self._read_output())
 
@@ -342,6 +347,8 @@ class LocalManagedModel(ManagedBackend):
             self.process.kill()
             await self.process.wait()
             self._log(f"pid {pid} killed (rc={self.process.returncode})")
+        if pid is not None:
+            self._orphans.forget(pid)
 
         if self._reader_task and not self._reader_task.done():
             self._reader_task.cancel()
@@ -414,6 +421,8 @@ class LocalManagedModel(ManagedBackend):
 
         # Process exited on its own
         rc = self.process.returncode
+        if self.pid is not None:
+            self._orphans.forget(self.pid)
         if self.state in (ServerState.starting, ServerState.running):
             self._log(f"process exited unexpectedly (rc={rc})")
             self.process = None

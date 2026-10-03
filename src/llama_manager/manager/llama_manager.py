@@ -16,7 +16,12 @@ from llama_manager.protocol.backend import Backend, LlamaManagerProtocol
 from llama_manager.proxy import ProxyServer, SlotStatusService
 from llama_manager.util.event_bus import EventBus
 from llama_manager.manager.remote_client import RemoteManagerClient
-from llama_manager.manager.backends import LocalManagedModel, RemoteModelProxy, RemoteUnmanagedModel
+from llama_manager.manager.backends import (
+    LocalManagedModel,
+    OrphanProcessManager,
+    RemoteModelProxy,
+    RemoteUnmanagedModel,
+)
 
 from .llama_client import LlamaClient
 
@@ -46,6 +51,7 @@ class LlamaManager(LlamaManagerProtocol):
         self._ttl_task: asyncio.Task | None = None
         self._model_last_activity: dict[str, float] = {}
         self._penalized_until: dict[str, float] = {}
+        self.orphans = OrphanProcessManager(Path(config.pid_file))
 
     def enable_save_logs(self) -> None:
         self.proxy.enable_save_logs()
@@ -246,6 +252,7 @@ class LlamaManager(LlamaManagerProtocol):
             log_buffer_size=config.web_ui.log_buffer_size,
             llama_server_path=llama_server_path,
             slot_save_path=slot_save_path,
+            orphans=self.orphans,
             filter_slot_queries=config.web_ui.filter_slot_queries,
         )
 
@@ -282,6 +289,10 @@ class LlamaManager(LlamaManagerProtocol):
         self._initialize_models(self.config)
         self.remote_manager_clients = []
 
+        # Free ports held by llama-servers left behind by a previous manager
+        # that was killed before it could shut them down.
+        await self.orphans.kill_orphans()
+
         if vite is not None:
             await vite.start()
 
@@ -303,7 +314,7 @@ class LlamaManager(LlamaManagerProtocol):
 
     async def _stop(self, vite: DevViteService | None) -> None:
         # Kill Vite first — before any slow model/proxy teardown.  In dev mode
-        # watchfiles sends SIGTERM then waits 5 s before escalating to SIGKILL;
+        # watchfiles sends SIGINT then waits sigint_timeout before SIGKILL;
         # if model cleanup exceeds that window the subprocess is SIGKILLed and
         # Python's atexit handlers never run, leaving Vite orphaned.
         if vite is not None:
@@ -324,8 +335,9 @@ class LlamaManager(LlamaManagerProtocol):
 
         await self.proxy.stop()
 
-        for local_model in self._local_models.values():
-            await local_model.stop()
+        # Stop concurrently: large models can take seconds each to exit, and
+        # the dev reloader only allows a limited window before SIGKILL.
+        await asyncio.gather(*(m.stop() for m in self._local_models.values()))
 
     def get_lifespan(self, vite: DevViteService | None = None):
         @asynccontextmanager

@@ -91,6 +91,7 @@ export interface ServerConfig {
   manager_uplink?: ManagerUplinkConfig;
   remote_managers?: RemoteManagerConfig[];
   manager_id?: string;
+  pid_file?: string;
 }
 
 export interface RemoteModelInfo {

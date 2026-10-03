@@ -136,6 +136,7 @@ class AppConfig(BaseModel):
     manager_uplink: ManagerUplinkConfig = ManagerUplinkConfig()
     remote_managers: list[RemoteManagerConfig] = []
     manager_id: str = ""
+    pid_file: str = "./llama-server-pids.json"  # spawned llama-server PIDs, for reaping orphans
 
 
 def load_config() -> AppConfig:

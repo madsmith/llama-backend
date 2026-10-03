@@ -25,6 +25,7 @@ uv.lock
 .DS_Store
 
 # Runtime state
+llama-server-pids.json
 slot_saves
 slot_output/*
 test_output/
