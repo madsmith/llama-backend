@@ -815,7 +815,7 @@ export default function ConfigEditor({
           {saving ? "Saving..." : "Save Configuration"}
         </button>
         {msg && <span className="text-sm text-gray-400">{msg}</span>}
-        {modelIndex > 0 && (
+        {config.models.length > 1 && (
           <button
             onClick={() => onDeleteModel(modelIndex)}
             className="ml-auto rounded-md bg-red-900/50 px-4 py-2 text-sm font-medium text-red-400 hover:bg-red-900 transition"
