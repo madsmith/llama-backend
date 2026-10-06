@@ -114,6 +114,11 @@ class LlamaManager(LlamaManagerProtocol):
         elif state == "error":
             self.penalize(suid)
 
+        # Start the TTL idle timer fresh on every start (manual, auto, or JIT);
+        # otherwise a stale timestamp from a previous run stops it immediately.
+        if state == "running":
+            self.touch(suid)
+
     # ------------------------------------------------------------------
     # Backend resolution
     # ------------------------------------------------------------------
