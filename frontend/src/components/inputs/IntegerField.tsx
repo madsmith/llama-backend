@@ -77,7 +77,7 @@ export default function IntegerField({
           type="button"
           onClick={() => onChange(null)}
           aria-label="Clear"
-          className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-full pl-2 pr-4 py-2 invisible group-hover:visible text-red-500 hover:text-red-300 transition-colors"
+          className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-full pl-1 pr-1 py-2 invisible group-hover:visible text-red-500 hover:text-red-300 transition-colors"
         >
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
             <line x1="2" y1="2" x2="12" y2="12" />
