@@ -27,6 +27,7 @@ import ServerControls from "../components/ServerControls";
 import ProxyStatusCard from "../components/ProxyStatusCard";
 import ProxyControls from "../components/ProxyControls";
 import HealthCard from "../components/HealthCard";
+import ToggleSelector from "../components/inputs/ToggleSelector";
 import {
   useProxyStatusWS,
   useServerStatusWS,
@@ -54,6 +55,7 @@ function ModelPanel({
   hasTTL,
   allowProxy,
   proxyBaseUrl,
+  hideStopped,
   onSnapshot,
 }: {
   modelIndex: number;
@@ -66,6 +68,7 @@ function ModelPanel({
   hasTTL: boolean;
   allowProxy: boolean;
   proxyBaseUrl: string;
+  hideStopped: boolean;
   onSnapshot: (index: number, snap: ServerSnapshot) => void;
 }) {
   const navigate = useNavigate();
@@ -76,6 +79,8 @@ function ModelPanel({
   useEffect(() => {
     onSnapshot(modelIndex, { name, status, health, autoStart, hasTTL });
   }, [modelIndex, name, status, health, autoStart, hasTTL, onSnapshot]);
+
+  if (hideStopped && status?.state === "stopped") return null;
 
   return (
     <div className="space-y-4">
@@ -107,16 +112,20 @@ function RemoteModelPanel({
   name,
   allowProxy,
   proxyBaseUrl,
+  hideStopped,
 }: {
   modelSuid: string;
   modelId: string;
   name: string;
   allowProxy: boolean;
   proxyBaseUrl: string;
+  hideStopped: boolean;
 }) {
   const navigate = useNavigate();
   const { status, refresh } = useServerStatusWS(modelSuid);
   const statusOrUnknown = status ?? { state: "unknown" as const, pid: null, host: null, port: null, uptime: null };
+
+  if (hideStopped && status?.state === "stopped") return null;
 
   return (
     <div className="space-y-4">
@@ -144,7 +153,15 @@ function remoteHref(url: string) {
   return /^https?:\/\//i.test(url) ? url : `http://${url}`;
 }
 
-function RemoteManagerSection({ rm, proxyBaseUrl }: { rm: RemoteManagerStatus; proxyBaseUrl: string }) {
+function RemoteManagerSection({
+  rm,
+  proxyBaseUrl,
+  hideStopped,
+}: {
+  rm: RemoteManagerStatus;
+  proxyBaseUrl: string;
+  hideStopped: boolean;
+}) {
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2 mt-2">
@@ -175,6 +192,7 @@ function RemoteManagerSection({ rm, proxyBaseUrl }: { rm: RemoteManagerStatus; p
               name={m.name ?? "Remote Model"}
               allowProxy={m.allow_proxy ?? true}
               proxyBaseUrl={proxyBaseUrl}
+              hideStopped={hideStopped}
             />
           ))}
         </div>
@@ -192,6 +210,12 @@ export default function Dashboard() {
   );
   const remotes = useRemotes();
   const uplink = useUplinkStatus();
+  const [controlsOpen, setControlsOpen] = useState(false);
+  const [hideStopped, setHideStopped] = useState(() => localStorage.getItem("pref:hideStopped") === "true");
+
+  useEffect(() => {
+    localStorage.setItem("pref:hideStopped", String(hideStopped));
+  }, [hideStopped]);
 
   useEffect(() => {
     document.title = "Llama Manager - Dashboard";
@@ -218,7 +242,42 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Dashboard</h1>
+      <div>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-bold">Dashboard</h1>
+          <button
+            onClick={() => setControlsOpen((o) => !o)}
+            aria-expanded={controlsOpen}
+            aria-label={controlsOpen ? "Hide dashboard controls" : "Show dashboard controls"}
+            className="p-1 rounded text-gray-500 hover:text-gray-200 hover:bg-gray-800 transition"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 14 14"
+              className={`w-4 h-4 transition-transform duration-200 ${controlsOpen ? "rotate-45" : ""}`}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            >
+              <line x1="7" y1="2" x2="7" y2="12" />
+              <line x1="2" y1="7" x2="12" y2="7" />
+            </svg>
+          </button>
+        </div>
+        <div
+          className={`grid transition-all duration-200 ease-out ${
+            controlsOpen ? "grid-rows-[1fr] opacity-100 mt-3" : "grid-rows-[0fr] opacity-0"
+          }`}
+          inert={!controlsOpen}
+        >
+          <div className="overflow-hidden">
+            <div className="flex items-center gap-6 px-4 py-3 rounded-lg border border-gray-800 bg-gray-900">
+              <ToggleSelector label="Hide stopped" checked={hideStopped} onChange={setHideStopped} />
+            </div>
+          </div>
+        </div>
+      </div>
       <div className="flex gap-6 items-start flex-wrap">
         <div className="space-y-4">
           <ProxyStatusCard status={proxyStatus} onClick={() => navigate("/logs/proxy")} />
@@ -237,6 +296,7 @@ export default function Dashboard() {
             hasTTL={m.model_ttl != null}
             allowProxy={m.allow_proxy ?? true}
             proxyBaseUrl={proxyBaseUrl}
+            hideStopped={hideStopped}
             onSnapshot={handleSnapshot}
           />
         ))}
@@ -245,7 +305,7 @@ export default function Dashboard() {
         <div className="space-y-4">
           <h2 className="text-lg font-semibold text-gray-400">Remotes</h2>
           {remotes.map((rm) => (
-            <RemoteManagerSection key={rm.index} rm={rm} proxyBaseUrl={proxyBaseUrl} />
+            <RemoteManagerSection key={rm.index} rm={rm} proxyBaseUrl={proxyBaseUrl} hideStopped={hideStopped} />
           ))}
         </div>
       )}
