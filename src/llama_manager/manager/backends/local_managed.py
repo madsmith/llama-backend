@@ -267,6 +267,18 @@ class LocalManagedModel(ManagedBackend):
             slot_save_path.mkdir(parents=True, exist_ok=True)
             cmd += ["--slot-save-path", str(slot_save_path)]
 
+        if adv.cache_ram is not None:
+            cmd += ["--cache-ram", str(adv.cache_ram)]
+
+        if not adv.cache_idle_slots:
+            cmd += ["--no-cache-idle-slots"]
+
+        if adv.cache_reuse is not None:
+            cmd += ["--cache-reuse", str(adv.cache_reuse)]
+
+        if adv.metrics:
+            cmd += ["--metrics"]
+
         if adv.swa_full:
             cmd += ["--swa-full"]
 

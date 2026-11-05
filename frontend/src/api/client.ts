@@ -26,6 +26,7 @@ export const api = {
     request<ServerStatus>(`/api/server/stop?suid=${encodeURIComponent(suid)}`, { method: "POST" }),
   restart: (suid: string) =>
     request<ServerStatus>(`/api/server/restart?suid=${encodeURIComponent(suid)}`, { method: "POST" }),
+  getSystemInfo: () => request<{ total_ram_mib: number | null }>("/api/status/system"),
   getProxyStatus: () => request<ProxyStatus>("/api/server/proxy-status"),
   proxyStart: () =>
     request<ProxyStatus>("/api/server/proxy-start", { method: "POST" }),

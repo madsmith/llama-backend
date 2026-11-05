@@ -27,6 +27,10 @@ class ModelAdvanced(BaseModel):
     kv_cache: bool = False
     slot_save_path: str = ""
     swa_full: bool = False
+    cache_ram: int | None = None
+    cache_idle_slots: bool = True
+    cache_reuse: int | None = None
+    metrics: bool = False
     max_prediction_tokens: int | None = None
     extra_args: list[str] = []
     fit: bool = True

@@ -13,6 +13,7 @@ def make_router(manager: LlamaManager) -> APIRouter:
     status_routes = StatusRoutes(manager)
     request_routes = RequestRoutes(manager.proxy)
 
+    router.get("/system")(status_routes.get_system)
     router.get("/health")(status_routes.get_health)
     router.get("/slots")(status_routes.get_slots)
     router.post("/slots/cancel")(status_routes.cancel_slot)

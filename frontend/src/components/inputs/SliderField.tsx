@@ -24,6 +24,10 @@ interface SliderFieldProps {
   /** Snap slider changes to nearest multiple of this value (slider units) */
   snap?: number;
   bg?: "gray-800" | "gray-900";
+  /** Badge shown next to the label when value is null (default "default", i.e. the server default applies) */
+  nullLabel?: string;
+  /** Badges shown next to the label for specific sentinel values, e.g. {0: "disabled"} */
+  valueLabels?: Record<number, string>;
 }
 
 export default function SliderField({
@@ -44,6 +48,8 @@ export default function SliderField({
   nullDefault,
   snap,
   bg = "gray-900",
+  nullLabel = "default",
+  valueLabels,
 }: SliderFieldProps) {
   const numberStep = precision === 0 ? 1 : Math.pow(10, -precision);
   const numberMin = sliderMin / scale + offset;
@@ -56,7 +62,7 @@ export default function SliderField({
 
   const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     let pos = Number(e.target.value);
-    if (snap) pos = Math.round(pos / snap) * snap;
+    if (snap && pos !== sliderMin && pos !== sliderMax) pos = Math.min(sliderMax, Math.round(pos / snap) * snap);
     if (nullAtSliderMin && pos === sliderMin) {
       onChange(null);
     } else {
@@ -89,8 +95,10 @@ export default function SliderField({
       <label className="block text-sm font-medium text-gray-400 mb-1">
         {label}
         {tip && <Tip>{tip}</Tip>}
-        {value === null && (
-          <span className="ml-1 text-xs text-gray-600 font-normal">off</span>
+        {value === null ? (
+          <span className="ml-1 text-xs text-gray-600 font-normal">{nullLabel}</span>
+        ) : valueLabels?.[value] !== undefined && (
+          <span className="ml-1 text-xs text-gray-600 font-normal">{valueLabels[value]}</span>
         )}
       </label>
       <div className="relative flex items-center gap-3">

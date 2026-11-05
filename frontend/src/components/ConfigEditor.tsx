@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { api } from "../api/client";
 import type { ServerConfig, ModelConfig, ModelAdvanced, RemoteManagerConfig } from "../api/types";
 import type { SettingsTab } from "./config-defaults";
-import { ToggleField, IntegerField, SliderField, TextField, PathField, TipFlag } from "./inputs";
+import { ToggleField, IntegerField, SliderField, TextField, PathField, TipFlag, SectionDivider } from "./inputs";
 
 const CTX_MIN = 1;
 const CTX_MAX = 1_000_000;
@@ -30,6 +30,11 @@ export default function ConfigEditor({
   const [managerAdvanced, setManagerAdvanced] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
+  const [totalRamMib, setTotalRamMib] = useState<number | null>(null);
+
+  useEffect(() => {
+    api.getSystemInfo().then((r) => setTotalRamMib(r.total_ram_mib)).catch(() => {});
+  }, []);
   const model = config.models[modelIndex];
   const adv = model.advanced;
 
@@ -112,6 +117,7 @@ export default function ConfigEditor({
           sliderMin={1}
           sliderMax={100}
           placeholder="unlimited"
+          nullLabel="unlimited"
           tip="Total disk space, in GB, for KV cache slot saves across all models. After each save, the least recently used saves are deleted until the total is back under the limit. Clear for no limit."
           bg="gray-800"
         />
@@ -582,6 +588,8 @@ export default function ConfigEditor({
               {advanced && (
                 <div className="space-y-4 border-l-2 border-gray-700 pl-6">
 
+                  <SectionDivider title="Proxy" first />
+
                   <IntegerField
                     label="Priority"
                     tip="When multiple backends serve the same model ID, the one with the highest priority handles the request."
@@ -591,7 +599,6 @@ export default function ConfigEditor({
                     placeholder="1"
                   />
 
-                  {/* ── Output ── */}
                   <ToggleField
                     label="Stream Responses"
                     tip="Send tokens as they are generated rather than waiting for the full reply"
@@ -605,6 +612,8 @@ export default function ConfigEditor({
                     checked={adv.supports_developer_role}
                     onChange={(v) => updateAdv({ supports_developer_role: v })}
                   />
+
+                  <SectionDivider title="Generation" />
 
                   <ToggleField
                     label="Use Chat Template"
@@ -632,7 +641,8 @@ export default function ConfigEditor({
                     mono
                   />
 
-                  {/* ── Sampling ── */}
+                  <SectionDivider title="Sampling" />
+
                   <SliderField
                     label="Temperature"
                     tip={<>Randomness of token selection. Lower = more focused, higher = more creative. Clear to use the server default.<TipFlag>--temp</TipFlag><div className="mt-1 text-gray-500">Range: 0.0–1.5 · Default: 0.8</div></>}
@@ -709,19 +719,54 @@ export default function ConfigEditor({
                     nullSliderPosition={64}
                   />
 
-                  {/* ── Slot / KV cache ── */}
+                  <SectionDivider title="Prompt Cache" />
+
                   <SliderField
                     label="Slot Prompt Similarity"
-                    tip={<>Reuse a cached slot whose stored prompt matches at least this fraction of the incoming prompt. Clear to disable slot reuse.<TipFlag>--slot-prompt-similarity</TipFlag><div className="mt-1 text-gray-500">Range: 0.0–1.0</div></>}
+                    tip={<>Route a request to the slot whose stored prompt matches at least this fraction of it. 0.0 disables similarity routing — do this when relying on the RAM prompt cache with many agents, so agents aren't routed into each other's slots. Clear to use the server default.<TipFlag>--slot-prompt-similarity</TipFlag><div className="mt-1 text-gray-500">Range: 0.0–1.0 · 0.0 = disabled · Default: 0.10</div></>}
                     value={adv.slot_prompt_similarity}
                     onChange={(v) => updateAdv({ slot_prompt_similarity: v })}
                     sliderMin={0}
                     sliderMax={100}
                     scale={100}
                     precision={2}
-                    placeholder="off"
-                    nullAtSliderMin
+                    placeholder="0.10"
+                    nullSliderPosition={10}
+                    valueLabels={{ 0: "disabled" }}
                   />
+
+                  <SliderField
+                    label="Prompt Cache RAM (MiB)"
+                    tip={<>Host-RAM ceiling for the prompt cache. Idle slots' KV state is parked here and restored on the next turn instead of re-running prefill, so many more conversations than slots can stay warm. Slider snaps to whole GiB; type an exact value in the box. Clear to use the server default.<TipFlag>--cache-ram</TipFlag><div className="mt-1 text-gray-500">−1 = no limit · 0 = disabled · Max: system RAM{totalRamMib ? ` (${totalRamMib} MiB)` : ""} · Default: 8192</div></>}
+                    value={adv.cache_ram ?? null}
+                    onChange={(v) => updateAdv({ cache_ram: v })}
+                    sliderMin={-1}
+                    sliderMax={totalRamMib ?? 131072}
+                    snap={1024}
+                    placeholder="8192"
+                    nullSliderPosition={8192}
+                    valueLabels={{ [-1]: "no limit", 0: "disabled" }}
+                  />
+
+                  <ToggleField
+                    label="Cache Idle Slots"
+                    tip={<>When a new task arrives, save idle slots into the RAM prompt cache (and clear them when using unified KV). Requires Prompt Cache RAM to be non-zero.<TipFlag>--cache-idle-slots / --no-cache-idle-slots</TipFlag><div className="mt-1 text-gray-500">Default: on</div></>}
+                    checked={adv.cache_idle_slots ?? true}
+                    onChange={(v) => updateAdv({ cache_idle_slots: v })}
+                  />
+
+                  <IntegerField
+                    label="Cache Reuse Chunk"
+                    unit="tokens"
+                    tip={<>Minimum chunk size to try reusing from the cache via KV shifting, so a prompt that differs from the cached one in the middle can still reuse the matching chunks. Clear to use the server default.<TipFlag>--cache-reuse</TipFlag><div className="mt-1 text-gray-500">0 = disabled · Default: 0</div></>}
+                    value={adv.cache_reuse ?? null}
+                    onChange={(v) => updateAdv({ cache_reuse: v })}
+                    min={0}
+                    placeholder="0"
+                    nullable
+                  />
+
+                  <SectionDivider title="Memory" />
 
                   <ToggleField
                     label="Auto-Fit Memory"
@@ -729,6 +774,15 @@ export default function ConfigEditor({
                     checked={adv.fit ?? true}
                     onChange={(v) => updateAdv({ fit: v })}
                   />
+
+                  <ToggleField
+                    label="SWA Full Cache"
+                    tip={<>Use a full-size KV cache instead of sliding window attention. Required for Gemma 2/3 when context exceeds the model's window size.<TipFlag>--swa-full</TipFlag></>}
+                    checked={adv.swa_full}
+                    onChange={(v) => updateAdv({ swa_full: v })}
+                  />
+
+                  <SectionDivider title="Slot Persistence" />
 
                   <ToggleField
                     label="KV Cache"
@@ -745,14 +799,8 @@ export default function ConfigEditor({
                     onChange={(v) => updateAdv({ slot_save_path: v })}
                   />
 
-                  <ToggleField
-                    label="SWA Full Cache"
-                    tip={<>Use a full-size KV cache instead of sliding window attention. Required for Gemma 2/3 when context exceeds the model's window size.<TipFlag>--swa-full</TipFlag></>}
-                    checked={adv.swa_full}
-                    onChange={(v) => updateAdv({ swa_full: v })}
-                  />
+                  <SectionDivider title="Multimodal & Speculative" />
 
-                  {/* ── Multimodal / speculative ── */}
                   <PathField
                     label="Multimodal Projector"
                     tip={<>Projector file that lets the model accept images. Usually shipped alongside vision-capable GGUFs as <code>mmproj-*.gguf</code>. Blank for text only.<TipFlag>--mmproj</TipFlag></>}
@@ -779,7 +827,15 @@ export default function ConfigEditor({
                     />
                   )}
 
-                  {/* ── Binary / misc ── */}
+                  <SectionDivider title="Server" />
+
+                  <ToggleField
+                    label="Metrics Endpoint"
+                    tip={<>Expose Prometheus-compatible metrics at <code>/metrics</code> on the model's llama-server port.<TipFlag>--metrics</TipFlag></>}
+                    checked={adv.metrics ?? false}
+                    onChange={(v) => updateAdv({ metrics: v })}
+                  />
+
                   <TextField
                     label="llama-server Path Override"
                     tip="Use a different llama-server binary for this model only. Blank inherits the path from the Proxy Server tab."
