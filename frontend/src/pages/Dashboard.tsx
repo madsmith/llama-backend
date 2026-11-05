@@ -80,7 +80,9 @@ function ModelPanel({
     onSnapshot(modelIndex, { name, status, health, autoStart, hasTTL });
   }, [modelIndex, name, status, health, autoStart, hasTTL, onSnapshot]);
 
-  if (hideStopped && status?.state === "stopped") return null;
+  // Only hide servers that are stopped by design (TTL-managed or not auto-started);
+  // a stopped auto-start server is faulted and must stay visible.
+  if (hideStopped && status?.state === "stopped" && (hasTTL || !autoStart)) return null;
 
   return (
     <div className="space-y-4">
@@ -110,6 +112,8 @@ function RemoteModelPanel({
   modelSuid,
   modelId,
   name,
+  autoStart,
+  hasTTL,
   allowProxy,
   proxyBaseUrl,
   hideStopped,
@@ -117,6 +121,8 @@ function RemoteModelPanel({
   modelSuid: string;
   modelId: string;
   name: string;
+  autoStart: boolean;
+  hasTTL: boolean;
   allowProxy: boolean;
   proxyBaseUrl: string;
   hideStopped: boolean;
@@ -125,7 +131,7 @@ function RemoteModelPanel({
   const { status, refresh } = useServerStatusWS(modelSuid);
   const statusOrUnknown = status ?? { state: "unknown" as const, pid: null, host: null, port: null, uptime: null };
 
-  if (hideStopped && status?.state === "stopped") return null;
+  if (hideStopped && status?.state === "stopped" && (hasTTL || !autoStart)) return null;
 
   return (
     <div className="space-y-4">
@@ -190,6 +196,8 @@ function RemoteManagerSection({
               modelSuid={m.suid}
               modelId={m.model_id}
               name={m.name ?? "Remote Model"}
+              autoStart={m.auto_start}
+              hasTTL={m.has_ttl}
               allowProxy={m.allow_proxy ?? true}
               proxyBaseUrl={proxyBaseUrl}
               hideStopped={hideStopped}
