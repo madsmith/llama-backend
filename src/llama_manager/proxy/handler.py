@@ -24,10 +24,16 @@ from llama_manager.kv_cache import (
     SlotAvailabilityProvider,
 )
 
+from llama_manager.manager.backends.remote_proxy import RemoteModelProxy
+
 from .active_requests import ActiveRequestManager
 from llama_manager.util.log_buffer import ProxyRequest, ProxyResponse
 
 logger = logging.getLogger(__name__)
+
+# Request header that pins a request to one backend (by suid), bypassing
+# priority routing and fallback. Forwarded to remote managers so they pin too.
+BACKEND_HEADER = "x-llama-backend"
 
 
 class ProtocolAdapter(Protocol):
@@ -106,7 +112,31 @@ class ProxyHandler:
                 if isinstance(model_id, str):
                     model_id = model_id.lower()
 
-                candidates = self._manager.find_backends(model_id)
+                pinned_suid = request.headers.get(BACKEND_HEADER)
+                if pinned_suid:
+                    pinned = self._manager.find_backend_by_suid(pinned_suid)
+                    pinned_ids = [i.lower() for i in pinned.get_model_ids()] if pinned else []
+                    pin_error: tuple[int, str] | None = None
+                    if pinned is None:
+                        pin_error = (HTTPStatus.NOT_FOUND, f"Backend not found: {pinned_suid}")
+                    elif model_id is not None and model_id not in pinned_ids:
+                        name = pinned.get_name() or pinned_suid
+                        pin_error = (HTTPStatus.BAD_REQUEST, f"Backend {name} does not serve model: {model_id}")
+                    if pin_error is not None:
+                        status, msg = pin_error
+                        self._log_request(None, method, f"/v1/{path}", http_ver, req_size, request_id=request_id)
+                        self._log_response(None, status, request_id=request_id)
+                        resp_body = adapter.error_body(status, msg)
+                        if request_id:
+                            self._proxy.request_log.update(request_id, response_status=status, response_body=resp_body, elapsed=time.monotonic() - t0)
+                        return JSONResponse(resp_body, status_code=status)
+                    assert pinned is not None
+                    if model_id is None and pinned_ids:
+                        model_id = pinned_ids[0]
+                    # No priority ranking or fallback: the caller chose this backend.
+                    candidates = [pinned]
+                else:
+                    candidates = self._manager.find_backends(model_id)
                 if not candidates:
                     self._log_request(None, method, f"/v1/{path}", http_ver, req_size, request_id=request_id)
                     self._log_response(None, HTTPStatus.NOT_FOUND, request_id=request_id)
@@ -178,6 +208,9 @@ class ProxyHandler:
                             body = {**body, "id_slot": slot_id}
 
                 backend_url = backend.get_base_url()
+                upstream_headers = (
+                    {BACKEND_HEADER: suid} if pinned_suid and isinstance(backend, RemoteModelProxy) else None
+                )
 
                 # Streaming SSE
                 if body.get("stream"):
@@ -190,6 +223,7 @@ class ProxyHandler:
                     return await self._stream(
                         backend_url, path, body, t0, server_name, request,
                         suid=suid, cache_save=cs, request_id=request_id,
+                        headers=upstream_headers,
                     )
 
                 active_slot_id = body.get("id_slot")
@@ -207,7 +241,7 @@ class ProxyHandler:
                 try:
                     async with httpx.AsyncClient() as client:
                         req_task = asyncio.create_task(
-                            client.request(method, f"{backend_url}/v1/{path}", json=body, timeout=None)
+                            client.request(method, f"{backend_url}/v1/{path}", json=body, headers=upstream_headers, timeout=None)
                         )
 
                         async def _wait_disconnect() -> None:
@@ -428,6 +462,7 @@ class ProxyHandler:
         suid: str | None = None,
         cache_save: tuple | None = None,
         request_id: str | None = None,
+        headers: dict[str, str] | None = None,
     ) -> JSONResponse | StreamingResponse:
         """Forward a streaming request.
 
@@ -479,7 +514,7 @@ class ProxyHandler:
         client = httpx.AsyncClient()
         try:
             resp = await client.send(
-                client.build_request("POST", f"{backend_url}/v1/{path}", json=body, timeout=None),
+                client.build_request("POST", f"{backend_url}/v1/{path}", json=body, headers=headers, timeout=None),
                 stream=True,
             )
         except ProxyHandler._BACKEND_ERRORS as exc:

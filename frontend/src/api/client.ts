@@ -1,3 +1,4 @@
+import type { BackendGroup } from "./chat";
 import type {
   ServerStatus,
   ServerConfig,
@@ -29,6 +30,7 @@ export const api = {
   getSystemInfo: () => request<{ total_ram_mib: number | null }>("/api/status/system"),
   getChatModels: () =>
     request<{ data: Array<{ id: string }> }>("/api/chat/models").then((r) => r.data.map((m) => m.id)),
+  getChatBackends: () => request<BackendGroup[]>("/api/chat/backends"),
   getProxyStatus: () => request<ProxyStatus>("/api/server/proxy-status"),
   proxyStart: () =>
     request<ProxyStatus>("/api/server/proxy-start", { method: "POST" }),

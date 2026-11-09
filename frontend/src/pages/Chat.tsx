@@ -1,15 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
+import BackendPicker from "../components/BackendPicker";
+import GroupedSelect from "../components/inputs/GroupedSelect";
 import {
+  type BackendGroup,
+  type BackendRef,
   type ChatSession,
   type Msg,
+  backendLabel,
   chatLabel,
   errorText,
   formatStats,
   loadActiveId,
   loadChats,
+  findBackend,
+  firstBackendFor,
   newChat,
   parseChunk,
+  pinHeaders,
   saveActiveId,
   saveChats,
   summarizeChat,
@@ -18,6 +26,7 @@ import {
 
 const MODEL_PREF = "pref:chatModel";
 const SYSTEM_PREF = "pref:chatSystemPrompt";
+const ADVANCED_PREF = "pref:chatAdvanced";
 const DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant.";
 const SAVE_DEBOUNCE_MS = 300;
 
@@ -82,12 +91,16 @@ function AssistantBubble({ msg, pending }: { msg: Msg; pending: boolean }) {
   );
 }
 
-function ModelDivider({ model }: { model: string }) {
+function ModelDivider({ model, via, modelChanged }: { model: string; via?: string; modelChanged: boolean }) {
   return (
     <div className="flex items-center gap-2 py-1">
       <div className="flex-1 h-px bg-gray-800" />
       <span className="text-[11px] text-gray-500">
-        model changed to <span className="font-mono text-gray-400">{model}</span>
+        {modelChanged ? (
+          <>model changed to <span className="font-mono text-gray-400">{model}</span>{via && <> on <span className="text-gray-400">{via}</span></>}</>
+        ) : (
+          <>backend changed to <span className="text-gray-400">{via ?? "proxy routing"}</span></>
+        )}
       </span>
       <div className="flex-1 h-px bg-gray-800" />
     </div>
@@ -158,6 +171,9 @@ export default function Chat() {
   const [activeId, setActiveId] = useState<number>(init.activeId);
   const [models, setModels] = useState<string[]>([]);
   const [modelsError, setModelsError] = useState<string | null>(null);
+  const [advanced, setAdvanced] = useState(() => readPref(ADVANCED_PREF) === "1");
+  const [backends, setBackends] = useState<BackendGroup[]>([]);
+  const [backendsLoaded, setBackendsLoaded] = useState(false);
   // A saved value (including "" after clearing) wins over the default.
   const [systemPrompt, setSystemPrompt] = useState(() => readPref(SYSTEM_PREF) ?? DEFAULT_SYSTEM_PROMPT);
   const [showSystem, setShowSystem] = useState(false);
@@ -173,6 +189,10 @@ export default function Chat() {
 
   const active = chats.find((c) => c.id === activeId) ?? chats[0];
   const busy = streaming.has(active.id);
+  const advancedRef = useRef(advanced);
+  advancedRef.current = advanced;
+  /** Backend a chat's requests are pinned to: only in advanced mode. */
+  const pinOf = (c: ChatSession) => (advancedRef.current ? c.backend ?? null : null);
 
   // ----- persistence -----
   useEffect(() => {
@@ -186,6 +206,7 @@ export default function Chat() {
   }, []);
   useEffect(() => { saveActiveId(active.id); }, [active.id]);
   useEffect(() => { writePref(SYSTEM_PREF, systemPrompt); }, [systemPrompt]);
+  useEffect(() => { writePref(ADVANCED_PREF, advanced ? "1" : "0"); }, [advanced]);
   useEffect(() => {
     const ctrls = aborts.current;
     return () => ctrls.forEach((c) => c.abort());
@@ -204,7 +225,22 @@ export default function Chat() {
       .then((ids) => { setModels(ids); setModelsError(null); })
       .catch((e: Error) => setModelsError(e.message));
   }, []);
+  const loadBackends = useCallback(() => {
+    api.getChatBackends()
+      .then((groups) => { setBackends(groups); setBackendsLoaded(true); setModelsError(null); })
+      .catch((e: Error) => setModelsError(e.message));
+  }, []);
   useEffect(() => { loadModels(); }, [loadModels]);
+  useEffect(() => { if (advanced) loadBackends(); }, [advanced, loadBackends]);
+  const refresh = () => { loadModels(); if (advanced) loadBackends(); };
+
+  // In advanced mode, pin an unpinned chat to the backend the proxy would
+  // pick first for its model, so the picker always shows a concrete provider.
+  useEffect(() => {
+    if (!advanced || !backendsLoaded || active.backend || !active.model) return;
+    const ref = firstBackendFor(backends, active.model);
+    if (ref) updateChat(active.id, (c) => ({ ...c, backend: ref.entry.suid }));
+  }, [advanced, backendsLoaded, backends, active.id, active.backend, active.model, updateChat]);
 
   // Give a chat with no model yet the last-used one (or the first available).
   useEffect(() => {
@@ -215,8 +251,14 @@ export default function Chat() {
   }, [active.id, active.model, models, updateChat]);
 
   const setModel = (model: string) => {
-    updateChat(active.id, (c) => ({ ...c, model }));
+    // A pin belongs to one model; drop it and let advanced mode re-pick.
+    updateChat(active.id, (c) => ({ ...c, model, backend: c.model === model ? c.backend : null }));
     writePref(MODEL_PREF, model);
+  };
+
+  const setBackend = ({ entry }: BackendRef) => {
+    updateChat(active.id, (c) => ({ ...c, model: entry.model_id, backend: entry.suid }));
+    writePref(MODEL_PREF, entry.model_id);
   };
 
   // ----- titles -----
@@ -224,7 +266,7 @@ export default function Chat() {
     if (titling.current.has(chat.id) || !chat.model || !hasReply(chat)) return;
     titling.current.add(chat.id);
     try {
-      const title = await summarizeChat(chat);
+      const title = await summarizeChat(chat, pinOf(chat));
       if (title) updateChat(chat.id, (c) => ({ ...c, title, titledAt: chat.messages.length }));
     } finally {
       titling.current.delete(chat.id);
@@ -247,7 +289,7 @@ export default function Chat() {
     setListOpen(false);
     if (active.messages.length === 0) return; // already on a blank chat
     if (!busy && active.messages.length > active.titledAt) generateTitle(active);
-    const chat = newChat(chats, active.model);
+    const chat = { ...newChat(chats, active.model), backend: active.backend ?? null };
     setChats((prev) => [...prev, chat]);
     setActiveId(chat.id);
   };
@@ -273,13 +315,16 @@ export default function Chat() {
     const chat = active;
     if (!text || !chat.model || streaming.has(chat.id)) return;
 
-    const userMsg: Msg = { role: "user", content: text, model: chat.model };
+    const pin = pinOf(chat);
+    const pinRef = findBackend(backends, pin);
+    const via = pin ? { backend: pin, backendLabel: pinRef ? backendLabel(pinRef) : pin.slice(0, 8) } : {};
+    const userMsg: Msg = { role: "user", content: text, model: chat.model, ...via };
     const history = [...chat.messages, userMsg];
     const tSend = performance.now();
     updateChat(chat.id, (c) => ({
       ...c,
       updatedAt: Date.now(),
-      messages: [...history, { role: "assistant", content: "", model: chat.model, stats: { tSend, chunks: 0 } }],
+      messages: [...history, { role: "assistant", content: "", model: chat.model, ...via, stats: { tSend, chunks: 0 } }],
     }));
     setInput("");
 
@@ -293,7 +338,7 @@ export default function Chat() {
     try {
       const res = await fetch("/api/chat/completions", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...pinHeaders(pin) },
         signal: controller.signal,
         body: JSON.stringify({
           model: chat.model,
@@ -363,7 +408,7 @@ export default function Chat() {
     if (!failed && finalContent && chat.title === null && stillExists) {
       generateTitle({
         ...chat,
-        messages: [...history, { role: "assistant", content: finalContent, model: chat.model }],
+        messages: [...history, { role: "assistant", content: finalContent, model: chat.model, ...via }],
       });
     }
   };
@@ -392,40 +437,77 @@ export default function Chat() {
 
       {/* active chat */}
       <div className="flex flex-col flex-1 min-w-0 min-h-0 max-w-4xl mx-auto">
-        <div className="flex flex-wrap items-center gap-3 pb-4 border-b border-gray-800">
-          <button
-            onClick={() => setListOpen(true)}
-            className="md:hidden rounded-md px-3 py-2 text-sm text-gray-400 hover:bg-gray-800 hover:text-white transition"
-          >
-            Chats
-          </button>
-          <h1 className="text-xl font-semibold mr-auto truncate min-w-0" title={chatLabel(active)}>
-            {chatLabel(active)}
-          </h1>
-          <select
-            value={active.model}
-            onChange={(e) => setModel(e.target.value)}
-            disabled={modelOptions.length === 0}
-            className="rounded-md border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 font-mono focus:border-blue-500 focus:outline-none max-w-xs"
-          >
-            {modelOptions.length === 0 && <option value="">No models</option>}
-            {modelOptions.map((id) => <option key={id} value={id}>{id}</option>)}
-          </select>
-          <button
-            onClick={loadModels}
-            className="rounded-md px-3 py-2 text-sm text-gray-400 hover:bg-gray-800 hover:text-white transition"
-            title="Reload model list"
-          >
-            Refresh
-          </button>
-          <button
-            onClick={() => setShowSystem((v) => !v)}
-            className={`rounded-md px-3 py-2 text-sm transition ${
-              showSystem || systemPrompt.trim() ? "bg-gray-800 text-white" : "text-gray-400 hover:bg-gray-800 hover:text-white"
-            }`}
-          >
-            System prompt
-          </button>
+        <div className="flex flex-col gap-3 pb-4 border-b border-gray-800">
+          <div className="flex items-center gap-3 min-w-0">
+            <button
+              onClick={() => setListOpen(true)}
+              className="md:hidden rounded-md px-3 py-2 text-sm text-gray-400 hover:bg-gray-800 hover:text-white transition"
+            >
+              Chats
+            </button>
+            <h1 className="text-xl font-semibold truncate min-w-0" title={chatLabel(active)}>
+              {chatLabel(active)}
+            </h1>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            {advanced ? (
+              <BackendPicker
+                groups={backends}
+                selected={active.backend}
+                model={active.model}
+                onSelect={setBackend}
+              />
+            ) : (
+              <GroupedSelect
+                ariaLabel="Model"
+                disabled={modelOptions.length === 0}
+                selected={active.model}
+                onSelect={setModel}
+                trigger={
+                  modelOptions.length === 0
+                    ? <span className="text-gray-500">No models</span>
+                    : <span className="font-mono">{active.model || "Select model"}</span>
+                }
+                sizeTo={modelOptions.map((id) => <span key={id} className="font-mono">{id}</span>)}
+                sections={[{
+                  key: "models",
+                  options: modelOptions.map((id) => ({
+                    key: id,
+                    label: id,
+                    detail: models.includes(id) ? undefined : "not currently served",
+                  })),
+                }]}
+              />
+            )}
+            <button
+              onClick={refresh}
+              title={advanced ? "Reload models and backends" : "Reload models"}
+              aria-label={advanced ? "Reload models and backends" : "Reload models"}
+              className="-ml-1 rounded-md p-2 text-gray-400 hover:bg-gray-800 hover:text-white transition"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M13.5 8a5.5 5.5 0 1 1-1.61-3.89" />
+                <path d="M13.5 2.5v3h-3" />
+              </svg>
+            </button>
+            <label className="flex items-center gap-1.5 text-sm text-gray-400 select-none cursor-pointer" title="Pick a specific backend instead of proxy routing">
+              <input
+                type="checkbox"
+                checked={advanced}
+                onChange={(e) => setAdvanced(e.target.checked)}
+                className="accent-blue-500"
+              />
+              Advanced
+            </label>
+            <button
+              onClick={() => setShowSystem((v) => !v)}
+              className={`ml-auto rounded-md px-3 py-2 text-sm transition ${
+                showSystem || systemPrompt.trim() ? "bg-gray-800 text-white" : "text-gray-400 hover:bg-gray-800 hover:text-white"
+              }`}
+            >
+              System prompt
+            </button>
+          </div>
         </div>
 
         {modelsError && (
@@ -452,11 +534,14 @@ export default function Chat() {
             </div>
           )}
           {active.messages.map((m, i) => {
-            const prevModel = active.messages.slice(0, i).reverse().find((p) => p.model)?.model;
-            const changed = !!m.model && !!prevModel && m.model !== prevModel;
+            const prev = active.messages.slice(0, i).reverse().find((p) => p.model);
+            const modelChanged = !!m.model && !!prev && m.model !== prev.model;
+            const backendChanged = !!m.model && !!prev && (m.backend ?? null) !== (prev.backend ?? null);
             return (
               <div key={i} className="space-y-3">
-                {changed && <ModelDivider model={m.model!} />}
+                {m.role === "user" && (modelChanged || backendChanged) && (
+                  <ModelDivider model={m.model!} via={m.backendLabel} modelChanged={modelChanged} />
+                )}
                 {m.role === "user" ? (
                   <UserBubble msg={m} />
                 ) : (

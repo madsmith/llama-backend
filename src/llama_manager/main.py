@@ -53,7 +53,7 @@ app.include_router(make_ws_v2_router(manager))
 app.include_router(make_status_router(manager))
 app.include_router(make_events_router(manager.event_bus))
 app.include_router(make_fs_router())
-app.include_router(make_chat_router(manager.proxy))
+app.include_router(make_chat_router(manager.proxy, manager))
 
 # In prod mode, serve the built frontend as static files
 if not DEV_MODE and DIST_DIR.is_dir():
