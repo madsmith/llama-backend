@@ -6,7 +6,7 @@
 #           runs as the invoking user; needs sudo
 #
 # Usage: scripts/service.sh register|unregister|status
-# Env:   LLAMA_MANAGER_HOST (default 127.0.0.1), LLAMA_MANAGER_PORT (default 8000),
+# Env:   LLAMA_MANAGER_HOST (default 0.0.0.0), LLAMA_MANAGER_PORT (default 8000),
 #        LLAMA_MANAGER_ARGS (extra CLI args, e.g. "--verbose")
 #
 # The service runs this repo's .venv/bin/llama-manager with the repo as its
@@ -18,7 +18,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN="$ROOT/.venv/bin/llama-manager"
-HOST="${LLAMA_MANAGER_HOST:-127.0.0.1}"
+HOST="${LLAMA_MANAGER_HOST:-0.0.0.0}"
 PORT="${LLAMA_MANAGER_PORT:-8000}"
 EXTRA_ARGS="${LLAMA_MANAGER_ARGS:-}"
 
