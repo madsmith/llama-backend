@@ -23,6 +23,7 @@ import {
   summarizeChat,
   toApiMessages,
 } from "../api/chat";
+import { readPref, usePref, writePref } from "../api/prefs";
 
 const MODEL_PREF = "pref:chatModel";
 const SYSTEM_PREF = "pref:chatSystemPrompt";
@@ -30,12 +31,6 @@ const ADVANCED_PREF = "pref:chatAdvanced";
 const DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant.";
 const SAVE_DEBOUNCE_MS = 300;
 
-function readPref(key: string): string | null {
-  try { return localStorage.getItem(key); } catch { return null; }
-}
-function writePref(key: string, value: string) {
-  try { localStorage.setItem(key, value); } catch { /* ignore */ }
-}
 
 const byRecent = (a: ChatSession, b: ChatSession) => b.updatedAt - a.updatedAt;
 const hasReply = (c: ChatSession) => c.messages.some((m) => m.role === "assistant" && !m.error && m.content);
@@ -171,11 +166,11 @@ export default function Chat() {
   const [activeId, setActiveId] = useState<number>(init.activeId);
   const [models, setModels] = useState<string[]>([]);
   const [modelsError, setModelsError] = useState<string | null>(null);
-  const [advanced, setAdvanced] = useState(() => readPref(ADVANCED_PREF) === "1");
+  const [advanced, setAdvanced] = usePref(ADVANCED_PREF, false);
   const [backends, setBackends] = useState<BackendGroup[]>([]);
   const [backendsLoaded, setBackendsLoaded] = useState(false);
   // A saved value (including "" after clearing) wins over the default.
-  const [systemPrompt, setSystemPrompt] = useState(() => readPref(SYSTEM_PREF) ?? DEFAULT_SYSTEM_PROMPT);
+  const [systemPrompt, setSystemPrompt] = usePref(SYSTEM_PREF, DEFAULT_SYSTEM_PROMPT);
   const [showSystem, setShowSystem] = useState(false);
   const [listOpen, setListOpen] = useState(false);
   const [input, setInput] = useState("");
@@ -205,8 +200,6 @@ export default function Chat() {
     return () => { window.removeEventListener("beforeunload", flush); flush(); };
   }, []);
   useEffect(() => { saveActiveId(active.id); }, [active.id]);
-  useEffect(() => { writePref(SYSTEM_PREF, systemPrompt); }, [systemPrompt]);
-  useEffect(() => { writePref(ADVANCED_PREF, advanced ? "1" : "0"); }, [advanced]);
   useEffect(() => {
     const ctrls = aborts.current;
     return () => ctrls.forEach((c) => c.abort());

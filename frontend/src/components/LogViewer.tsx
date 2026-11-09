@@ -6,6 +6,7 @@ import type { LogLine, WireProxyRequest, WireProxyResponse } from "../api/hooks"
 import RequestDetail from "./RequestDetail";
 import ToggleSelector from "./inputs/ToggleSelector";
 import ErrorToast from "./ErrorToast";
+import { usePref } from "../api/prefs";
 
 type Tab = "server" | "info" | "other" | "all";
 
@@ -176,7 +177,7 @@ export default function LogViewer({ lines, connected, onClear, source, isPending
   const [toast, setToast] = useState<string | null>(null);
   const [hoveredLineId, setHoveredLineId] = useState<string | null>(null);
   const [hoveredRequestId, setHoveredRequestId] = useState<string | null>(null);
-  const [groupRequests, setGroupRequests] = useState(() => localStorage.getItem("pref:groupRequests") === "true");
+  const [groupRequests, setGroupRequests] = usePref("pref:groupRequests", false);
 
   const isProxy = source === "proxy";
 
@@ -196,10 +197,6 @@ export default function LogViewer({ lines, connected, onClear, source, isPending
     }
     return ids;
   }, [lines]);
-
-  useEffect(() => {
-    localStorage.setItem("pref:groupRequests", String(groupRequests));
-  }, [groupRequests]);
 
   const groupedItems = useMemo((): DisplayItem[] => {
     if (!isProxy || !groupRequests) {

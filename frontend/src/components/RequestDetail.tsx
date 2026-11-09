@@ -5,6 +5,13 @@ import JsonTree from "./JsonTree";
 import ChatView from "./ChatView";
 import SegmentedControl from "./inputs/SegmentedControl";
 import ErrorToast from "./ErrorToast";
+import { type PrefCodec, usePref } from "../api/prefs";
+
+/** Stored as "chat" / "raw" (true = chat view). */
+const chatModePref: PrefCodec<boolean> = {
+  decode: (raw) => (raw === "chat" ? true : raw === "raw" ? false : undefined),
+  encode: (chat) => (chat ? "chat" : "raw"),
+};
 
 function JsonBlock({ label, data }: { label: string; data: unknown }) {
   const isObject = data !== null && typeof data === "object";
@@ -38,13 +45,7 @@ export default function RequestDetail({ entry: initial, onClose, requestIds = []
 
   const requestBody = entry.request_body as Record<string, unknown> | null;
   const hasMessages = Array.isArray(requestBody?.messages);
-  const [chatMode, setChatMode] = useState(() => {
-    const stored = localStorage.getItem("pref:chatMode");
-    return stored !== null ? stored === "chat" : hasMessages;
-  });
-  useEffect(() => {
-    localStorage.setItem("pref:chatMode", chatMode ? "chat" : "raw");
-  }, [chatMode]);
+  const [chatMode, setChatMode] = usePref("pref:chatMode", () => hasMessages, chatModePref);
 
   // Reset to the new entry when the parent passes a different one.
   const [prevInitial, setPrevInitial] = useState(initial);

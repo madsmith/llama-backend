@@ -35,6 +35,7 @@ import {
   useUplinkStatus,
   useHealthStream,
 } from "../api/hooks";
+import { usePref } from "../api/prefs";
 
 interface ServerSnapshot {
   name: string;
@@ -219,11 +220,7 @@ export default function Dashboard() {
   const remotes = useRemotes();
   const uplink = useUplinkStatus();
   const [controlsOpen, setControlsOpen] = useState(false);
-  const [hideStopped, setHideStopped] = useState(() => localStorage.getItem("pref:hideStopped") === "true");
-
-  useEffect(() => {
-    localStorage.setItem("pref:hideStopped", String(hideStopped));
-  }, [hideStopped]);
+  const [hideStopped, setHideStopped] = usePref("pref:hideStopped", false);
 
   useEffect(() => {
     document.title = "Llama Manager - Dashboard";

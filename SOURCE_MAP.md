@@ -85,6 +85,7 @@ Quick-reference map of every module in `src/llama_manager/` and `frontend/src/` 
 |------|---------|-------------|
 | `types.ts` | TypeScript interfaces mirroring all backend response shapes | `ServerStatus`, `ServerConfig`, `ModelConfig`, `HealthStatus`, `SlotInfo`, `ProxyStatus`, `RequestLogEntry`, `RemoteManagerStatus`, `UplinkStatus`, … |
 | `client.ts` | Generic fetch wrapper + all endpoint functions | `api` object (`getStatus`, `start`, `stop`, `restart`, `putConfig`, `getHealth`, `getSlots`, `cancelSlot`, …), `wsUrl()` |
+| `prefs.ts` | Browser-remembered UI preferences (`pref:*` localStorage keys) with guarded access | `usePref()`, `readPref()`, `writePref()`, `boolPref`, `oneOfPref()` |
 | `chat.ts` | Chat page model: `ChatSession`/`Msg` types, localStorage persistence, SSE chunk parsing, stats line formatting, model-generated chat titles, backend tree types and `x-llama-backend` pin helpers | `loadChats()`, `saveChats()`, `newChat()`, `parseChunk()`, `formatStats()`, `summarizeChat()` |
 | `hooks.ts` | React polling and WebSocket hooks | `useServerStatus()`, `useProxyStatus()`, `useHealth()`, `useSlots()`, `useProps()`, `useLogs()`, `useRemotes()`, `useSlotStream()`, `useHealthStream()`, `useUplinkStatus()` |
 

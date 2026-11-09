@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import LongString from "./LongString";
 import ToggleSelector from "./inputs/ToggleSelector";
 import SegmentedControl from "./inputs/SegmentedControl";
+import { oneOfPref, usePref } from "../api/prefs";
 
 interface ContentBlock {
   type: string;
@@ -94,6 +95,7 @@ function UserBubble({ msg }: { msg: ChatMessage }) {
 }
 
 type ReasoningMode = "off" | "collapsed" | "expanded";
+const reasoningModePref = oneOfPref<ReasoningMode>(["off", "collapsed", "expanded"]);
 
 // Left-aligned assistant bubble; if only tool_calls, skip the bubble wrapper
 function AssistantBubble({ msg, showTools = true, reasoningMode = "off" }: {
@@ -319,13 +321,8 @@ export default function ChatView({ body, responseBody, responseStatus }: {
     .flatMap((m) => m.tool_calls as ToolCall[]);
 
   const responseMsg = extractResponseMessage(responseBody, responseStatus);
-  const [showTools, setShowTools] = useState(() => localStorage.getItem("pref:showTools") === "true");
-  const [reasoningMode, setReasoningMode] = useState<ReasoningMode>(() => {
-    const v = localStorage.getItem("pref:reasoningMode");
-    return v === "collapsed" || v === "expanded" ? v : "off";
-  });
-  useEffect(() => { localStorage.setItem("pref:showTools", String(showTools)); }, [showTools]);
-  useEffect(() => { localStorage.setItem("pref:reasoningMode", reasoningMode); }, [reasoningMode]);
+  const [showTools, setShowTools] = usePref("pref:showTools", false);
+  const [reasoningMode, setReasoningMode] = usePref<ReasoningMode>("pref:reasoningMode", "off", reasoningModePref);
   const bottomRef = useRef<HTMLDivElement>(null);
   useEffect(() => { bottomRef.current?.scrollIntoView(); }, []);
 
