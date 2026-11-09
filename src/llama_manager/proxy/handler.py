@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from typing import TYPE_CHECKING, AsyncGenerator, AsyncIterator, Awaitable, Callable, Protocol
@@ -398,6 +399,24 @@ class ProxyHandler:
             pass
         return None
 
+    @staticmethod
+    def _upstream_error_msg(content: bytes, status: int) -> str:
+        """Pull the message out of a backend error body (llama-server/vLLM/OpenAI shapes)."""
+        try:
+            data = json.loads(content)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            data = None
+        if isinstance(data, dict):
+            err = data.get("error", data)
+            if isinstance(err, dict) and err.get("message"):
+                return str(err["message"])
+            if isinstance(err, str) and err:
+                return err
+            if data.get("detail"):
+                return str(data["detail"])
+        text = content.decode("utf-8", errors="replace").strip()
+        return text[:2000] if text else f"Backend returned HTTP {status}"
+
     async def _stream(
         self,
         backend_url: str,
@@ -409,7 +428,13 @@ class ProxyHandler:
         suid: str | None = None,
         cache_save: tuple | None = None,
         request_id: str | None = None,
-    ) -> StreamingResponse:
+    ) -> JSONResponse | StreamingResponse:
+        """Forward a streaming request.
+
+        The upstream request is opened before replying, so a backend that
+        rejects the request (4xx/5xx) or can't be reached gets a real error
+        status and JSON body instead of an empty 200 event stream.
+        """
         active_slot_id = body.get("id_slot")
         cancel_event = None
         if suid is not None and active_slot_id is not None:
@@ -419,57 +444,108 @@ class ProxyHandler:
         if suid is not None and active_slot_id is None:
             resolve_lock = self._proxy.get_resolve_lock(suid)
             await resolve_lock.acquire()
+        lock_held = resolve_lock is not None
+
+        def release_lock() -> None:
+            nonlocal lock_held
+            if lock_held and resolve_lock is not None:
+                resolve_lock.release()
+                lock_held = False
+
+        async def finish(stream_ok: bool) -> None:
+            release_lock()
+            if suid is not None and active_slot_id is not None:
+                ActiveRequestManager.unregister(suid, active_slot_id)
+            if cache_save:
+                kv, cache_id, slot_id, slots = cache_save
+                if stream_ok:
+                    client = self._manager.get_client_at(backend_url)
+                    if await client.slot_save(slot_id, f"{cache_id}.bin"):
+                        self._record_slot_save(kv, cache_id, slot_id, request_id)
+                await slots.free(slot_id, cache_id)
+
+        def error_response(status: int, msg: str) -> JSONResponse:
+            elapsed = time.monotonic() - t0
+            resp_body = self._adapter.error_body(status, msg)
+            self._log_response(server_name, status, elapsed=elapsed, request_id=request_id)
+            self._proxy.log(f"[{server_name}] {msg}", request_id=request_id)
+            if request_id:
+                self._proxy.request_log.update(
+                    request_id, response_status=status, response_body=resp_body,
+                    streaming=True, elapsed=elapsed,
+                )
+            return JSONResponse(resp_body, status_code=status)
+
+        client = httpx.AsyncClient()
+        try:
+            resp = await client.send(
+                client.build_request("POST", f"{backend_url}/v1/{path}", json=body, timeout=None),
+                stream=True,
+            )
+        except ProxyHandler._BACKEND_ERRORS as exc:
+            await client.aclose()
+            await finish(False)
+            return error_response(HTTPStatus.BAD_GATEWAY, self._backend_error_msg(exc))
+        except BaseException:
+            await client.aclose()
+            await finish(False)
+            raise
+
+        if resp.status_code >= 400:
+            try:
+                content = await resp.aread()
+            except ProxyHandler._BACKEND_ERRORS:
+                content = b""
+            finally:
+                await resp.aclose()
+                await client.aclose()
+            await finish(False)
+            return error_response(resp.status_code, self._upstream_error_msg(content, resp.status_code))
+
+        self._log_response(
+            server_name, resp.status_code, streaming=True,
+            elapsed=time.monotonic() - t0, request_id=request_id,
+        )
 
         async def response_generator():
             nonlocal active_slot_id, cancel_event
-            lock_held = resolve_lock is not None
             total_bytes = 0
             stream_ok = False
             accumulated_text: list[str] = []
 
             try:
-                async with httpx.AsyncClient() as client:
-                    async with client.stream(
-                        "POST", f"{backend_url}/v1/{path}", json=body, timeout=None,
-                    ) as resp:
-                        self._log_response(
-                            server_name, resp.status_code, streaming=True,
-                            elapsed=time.monotonic() - t0, request_id=request_id,
-                        )
+                if lock_held:
+                    try:
+                        if suid is not None and active_slot_id is None:
+                            claimed = await self._resolve_and_register_slot(backend_url, suid)
+                            if claimed is not None:
+                                active_slot_id, cancel_event = claimed
+                    finally:
+                        release_lock()
 
-                        if lock_held:
-                            try:
-                                if suid is not None and active_slot_id is None and resp.status_code == HTTPStatus.OK:
-                                    claimed = await self._resolve_and_register_slot(backend_url, suid)
-                                    if claimed is not None:
-                                        active_slot_id, cancel_event = claimed
-                            finally:
-                                resolve_lock.release()
-                                lock_held = False
+                def is_cancelled() -> bool:
+                    return cancel_event is not None and cancel_event.is_set()
 
-                        def is_cancelled() -> bool:
-                            return cancel_event is not None and cancel_event.is_set()
+                async def is_disconnected() -> bool:
+                    return await request.is_disconnected()
 
-                        async def is_disconnected() -> bool:
-                            return await request.is_disconnected()
+                async def _abort_on_disconnect() -> None:
+                    while True:
+                        msg = await request._receive()
+                        if msg.get("type") == "http.disconnect":
+                            await resp.aclose()
+                            return
 
-                        async def _abort_on_disconnect() -> None:
-                            while True:
-                                msg = await request._receive()
-                                if msg.get("type") == "http.disconnect":
-                                    await resp.aclose()
-                                    return
-
-                        abort_task = asyncio.create_task(_abort_on_disconnect())
-                        try:
-                            async for chunk in self._adapter.wrap_stream(
-                                resp.aiter_bytes(), is_cancelled, is_disconnected,
-                                accumulated_text.append,
-                            ):
-                                total_bytes += len(chunk)
-                                yield chunk
-                        finally:
-                            abort_task.cancel()
+                abort_task = asyncio.create_task(_abort_on_disconnect())
+                try:
+                    async for chunk in self._adapter.wrap_stream(
+                        resp.aiter_bytes(), is_cancelled, is_disconnected,
+                        accumulated_text.append,
+                    ):
+                        total_bytes += len(chunk)
+                        yield chunk
+                finally:
+                    abort_task.cancel()
 
                 self._log_stream_end(server_name, time.monotonic() - t0, total_bytes, request_id=request_id)
                 stream_ok = True
@@ -482,6 +558,7 @@ class ProxyHandler:
                         elapsed=time.monotonic() - t0,
                     )
             except ProxyHandler._BACKEND_ERRORS as exc:
+                # Headers are already sent; the error can only go in-band.
                 msg = self._backend_error_msg(exc)
                 self._log_response(server_name, HTTPStatus.BAD_GATEWAY, elapsed=time.monotonic() - t0, request_id=request_id)
                 self._proxy.log(f"[{server_name}] {msg}", request_id=request_id)
@@ -489,17 +566,8 @@ class ProxyHandler:
                 if request_id:
                     self._proxy.request_log.update(request_id, response_status=HTTPStatus.BAD_GATEWAY, elapsed=time.monotonic() - t0)
             finally:
-                if lock_held and resolve_lock is not None:
-                    resolve_lock.release()
-                if suid is not None and active_slot_id is not None:
-                    ActiveRequestManager.unregister(suid, active_slot_id)
-
-            if cache_save:
-                kv, cache_id, slot_id, slots = cache_save
-                if stream_ok:
-                    client = self._manager.get_client_at(backend_url)
-                    if await client.slot_save(slot_id, f"{cache_id}.bin"):
-                        self._record_slot_save(kv, cache_id, slot_id, request_id)
-                await slots.free(slot_id, cache_id)
+                await resp.aclose()
+                await client.aclose()
+                await finish(stream_ok)
 
         return StreamingResponse(response_generator(), media_type="text/event-stream")
