@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Layout from "./components/Layout";
 import Dashboard from "./pages/Dashboard";
+import Chat from "./pages/Chat";
 import Logs from "./pages/Logs";
 import Properties from "./pages/Properties";
 import Slots from "./pages/Slots";
@@ -14,6 +15,7 @@ export default function App() {
           <Route index element={<Dashboard />} />
           <Route path=":modelSuid/properties" element={<Properties />} />
           <Route path=":modelSuid/slots" element={<Slots />} />
+          <Route path="chat" element={<Chat />} />
           <Route path="logs" element={<Logs />} />
           <Route path="logs/:modelSuid" element={<Logs />} />
           <Route path="settings" element={<Settings />} />

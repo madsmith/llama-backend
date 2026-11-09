@@ -52,6 +52,7 @@ Quick-reference map of every module in `src/llama_manager/` and `frontend/src/` 
 | `server.py` | APIRouter `/api/server` — declares all server/proxy/config routes | router |
 | `status.py` | APIRouter `/api/status` — health, slots, props, requests routes | router |
 | `ws.py` | WebSocket endpoints: `/ws/logs` (log streaming) and `/ws/manager` (uplink federation) | router |
+| `chat.py` | `/api/chat/models`, `/api/chat/completions` — same-origin passthrough from the web UI Chat page to the proxy (streams SSE) | router |
 | `remotes.py` | GET `/api/remotes`, `/api/remotes/uplink` — lists connected remote managers | router |
 
 ### `routers/routes/`
@@ -75,7 +76,7 @@ Quick-reference map of every module in `src/llama_manager/` and `frontend/src/` 
 | File | Purpose |
 |------|---------|
 | `main.tsx` | React 19 root render |
-| `App.tsx` | BrowserRouter + routes: `/`, `/:modelIndex/properties`, `/:modelIndex/slots`, `/logs/:source?`, `/settings` |
+| `App.tsx` | BrowserRouter + routes: `/`, `/:modelIndex/properties`, `/:modelIndex/slots`, `/chat`, `/logs/:source?`, `/settings` |
 
 ### API Layer — `api/`
 
@@ -83,6 +84,7 @@ Quick-reference map of every module in `src/llama_manager/` and `frontend/src/` 
 |------|---------|-------------|
 | `types.ts` | TypeScript interfaces mirroring all backend response shapes | `ServerStatus`, `ServerConfig`, `ModelConfig`, `HealthStatus`, `SlotInfo`, `ProxyStatus`, `RequestLogEntry`, `RemoteManagerStatus`, `UplinkStatus`, … |
 | `client.ts` | Generic fetch wrapper + all endpoint functions | `api` object (`getStatus`, `start`, `stop`, `restart`, `putConfig`, `getHealth`, `getSlots`, `cancelSlot`, …), `wsUrl()` |
+| `chat.ts` | Chat page model: `ChatSession`/`Msg` types, localStorage persistence, SSE chunk parsing, stats line formatting, model-generated chat titles | `loadChats()`, `saveChats()`, `newChat()`, `parseChunk()`, `formatStats()`, `summarizeChat()` |
 | `hooks.ts` | React polling and WebSocket hooks | `useServerStatus()`, `useProxyStatus()`, `useHealth()`, `useSlots()`, `useProps()`, `useLogs()`, `useRemotes()`, `useSlotStream()`, `useHealthStream()`, `useUplinkStatus()` |
 
 ### Pages — `pages/`
@@ -90,6 +92,7 @@ Quick-reference map of every module in `src/llama_manager/` and `frontend/src/` 
 | File | Purpose |
 |------|---------|
 | `Dashboard.tsx` | Home — one `ModelPanel`/`RemoteModelPanel` per model; shows status, controls, health, slots |
+| `Chat.tsx` | Chat UI — multiple chats saved in browser storage with a sidebar (titles summarised by the model, hover-to-delete), per-chat model with change markers, streamed replies with reasoning and a stats line |
 | `Logs.tsx` | Log viewer with source selector (`ScrollStrip`), WebSocket log streaming per model/proxy |
 | `Properties.tsx` | Shows `/api/status/props` JSON for selected model (`JsonTree`) |
 | `Slots.tsx` | Slots table for selected model; cancel button on busy slots |
@@ -99,7 +102,7 @@ Quick-reference map of every module in `src/llama_manager/` and `frontend/src/` 
 
 | File | Purpose |
 |------|---------|
-| `Layout.tsx` | App shell with sidebar nav (Dashboard, Logs, Settings) |
+| `Layout.tsx` | App shell with sidebar nav (Dashboard, Chat, Logs, Settings) |
 | `ServerStatusCard.tsx` | Model state card — color-coded state, PID, uptime, slot grid with tooltips |
 | `ServerControls.tsx` | Start/Stop/Restart buttons for a model |
 | `ProxyStatusCard.tsx` | Proxy state card — host:port, state, uptime, PID |

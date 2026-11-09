@@ -86,6 +86,17 @@ class ProxyServer:
         self._port: int = self.config.api_server.port
         self._started_at: float | None = None
 
+    def local_base_url(self) -> str | None:
+        """URL for reaching this proxy from inside the manager process, or None if stopped."""
+        if self._server is None:
+            return None
+        host = self._host
+        if host in ("", "0.0.0.0", "::"):
+            host = "127.0.0.1"
+        elif ":" in host:
+            host = f"[{host}]"
+        return f"http://{host}:{self._port}"
+
     def get_log_buffer(self) -> LogBuffer:
         return self.log_buffer
 

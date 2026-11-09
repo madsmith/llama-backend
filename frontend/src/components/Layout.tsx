@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 
 const links = [
   { to: "/", label: "Dashboard", match: (p: string) => p === "/" },
+  { to: "/chat", label: "Chat", match: (p: string) => p === "/chat" },
   { to: "/logs", label: "Logs", match: (p: string) => p.startsWith("/logs") },
   {
     to: "/settings",

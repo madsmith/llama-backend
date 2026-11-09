@@ -19,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import load_config
 from .dev import DevViteService
 from .manager.llama_manager import LlamaManager
+from .routers.chat import make_router as make_chat_router
 from .routers.events import make_router as make_events_router
 from .routers.fs import make_router as make_fs_router
 from .routers.server import make_router as make_server_router
@@ -52,6 +53,7 @@ app.include_router(make_ws_v2_router(manager))
 app.include_router(make_status_router(manager))
 app.include_router(make_events_router(manager.event_bus))
 app.include_router(make_fs_router())
+app.include_router(make_chat_router(manager.proxy))
 
 # In prod mode, serve the built frontend as static files
 if not DEV_MODE and DIST_DIR.is_dir():

@@ -27,6 +27,8 @@ export const api = {
   restart: (suid: string) =>
     request<ServerStatus>(`/api/server/restart?suid=${encodeURIComponent(suid)}`, { method: "POST" }),
   getSystemInfo: () => request<{ total_ram_mib: number | null }>("/api/status/system"),
+  getChatModels: () =>
+    request<{ data: Array<{ id: string }> }>("/api/chat/models").then((r) => r.data.map((m) => m.id)),
   getProxyStatus: () => request<ProxyStatus>("/api/server/proxy-status"),
   proxyStart: () =>
     request<ProxyStatus>("/api/server/proxy-start", { method: "POST" }),
