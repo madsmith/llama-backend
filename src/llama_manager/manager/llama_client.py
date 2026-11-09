@@ -33,9 +33,16 @@ class LlamaClient:
                 if resp.status_code == 404:
                     return {"status": "unknown"}
                 try:
-                    return resp.json()
+                    data = resp.json()
                 except ValueError:
-                    return None
+                    data = None
+                if isinstance(data, dict):
+                    return data
+                # Non-JSON health (vLLM returns 200 with an empty body; 503 when
+                # its engine is dead): the status code is the answer.
+                if resp.is_success:
+                    return {"status": "ok"}
+                return {"status": "unavailable" if resp.status_code == 503 else f"http {resp.status_code}"}
         except (httpx.HTTPError, httpx.ConnectError):
             return None
 

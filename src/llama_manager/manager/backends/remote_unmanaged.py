@@ -3,6 +3,7 @@ from __future__ import annotations
 from urllib.parse import urlparse
 
 from llama_manager.config import ModelConfig
+from llama_manager.manager.backend_probe import BackendInfo, VllmMetricsReader, detect_backend
 from llama_manager.protocol.backend import Backend, LlamaManagerProtocol
 
 
@@ -29,6 +30,8 @@ class RemoteUnmanagedModel(Backend):
         self._host: str | None = parsed.hostname
         self._port: int | None = parsed.port
         self._supports_slots: bool | None = None
+        self._backend: BackendInfo | None = None
+        self._vllm_metrics = VllmMetricsReader()
 
     # ------------------------------------------------------------------
     # Backend protocol
@@ -68,7 +71,30 @@ class RemoteUnmanagedModel(Backend):
         return {"state": "remote", "pid": None, "host": self._host, "port": self._port, "uptime": None}
 
     async def get_health(self) -> dict:
-        return await self._manager.get_client_at(self._base_url).get_health() or {"status": "unknown"}
+        """Health plus backend type, and for vLLM a metrics summary (it has no /slots).
+
+        Unreachable servers report "offline"; detection is redone after an outage
+        in case a different server came back on the same address.
+        """
+        health = await self._manager.get_client_at(self._base_url).get_health()
+        if health is None:
+            self._backend = None
+            self._supports_slots = None
+            return {"status": "offline"}
+
+        if self._backend is None:
+            self._backend = await detect_backend(self._base_url)
+
+        result = dict(health)
+        if self._backend is not None:
+            result["backend"] = self._backend.kind
+            if self._backend.version:
+                result["version"] = self._backend.version
+            if self._backend.kind == "vllm":
+                metrics = await self._vllm_metrics.read(self._base_url)
+                if metrics is not None:
+                    result["metrics"] = metrics
+        return result
 
     async def ensure_ready(self, jit_enabled: bool, timeout: float) -> None:
         return  # unmanaged — lifecycle is not our responsibility

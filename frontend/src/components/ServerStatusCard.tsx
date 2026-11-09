@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import type { ServerStatus, SlotInfo, HealthStatus } from "../api/types";
+import type { ServerStatus, SlotInfo, HealthStatus, VllmMetrics, BackendKind } from "../api/types";
 import { api } from "../api/client";
 import { getWsV2 } from "../api/wsv2";
 
@@ -161,6 +161,75 @@ function SlotRow({ slot, modelSuid }: { slot: SlotInfo; modelSuid: string }) {
   );
 }
 
+const fmtPct = (v: number) => `${(v * 100).toFixed(v < 0.1 ? 1 : 0)}%`;
+const fmtTps = (v: number) => (v >= 100 ? v.toFixed(0) : v.toFixed(1));
+
+function MetricRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-baseline gap-2 text-sm">
+      <span className="text-gray-400 w-20 shrink-0">{label}</span>
+      <span className="text-xs font-mono text-gray-300 truncate">{children}</span>
+    </div>
+  );
+}
+
+/** vLLM has no per-slot view; show its scheduler and cache metrics instead. */
+function VllmMetricsPanel({ m }: { m: VllmMetrics }) {
+  const running = m.requests_running ?? 0;
+  const waiting = m.requests_waiting ?? 0;
+  const busy = running > 0 || waiting > 0;
+  const ttft = m.ttft_recent ?? m.ttft_avg;
+  return (
+    <div className="mt-4 ml-5 space-y-1.5">
+      <div className="flex items-baseline gap-2 text-sm">
+        <span className={`shrink-0 inline-block h-2 w-2 rounded-full -translate-y-px ${busy ? "bg-yellow-500" : "bg-green-500"}`} />
+        <span className={`w-[4.5rem] shrink-0 ${busy ? "text-yellow-400" : "text-green-400"}`}>{busy ? "Busy" : "Idle"}</span>
+        <span className="text-xs font-mono text-gray-300">
+          {running} running · {waiting} waiting
+        </span>
+      </div>
+      {(m.generation_tps != null || m.prompt_tps != null) && (
+        <MetricRow label="Throughput">
+          {fmtTps(m.generation_tps ?? 0)} tok/s gen · {fmtTps(m.prompt_tps ?? 0)} prompt
+        </MetricRow>
+      )}
+      {m.kv_cache_usage != null && (
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-gray-400 w-20 shrink-0">KV cache</span>
+          <div className="h-1.5 w-24 rounded-full bg-gray-800 overflow-hidden">
+            <div
+              className={`h-full ${m.kv_cache_usage > 0.9 ? "bg-red-500" : m.kv_cache_usage > 0.7 ? "bg-yellow-500" : "bg-blue-500"}`}
+              style={{ width: `${Math.min(100, m.kv_cache_usage * 100)}%` }}
+            />
+          </div>
+          <span className="text-xs font-mono text-gray-300">{fmtPct(m.kv_cache_usage)}</span>
+        </div>
+      )}
+      {(ttft != null || m.prefix_cache_hit_rate != null) && (
+        <MetricRow label="Latency">
+          {ttft != null && <>TTFT {ttft.toFixed(2)}s</>}
+          {ttft != null && m.prefix_cache_hit_rate != null && " · "}
+          {m.prefix_cache_hit_rate != null && <>prefix hit {fmtPct(m.prefix_cache_hit_rate)}</>}
+        </MetricRow>
+      )}
+    </div>
+  );
+}
+
+const backendLabels: Record<BackendKind, string> = {
+  llamacpp: "llama.cpp",
+  vllm: "vLLM",
+  openai: "OpenAI-compatible",
+};
+
+function backendLabel(health: HealthStatus | null | undefined): string {
+  if (!health?.backend) return "Remote";
+  const name = backendLabels[health.backend] ?? health.backend;
+  // vLLM dev builds carry a long local suffix ("0.21.1rc1.dev339+g1967a…"); keep the release part.
+  const version = health.version?.split("+")[0].replace(/\.dev\d+$/, "");
+  return version ? `${name} ${version}` : name;
+}
+
 function isLoopback(url: string): boolean {
   try {
     const { hostname } = new URL(url);
@@ -209,7 +278,7 @@ function remoteDisplay(health: HealthStatus | null): {
   label: string;
   color: string;
 } {
-  if (health == null) return { label: "Offline", color: "bg-red-500" };
+  if (health == null || health.status === "offline") return { label: "Offline", color: "bg-red-500" };
   if (health.status === "ok")
     return { label: "Running", color: "bg-green-500" };
   if (health.status === "unknown")
@@ -403,6 +472,8 @@ export default function ServerStatusCard({
         </span>
       </div>
 
+      {isRemote && health?.metrics && <VllmMetricsPanel m={health.metrics} />}
+
       {slots.length > 0 && (
         <div className="mt-4 ml-5 space-y-1.5">
           {slots.map((s) => (
@@ -415,7 +486,9 @@ export default function ServerStatusCard({
         {isRemote ? (
           <>
             <span />
-            <span>Remote</span>
+            <span title={health?.version ? `${backendLabels[health.backend ?? "openai"] ?? ""} ${health.version}` : undefined}>
+              {backendLabel(health)}
+            </span>
           </>
         ) : (
           <>

@@ -458,13 +458,13 @@ class LlamaManager(LlamaManagerProtocol):
 
                 for unmanaged in self._remote_unmanaged.values():
                     try:
-                        health = await LlamaClient(unmanaged.get_base_url()).get_health()
-                        if health is not None:
-                            self.event_bus.publish({
-                                "type": "health",
-                                "id": unmanaged.get_suid(),
-                                "data": {"health": health},
-                            })
+                        # Always publish (including "offline") so the UI never goes stale.
+                        health = await unmanaged.get_health()
+                        self.event_bus.publish({
+                            "type": "health",
+                            "id": unmanaged.get_suid(),
+                            "data": {"health": health},
+                        })
                     except Exception:
                         logger.warning("data_publisher: health fetch failed for %s", unmanaged.get_suid(), exc_info=True)
             except Exception:

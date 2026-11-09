@@ -129,10 +129,38 @@ export interface ProxyStatus {
   pid: number | null;
 }
 
+/** Summary of vLLM's Prometheus /metrics, standing in for llama-server's /slots. */
+export interface VllmMetrics {
+  requests_running: number | null;
+  requests_waiting: number | null;
+  /** 0..1 */
+  kv_cache_usage: number | null;
+  /** 0..1, since server start */
+  prefix_cache_hit_rate: number | null;
+  /** tokens/s since the previous scrape */
+  generation_tps: number | null;
+  prompt_tps: number | null;
+  /** seconds, since server start */
+  ttft_avg: number | null;
+  /** seconds, over requests finished since the previous scrape (sticky between requests) */
+  ttft_recent: number | null;
+  prompt_tokens_total: number | null;
+  generation_tokens_total: number | null;
+  requests_finished: number | null;
+  requests_errored: number | null;
+  preemptions_total: number | null;
+}
+
+export type BackendKind = "llamacpp" | "vllm" | "openai";
+
 export interface HealthStatus {
   status: string;
   slots_idle?: number;
   slots_processing?: number;
+  /** Remote API models only: detected server type. */
+  backend?: BackendKind;
+  version?: string;
+  metrics?: VllmMetrics;
 }
 
 export interface SlotInfo {

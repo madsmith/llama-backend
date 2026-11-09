@@ -16,7 +16,8 @@ Quick-reference map of every module in `src/llama_manager/` and `frontend/src/` 
 | `main.py` | FastAPI app + lifespan; mounts routers; serves frontend SPA | `app` (FastAPI), `lifespan` |
 | `process_manager.py` | Subprocess lifecycle for one llama-server instance; state machine; log streaming | `ProcessManager` (`start`, `stop`, `restart`, `get_status`, `subscribe`, `unsubscribe`) |
 | `log_buffer.py` | Thread-safe circular log buffer with monotonic IDs | `LogBuffer`, `LogLine` |
-| `llama_client.py` | HTTP client for llama-server endpoints (`/health`, `/slots`, `/props`) | `LlamaClient` |
+| `llama_client.py` | HTTP client for llama-server endpoints (`/health`, `/slots`, `/props`) (non-JSON `/health` counts by status code, for vLLM) | `LlamaClient` |
+| `manager/backend_probe.py` | Detects a remote API server's type (llama.cpp / vLLM / generic OpenAI) and summarises vLLM `/metrics` (requests, throughput, KV cache, TTFT, prefix hits) in place of `/slots` | `detect_backend()`, `VllmMetricsReader` |
 | `remote_manager_client.py` | WebSocket client to a remote Llama Manager; duck-types ProcessManager for remote models | `RemoteManagerClient`, `RemoteModelProxy` |
 
 ### `kv_cache/`
