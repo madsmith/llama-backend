@@ -15,6 +15,8 @@ interface IntegerFieldProps {
   min?: number;
   max?: number;
   bg?: "gray-800" | "gray-900";
+  /** "inline" puts the input beside the label; "stacked" puts it below, full width */
+  layout?: "inline" | "stacked";
 }
 
 export default function IntegerField({
@@ -30,7 +32,9 @@ export default function IntegerField({
   min,
   max,
   bg = "gray-900",
+  layout = "inline",
 }: IntegerFieldProps) {
+  const stacked = layout === "stacked";
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = e.target.value;
     if (raw === "") {
@@ -53,8 +57,8 @@ export default function IntegerField({
 
   return (
     <div className="relative group">
-      <label className="flex items-center justify-between">
-        <span className="text-sm font-medium text-gray-400">
+      <label className={stacked ? "block" : "flex items-center justify-between"}>
+        <span className={`text-sm font-medium text-gray-400${stacked ? " block mb-1" : ""}`}>
           {label}
           {tip && <Tip>{tip}</Tip>}
           {unit && <span className="ml-1 text-xs text-gray-600">({unit})</span>}
@@ -69,7 +73,7 @@ export default function IntegerField({
           placeholder={placeholder}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
-          className={`w-28 rounded-md border border-gray-700 px-3 py-2 text-sm text-gray-100 font-mono text-right focus:border-blue-500 focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none ${bg === "gray-800" ? "bg-gray-800" : "bg-gray-900"}`}
+          className={`${stacked ? "w-full" : "w-28 text-right"} rounded-md border border-gray-700 px-3 py-2 text-sm text-gray-100 font-mono focus:border-blue-500 focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none ${bg === "gray-800" ? "bg-gray-800" : "bg-gray-900"}`}
         />
       </label>
       {nullable && value !== null && (

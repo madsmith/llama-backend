@@ -383,6 +383,7 @@ export default function ConfigEditor({
               max={65535}
               placeholder="8000"
               bg="gray-800"
+              layout="stacked"
             />
           </div>
         </div>
