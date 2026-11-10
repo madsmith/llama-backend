@@ -31,9 +31,10 @@ export default function ConfigEditor({
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
   const [totalRamMib, setTotalRamMib] = useState<number | null>(null);
+  const [cwd, setCwd] = useState("");
 
   useEffect(() => {
-    api.getSystemInfo().then((r) => setTotalRamMib(r.total_ram_mib)).catch(() => {});
+    api.getSystemInfo().then((r) => { setTotalRamMib(r.total_ram_mib); setCwd(r.cwd ?? ""); }).catch(() => {});
   }, []);
   const model = config.models[modelIndex];
   const adv = model.advanced;
@@ -85,6 +86,14 @@ export default function ConfigEditor({
   if (tab === "manager") {
     return (
       <div className="space-y-4 max-w-xl">
+        <PathField
+          label="Default Model Path"
+          value={config.web_ui.default_model_path ?? ""}
+          placeholder={cwd}
+          onChange={(v) => setConfig({ ...config, web_ui: { ...config.web_ui, default_model_path: v } })}
+          mode="dir"
+          bg="gray-800"
+        />
         <IntegerField
           label="Log Buffer Size"
           value={config.web_ui.log_buffer_size}
@@ -508,6 +517,7 @@ export default function ConfigEditor({
                 label="Model Path"
                 value={model.model_path}
                 onChange={(v) => updateModel({ model_path: v })}
+                startDir={config.web_ui.default_model_path}
               />
 
               <SliderField
@@ -807,6 +817,7 @@ export default function ConfigEditor({
                     tip={<>Projector file that lets the model accept images. Usually shipped alongside vision-capable GGUFs as <code>mmproj-*.gguf</code>. Blank for text only.<TipFlag>--mmproj</TipFlag></>}
                     value={adv.mmproj_path ?? ""}
                     onChange={(v) => updateAdv({ mmproj_path: v })}
+                    startDir={config.web_ui.default_model_path}
                   />
 
                   <PathField
@@ -814,6 +825,7 @@ export default function ConfigEditor({
                     tip={<>Smaller model used for speculative decoding: it drafts tokens that the main model then verifies, which speeds up generation. Must share the main model's vocabulary. Blank to disable.<TipFlag>--model-draft</TipFlag></>}
                     value={adv.draft_model_path ?? ""}
                     onChange={(v) => updateAdv({ draft_model_path: v })}
+                    startDir={config.web_ui.default_model_path}
                   />
 
                   {adv.draft_model_path && (

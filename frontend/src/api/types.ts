@@ -54,6 +54,7 @@ export interface ModelConfig {
 }
 
 export interface WebUIConfig {
+  default_model_path?: string;
   log_buffer_size: number;
   filter_slot_queries?: boolean;
   slot_save_path?: string;

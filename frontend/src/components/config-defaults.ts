@@ -58,6 +58,7 @@ export const defaultConfig: ServerConfig = {
     },
   ],
   web_ui: {
+    default_model_path: "",
     log_buffer_size: 10_000,
     filter_slot_queries: false,
     slot_save_path: "",

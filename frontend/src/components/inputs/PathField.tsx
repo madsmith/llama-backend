@@ -9,6 +9,10 @@ interface Props {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
+  /** Where the browser opens when the field is empty. */
+  startDir?: string;
+  /** Pick a file (default) or a directory. */
+  mode?: "file" | "dir";
   bg?: "gray-800" | "gray-900";
 }
 
@@ -19,6 +23,8 @@ export default function PathField({
   value,
   onChange,
   placeholder,
+  startDir = "",
+  mode = "file",
   bg = "gray-900",
 }: Props) {
   const [showBrowser, setShowBrowser] = useState(false);
@@ -54,7 +60,8 @@ export default function PathField({
       {note && <p className="mt-1 text-xs text-gray-600">{note}</p>}
       {showBrowser && (
         <FileBrowser
-          initialPath={value}
+          initialPath={value || startDir}
+          mode={mode}
           onConfirm={(path) => {
             onChange(path);
             setShowBrowser(false);

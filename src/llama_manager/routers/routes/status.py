@@ -41,7 +41,10 @@ class StatusRoutes:
 
     async def get_system(self):
         total = _total_ram_bytes()
-        return {"total_ram_mib": total // (1024 * 1024) if total else None}
+        return {
+            "total_ram_mib": total // (1024 * 1024) if total else None,
+            "cwd": os.getcwd(),
+        }
 
     async def get_health(self, model_suid: str = Query(...)):
         client = self.manager.get_client(model_suid)

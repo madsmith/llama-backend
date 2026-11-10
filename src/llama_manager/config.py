@@ -95,6 +95,7 @@ class ModelConfig(BaseModel):
 
 
 class WebUIConfig(BaseModel):
+    default_model_path: str = ""  # where the model file picker opens; "" = cwd
     log_buffer_size: int = 10_000
     filter_slot_queries: bool = False
     slot_save_path: str = ""

@@ -16,6 +16,8 @@ function formatSize(bytes: number): string {
 
 interface Props {
   initialPath: string;
+  /** "dir" lists folders only and confirms the current folder. */
+  mode?: "file" | "dir";
   onConfirm: (path: string) => void;
   onClose: () => void;
 }
@@ -26,7 +28,8 @@ function joinPath(dir: string, name: string): string {
   return dir.endsWith("/") ? dir + name : dir + "/" + name;
 }
 
-export default function FileBrowser({ initialPath, onConfirm, onClose }: Props) {
+export default function FileBrowser({ initialPath, mode = "file", onConfirm, onClose }: Props) {
+  const dirMode = mode === "dir";
   const [dirPath, setDirPath] = useState("");
   const [inputText, setInputText] = useState(initialPath);
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -65,7 +68,7 @@ export default function FileBrowser({ initialPath, onConfirm, onClose }: Props) 
   useEffect(() => {
     const lastSlash = initialPath.lastIndexOf("/");
     const tail = lastSlash >= 0 ? initialPath.slice(lastSlash + 1) : initialPath;
-    const looksLikeFile = tail.includes(".");
+    const looksLikeFile = !dirMode && tail.includes(".");
     loadDir(initialPath, looksLikeFile ? tail : undefined);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -97,6 +100,7 @@ export default function FileBrowser({ initialPath, onConfirm, onClose }: Props) 
 
   const visibleEntries = entries.filter((e) => {
     if (e.type === "dir") return true;
+    if (dirMode) return false;
     if (showAll) return true;
     return e.name.toLowerCase().endsWith(GGUF_EXT);
   });
@@ -117,7 +121,7 @@ export default function FileBrowser({ initialPath, onConfirm, onClose }: Props) 
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700 flex-shrink-0">
           <h2 className="text-base font-semibold text-gray-100">
-            Select Model File
+            {dirMode ? "Select Folder" : "Select Model File"}
           </h2>
           <button
             type="button"
@@ -231,7 +235,9 @@ export default function FileBrowser({ initialPath, onConfirm, onClose }: Props) 
                       colSpan={3}
                       className="px-5 py-8 text-center text-sm text-gray-600"
                     >
-                      {showAll
+                      {dirMode
+                        ? "No subfolders"
+                        : showAll
                         ? "Empty directory"
                         : "No .gguf files here — check \"Show all files\""}
                     </td>
@@ -244,6 +250,9 @@ export default function FileBrowser({ initialPath, onConfirm, onClose }: Props) 
 
         {/* Footer */}
         <div className="flex items-center justify-between px-5 py-4 border-t border-gray-700 flex-shrink-0">
+          {dirMode ? (
+            <span className="text-xs text-gray-600">Ok selects the folder shown above.</span>
+          ) : (
           <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer select-none">
             <input
               type="checkbox"
@@ -253,6 +262,7 @@ export default function FileBrowser({ initialPath, onConfirm, onClose }: Props) 
             />
             Show all files
           </label>
+          )}
           <div className="flex gap-2">
             <button
               type="button"
@@ -263,8 +273,11 @@ export default function FileBrowser({ initialPath, onConfirm, onClose }: Props) 
             </button>
             <button
               type="button"
-              onClick={() => selectedPath && onConfirm(selectedPath)}
-              disabled={!selectedPath}
+              onClick={() => {
+                const chosen = dirMode ? dirPath : selectedPath;
+                if (chosen) onConfirm(chosen);
+              }}
+              disabled={dirMode ? !dirPath || loading || !!error : !selectedPath}
               className="rounded-md bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 disabled:opacity-40 transition"
             >
               Ok
