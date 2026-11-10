@@ -134,6 +134,14 @@ export default function ConfigEditor({
   if (tab === "manager") {
     return (
       <div className="space-y-4 max-w-xl">
+        <SectionDivider title="Model Servers" first />
+        <PathField
+          label="llama-server Executable"
+          value={config.api_server.llama_server_path}
+          onChange={(v) => setConfig({ ...config, api_server: { ...config.api_server, llama_server_path: v } })}
+          mode="executable"
+          bg="gray-800"
+        />
         <PathField
           label="Default Model Path"
           value={config.web_ui.default_model_path ?? ""}
@@ -143,22 +151,76 @@ export default function ConfigEditor({
           bg="gray-800"
         />
         <IntegerField
-          label="Log Buffer Size"
-          value={config.web_ui.log_buffer_size}
-          onChange={(v) => setConfig({ ...config, web_ui: { ...config.web_ui, log_buffer_size: v ?? config.web_ui.log_buffer_size } })}
+          label="Starting Port"
+          value={config.api_server.llama_server_starting_port}
+          onChange={(v) => setConfig({ ...config, api_server: { ...config.api_server, llama_server_starting_port: v ?? config.api_server.llama_server_starting_port } })}
           min={1}
+          max={65535}
+          note="Each model gets assigned 127.0.0.1 on this port + its index in the models list."
           bg="gray-800"
         />
-        <p className="text-xs text-gray-600">
-          Changes to log buffer size take effect on next restart.
-        </p>
         <ToggleField
-          label="Filter Slot Queries"
-          checked={config.web_ui.filter_slot_queries ?? false}
-          onChange={(v) => setConfig({ ...config, web_ui: { ...config.web_ui, filter_slot_queries: v } })}
-          tip="Suppress log messages related to slot polling from llama-server backends."
+          label="JIT Model Server Start"
+          description="Automatically start the model server when the proxy receives a request."
+          checked={config.api_server.jit_model_server}
+          onChange={(v) =>
+            setConfig({
+              ...config,
+              api_server: {
+                ...config.api_server,
+                jit_model_server: v,
+              },
+            })
+          }
           bg="gray-800"
         />
+        {config.api_server.jit_model_server && (
+          <IntegerField
+            label="JIT Timeout"
+            unit="seconds"
+            value={config.api_server.jit_timeout ?? null}
+            onChange={(v) => setConfig({ ...config, api_server: { ...config.api_server, jit_timeout: v } })}
+            nullable
+            min={10}
+            max={600}
+            placeholder="80"
+            note="Maximum seconds to wait for the model server to become ready."
+            bg="gray-800"
+          />
+        )}
+
+        <SectionDivider title="Proxy" />
+        <p className="text-xs text-gray-600">
+          OpenAI- and Anthropic-compatible endpoints (<code>/v1/chat/completions</code>,{" "}
+          <code>/v1/messages</code>, <code>/v1/models</code>) that route requests to model servers.
+          Host and port changes take effect on next restart.
+        </p>
+        <div className="grid grid-cols-2 gap-4">
+          <TextField
+            label="Host"
+            value={config.api_server.host}
+            onChange={(v) => setConfig({ ...config, api_server: { ...config.api_server, host: v } })}
+            bg="gray-800"
+          />
+          <div>
+            <label className="block text-sm font-medium text-gray-400 mb-1">
+              Port
+            </label>
+            <input
+              type="number"
+              value={config.api_server.port}
+              onChange={(e) =>
+                setConfig({
+                  ...config,
+                  api_server: { ...config.api_server, port: Number(e.target.value) },
+                })
+              }
+              className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
+            />
+          </div>
+        </div>
+
+        <SectionDivider title="Slot Saves" />
         <TextField
           label="Slot Save Path"
           value={config.web_ui.slot_save_path ?? ""}
@@ -178,53 +240,69 @@ export default function ConfigEditor({
           tip="Total disk space, in GB, for KV cache slot saves across all models. After each save, the least recently used saves are deleted until the total is back under the limit. Clear for no limit."
           bg="gray-800"
         />
-        <div className="border-t border-gray-700 pt-4 space-y-3">
-          <span className="text-sm font-medium text-gray-300">Manager Uplink</span>
-          <p className="text-xs text-gray-600">
-            Allow other Llama Manager instances to connect to this one and proxy its models.
-          </p>
-          <ToggleField
-            label="Enable Uplink"
-            checked={config.manager_uplink?.enabled ?? false}
-            onChange={(v) =>
-              setConfig({
-                ...config,
-                manager_uplink: {
-                  enabled: v,
-                  token: config.manager_uplink?.token ?? "",
-                },
-              })
-            }
-            bg="gray-800"
-          />
-          {config.manager_uplink?.enabled && (
-            <div>
-              <TextField
-                label="Authorization Token"
-                value={config.manager_uplink?.token ?? ""}
-                placeholder="Auto-generated on save"
-                onChange={(v) => setConfig({ ...config, manager_uplink: { enabled: config.manager_uplink?.enabled ?? true, token: v } })}
-                note="Connecting managers must provide this token. Clearing and saving generates a new one."
-                mono
-                bg="gray-800"
-                actions={
-                  <button
-                    type="button"
-                    title="Regenerate token"
-                    onClick={() =>
-                      api.generateUplinkToken().then(({ token }) =>
-                        setConfig({ ...config, manager_uplink: { enabled: config.manager_uplink?.enabled ?? true, token } }),
-                      )
-                    }
-                    className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-400 hover:text-gray-200 transition"
-                  >
-                    Regenerate
-                  </button>
-                }
-              />
-            </div>
-          )}
-        </div>
+
+        <SectionDivider title="Logs" />
+        <IntegerField
+          label="Log Buffer Size"
+          value={config.web_ui.log_buffer_size}
+          onChange={(v) => setConfig({ ...config, web_ui: { ...config.web_ui, log_buffer_size: v ?? config.web_ui.log_buffer_size } })}
+          min={1}
+          note="Takes effect on next restart."
+          bg="gray-800"
+        />
+        <ToggleField
+          label="Filter Slot Queries"
+          checked={config.web_ui.filter_slot_queries ?? false}
+          onChange={(v) => setConfig({ ...config, web_ui: { ...config.web_ui, filter_slot_queries: v } })}
+          tip="Suppress log messages related to slot polling from llama-server backends."
+          bg="gray-800"
+        />
+
+        <SectionDivider title="Manager Uplink" />
+        <p className="text-xs text-gray-600">
+          Allow other Llama Manager instances to connect to this one and proxy its models.
+        </p>
+        <ToggleField
+          label="Enable Uplink"
+          checked={config.manager_uplink?.enabled ?? false}
+          onChange={(v) =>
+            setConfig({
+              ...config,
+              manager_uplink: {
+                enabled: v,
+                token: config.manager_uplink?.token ?? "",
+              },
+            })
+          }
+          bg="gray-800"
+        />
+        {config.manager_uplink?.enabled && (
+          <div>
+            <TextField
+              label="Authorization Token"
+              value={config.manager_uplink?.token ?? ""}
+              placeholder="Auto-generated on save"
+              onChange={(v) => setConfig({ ...config, manager_uplink: { enabled: config.manager_uplink?.enabled ?? true, token: v } })}
+              note="Connecting managers must provide this token. Clearing and saving generates a new one."
+              mono
+              bg="gray-800"
+              actions={
+                <button
+                  type="button"
+                  title="Regenerate token"
+                  onClick={() =>
+                    api.generateUplinkToken().then(({ token }) =>
+                      setConfig({ ...config, manager_uplink: { enabled: config.manager_uplink?.enabled ?? true, token } }),
+                    )
+                  }
+                  className="rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-400 hover:text-gray-200 transition"
+                >
+                  Regenerate
+                </button>
+              }
+            />
+          </div>
+        )}
 
         <button
           type="button"
@@ -285,101 +363,6 @@ export default function ConfigEditor({
             </div>
           </div>
         )}
-        <div className="flex items-center gap-3">
-          <button
-            onClick={save}
-            disabled={saving}
-            className="rounded-md bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 disabled:opacity-40 transition"
-          >
-            {saving ? "Saving..." : "Save Configuration"}
-          </button>
-          {msg && <span className="text-sm text-gray-400">{msg}</span>}
-        </div>
-      </div>
-    );
-  }
-
-  if (tab === "proxy") {
-    return (
-      <div className="space-y-4 max-w-xl">
-        <p className="text-sm text-gray-400">
-          The proxy server exposes OpenAI-compatible endpoints. External
-          clients connect here instead of directly to llama-server.
-        </p>
-        <PathField
-          label="Path to llama-server executable"
-          value={config.api_server.llama_server_path}
-          onChange={(v) => setConfig({ ...config, api_server: { ...config.api_server, llama_server_path: v } })}
-          mode="executable"
-          bg="gray-800"
-        />
-        <div className="grid grid-cols-2 gap-4">
-          <TextField
-            label="Proxy Host"
-            value={config.api_server.host}
-            onChange={(v) => setConfig({ ...config, api_server: { ...config.api_server, host: v } })}
-            bg="gray-800"
-          />
-          <div>
-            <label className="block text-sm font-medium text-gray-400 mb-1">
-              Proxy Port
-            </label>
-            <input
-              type="number"
-              value={config.api_server.port}
-              onChange={(e) =>
-                setConfig({
-                  ...config,
-                  api_server: { ...config.api_server, port: Number(e.target.value) },
-                })
-              }
-              className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none"
-            />
-          </div>
-        </div>
-        <IntegerField
-          label="llama-server Starting Port"
-          value={config.api_server.llama_server_starting_port}
-          onChange={(v) => setConfig({ ...config, api_server: { ...config.api_server, llama_server_starting_port: v ?? config.api_server.llama_server_starting_port } })}
-          min={1}
-          max={65535}
-          note="Each model gets assigned 127.0.0.1 on this port + its index in the models list."
-          bg="gray-800"
-        />
-        <ToggleField
-          label="JIT Model Server Start"
-          description="Automatically start the model server when the proxy receives a request."
-          checked={config.api_server.jit_model_server}
-          onChange={(v) =>
-            setConfig({
-              ...config,
-              api_server: {
-                ...config.api_server,
-                jit_model_server: v,
-              },
-            })
-          }
-          bg="gray-800"
-        />
-        {config.api_server.jit_model_server && (
-          <IntegerField
-            label="JIT Timeout"
-            unit="seconds"
-            value={config.api_server.jit_timeout ?? null}
-            onChange={(v) => setConfig({ ...config, api_server: { ...config.api_server, jit_timeout: v } })}
-            nullable
-            min={10}
-            max={600}
-            placeholder="80"
-            note="Maximum seconds to wait for the model server to become ready."
-            bg="gray-800"
-          />
-        )}
-        <p className="text-xs text-gray-600">
-          Supported endpoints: <code>/v1/chat/completions</code>,{" "}
-          <code>/v1/models</code>. Changes take effect on next application
-          restart.
-        </p>
         <div className="flex items-center gap-3">
           <button
             onClick={save}
@@ -962,7 +945,7 @@ export default function ConfigEditor({
 
                   <PathField
                     label="llama-server Path Override"
-                    tip="Use a different llama-server binary for this model only. Blank inherits the path from the Proxy Server tab."
+                    tip="Use a different llama-server binary for this model only. Blank inherits the path from the General tab."
                     value={adv.llama_server_path}
                     placeholder={config.api_server.llama_server_path || "not set"}
                     onChange={(v) => updateAdv({ llama_server_path: v })}

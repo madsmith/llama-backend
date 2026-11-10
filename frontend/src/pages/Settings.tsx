@@ -64,11 +64,6 @@ export default function Settings() {
           active={tab === "manager"}
           onClick={() => setTab("manager")}
         />
-        <TabButton
-          label="Proxy Server"
-          active={tab === "proxy"}
-          onClick={() => setTab("proxy")}
-        />
         {config.models.map((m, i) => (
           <TabButton
             key={i}

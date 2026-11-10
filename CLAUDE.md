@@ -73,7 +73,7 @@ When models are added/removed via the config PUT endpoint, the process managers 
 - **React 19 + React Router v7 + Tailwind CSS 4 + Vite 7**
 - **Hooks with polling:** `useServerStatus(modelIndex, pollMs)`, `useSlots(modelIndex)`, `useHealth(modelIndex)` poll REST endpoints. `useLogs(source)` uses WebSocket with auto-reconnect.
 - **Per-model components:** Dashboard and Logs pages render a component per model (each with its own hooks), since React hooks can't be called in loops. Status/health data flows up via callbacks.
-- **Settings tabs:** Tab IDs are `"manager"`, `"proxy"`, `"model-0"`, `"model-1"`, etc. ConfigEditor receives `modelIndex` prop and uses `config.models[modelIndex]`. Model 0 cannot be deleted.
+- **Settings tabs:** Tab IDs are `"manager"` (General: model servers, proxy, slot saves, logs, uplink), `"model-0"`, `"model-1"`, etc., and `"remote-N"`. ConfigEditor receives `modelIndex` prop and uses `config.models[modelIndex]`. Any model can be deleted as long as at least one remains.
 
 ### Log Streaming
 
