@@ -19,7 +19,7 @@ export const defaultConfig: ServerConfig = {
       name: null,
       id: null,
       model_path: "",
-      ctx_size: 65536,
+      ctx_size: null,
       n_gpu_layers: -1,
       parallel: 2,
       auto_start: false,

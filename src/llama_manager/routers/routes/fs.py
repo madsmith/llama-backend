@@ -5,6 +5,8 @@ from pathlib import Path
 from fastapi import Query
 from fastapi.responses import JSONResponse
 
+from llama_manager import gguf
+
 
 class FsRoutes:
     async def browse(self, path: str = Query(default="")):
@@ -36,3 +38,18 @@ class FsRoutes:
             return {"path": str(target), "entries": entries}
         except PermissionError:
             return JSONResponse({"error": "Permission denied"}, status_code=403)
+
+    async def gguf_info(self, path: str = Query(...), projectors: bool = Query(default=False)):
+        """Header metadata of a GGUF file, used to configure a model from its file."""
+        target = Path(path).expanduser()
+        if not target.is_file():
+            return JSONResponse({"error": "File not found"}, status_code=404)
+        try:
+            info = gguf.summarize(target)
+        except PermissionError:
+            return JSONResponse({"error": "Permission denied"}, status_code=403)
+        except (OSError, gguf.GGUFError) as exc:
+            return JSONResponse({"error": f"Not a readable GGUF file: {exc}"}, status_code=422)
+        if projectors and info["type"] == "model":
+            info["projectors"] = gguf.find_projectors(target)
+        return info

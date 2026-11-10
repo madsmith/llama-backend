@@ -40,7 +40,7 @@ export interface ModelConfig {
   name: string | null;
   id: string | null;
   model_path: string;
-  ctx_size: number;
+  ctx_size: number | null;
   n_gpu_layers: number;
   parallel: number;
   auto_start: boolean;

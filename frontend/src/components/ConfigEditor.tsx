@@ -1,5 +1,14 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { api } from "../api/client";
+import {
+  applyModelFile,
+  draftProblem,
+  formatBytes,
+  kvCacheBytes,
+  offloadableLayers,
+  projectorProblem,
+  useGgufInfo,
+} from "../api/gguf";
 import type { ServerConfig, ModelConfig, ModelAdvanced, RemoteManagerConfig } from "../api/types";
 import type { SettingsTab } from "./config-defaults";
 import { ToggleField, IntegerField, SliderField, TextField, PathField, TipFlag, SectionDivider } from "./inputs";
@@ -73,15 +82,54 @@ export default function ConfigEditor({
     updateModel({ advanced: { ...adv, ...patch } });
   };
 
-  const setCtxSize = (v: number, snap = false) => {
+  const setCtxSize = (v: number | null, snap = false) => {
+    if (v === null) {
+      updateModel({ ctx_size: null });
+      return;
+    }
     let clamped = Math.max(CTX_MIN, Math.min(CTX_MAX, v));
     if (snap) clamped = Math.round(clamped / 1024) * 1024;
     updateModel({ ctx_size: clamped });
   };
 
+  // GGUF metadata for the files this model points at (local models only).
+  const isLocal = (model.type ?? "local") !== "remote";
+  const modelFile = useGgufInfo(isLocal ? model.model_path : "", { projectors: true });
+  const projFile = useGgufInfo(isLocal ? adv.mmproj_path ?? "" : "");
+  const draftFile = useGgufInfo(isLocal ? adv.draft_model_path ?? "" : "");
+  const modelInfo = modelFile.info;
+  const trainedCtx = modelInfo?.context_length ?? null;
+  const modelLayers = offloadableLayers(modelInfo);
+  const draftLayers = offloadableLayers(draftFile.info);
+
+  // When a model file is picked, adjust settings from it once its header loads.
+  const pendingModelPath = useRef<string | null>(null);
+  const [fileChanges, setFileChanges] = useState<{ changes: string[]; before: ModelConfig } | null>(null);
+  useEffect(() => {
+    pendingModelPath.current = null;
+    setFileChanges(null);
+  }, [modelIndex]);
+  useEffect(() => {
+    if (!modelInfo || pendingModelPath.current !== modelFile.path) return;
+    pendingModelPath.current = null;
+    const { model: next, changes } = applyModelFile(model, modelInfo);
+    if (changes.length) {
+      updateModel(next);
+      setFileChanges({ changes, before: model });
+    }
+  }, [modelInfo]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const pickModelPath = (v: string) => {
+    pendingModelPath.current = v;
+    setFileChanges(null);
+    updateModel({ model_path: v });
+  };
 
   const kvUnified = model.kv_unified ?? false;
-  const totalCtx = kvUnified ? model.ctx_size : model.ctx_size * model.parallel;
+  const perSlotCtx = model.ctx_size ?? trainedCtx;
+  const totalCtx = perSlotCtx == null ? null : kvUnified ? perSlotCtx : perSlotCtx * model.parallel;
+  const kvBytes = perSlotCtx == null ? null : kvCacheBytes(modelInfo, perSlotCtx, model.parallel, kvUnified, adv.swa_full);
+  const ramBytes = totalRamMib != null ? totalRamMib * 1024 * 1024 : null;
 
   if (tab === "manager") {
     return (
@@ -516,9 +564,36 @@ export default function ConfigEditor({
               <PathField
                 label="Model Path"
                 value={model.model_path}
-                onChange={(v) => updateModel({ model_path: v })}
+                onChange={pickModelPath}
                 startDir={config.web_ui.default_model_path}
+                note={modelFile.error ? <span className="text-amber-500">{modelFile.error}</span> : undefined}
               />
+
+              {fileChanges && (
+                <div className="flex items-start justify-between gap-3 rounded-md border border-gray-700 bg-gray-800/60 px-3 py-2 text-xs text-gray-400">
+                  <span>Set from model: {fileChanges.changes.join(" · ")}</span>
+                  <span className="flex shrink-0 gap-3">
+                    <button
+                      type="button"
+                      className="text-blue-400 hover:text-blue-300"
+                      onClick={() => {
+                        updateModel({ ...fileChanges.before, model_path: model.model_path });
+                        setFileChanges(null);
+                      }}
+                    >
+                      Undo
+                    </button>
+                    <button
+                      type="button"
+                      className="text-gray-500 hover:text-gray-300"
+                      onClick={() => setFileChanges(null)}
+                      aria-label="Dismiss"
+                    >
+                      ✕
+                    </button>
+                  </span>
+                </div>
+              )}
 
               <SliderField
                 label="Parallel Slots"
@@ -539,13 +614,30 @@ export default function ConfigEditor({
               <SliderField
                 label="Context Size per Slot"
                 value={model.ctx_size}
-                onChange={(v) => v !== null && setCtxSize(v)}
+                onChange={(v) => setCtxSize(v)}
                 sliderMin={CTX_MIN}
-                sliderMax={CTX_MAX}
+                sliderMax={trainedCtx ?? CTX_MAX}
                 snap={1024}
-                note={kvUnified
-                  ? `Total context: ${totalCtx.toLocaleString()}`
-                  : `Total context: ${totalCtx.toLocaleString()} (${model.ctx_size.toLocaleString()} × ${model.parallel} slots)`}
+                placeholder={trainedCtx != null ? String(trainedCtx) : "trained"}
+                nullSliderPosition={trainedCtx ?? CTX_MIN}
+                nullDefault={trainedCtx ?? undefined}
+                nullLabel="trained"
+                tip={<>Tokens each slot can hold. Clear to use the model's trained context. The slider stops at the trained context; type a larger value only for models that support RoPE scaling.<TipFlag>--ctx-size</TipFlag></>}
+                note={<>
+                  {totalCtx == null
+                    ? "Total context: model default"
+                    : kvUnified || perSlotCtx == null
+                      ? `Total context: ${totalCtx.toLocaleString()}`
+                      : `Total context: ${totalCtx.toLocaleString()} (${perSlotCtx.toLocaleString()} × ${model.parallel} slots)`}
+                  {trainedCtx != null && ` · Trained: ${trainedCtx.toLocaleString()}`}
+                  {kvBytes != null && ` · KV cache ≈ ${formatBytes(kvBytes)} (f16)`}
+                  {trainedCtx != null && model.ctx_size != null && model.ctx_size > trainedCtx && (
+                    <div className="text-amber-500">Above the trained context; output may degrade unless the model supports RoPE scaling.</div>
+                  )}
+                  {kvBytes != null && ramBytes != null && kvBytes > ramBytes && (
+                    <div className="text-amber-500">The KV cache alone is larger than system RAM ({formatBytes(ramBytes)}).</div>
+                  )}
+                </>}
               />
 
               <IntegerField
@@ -553,7 +645,9 @@ export default function ConfigEditor({
                 value={model.n_gpu_layers === -1 ? null : model.n_gpu_layers}
                 onChange={(v) => updateModel({ n_gpu_layers: v ?? -1 })}
                 min={0}
+                max={modelLayers ?? undefined}
                 placeholder="-1"
+                note={modelLayers != null ? `Model has ${modelLayers} offloadable layers` : undefined}
                 nullable
                 tip={<>Number of model layers to offload to the GPU. 0 runs entirely on CPU. Clear to use -1 (offload all layers).<TipFlag>--n-gpu-layers</TipFlag></>}
               />
@@ -631,6 +725,7 @@ export default function ConfigEditor({
                     tip={<>Apply the model's built-in Jinja2 chat template. Recommended for most models.<TipFlag>--jinja</TipFlag></>}
                     checked={adv.use_jinja ?? true}
                     onChange={(v) => updateAdv({ use_jinja: v })}
+                    description={modelInfo && !modelInfo.has_chat_template ? "This model file has no built-in template." : undefined}
                   />
 
                   <IntegerField
@@ -791,6 +886,11 @@ export default function ConfigEditor({
                     tip={<>Use a full-size KV cache instead of sliding window attention. Required for Gemma 2/3 when context exceeds the model's window size.<TipFlag>--swa-full</TipFlag></>}
                     checked={adv.swa_full}
                     onChange={(v) => updateAdv({ swa_full: v })}
+                    description={modelInfo?.kv_cache
+                      ? modelInfo.kv_cache.sliding_window
+                        ? `This model uses a ${modelInfo.kv_cache.sliding_window.toLocaleString()}-token sliding window.`
+                        : "This model doesn't use sliding window attention; no effect."
+                      : undefined}
                   />
 
                   <SectionDivider title="Slot Persistence" />
@@ -818,6 +918,10 @@ export default function ConfigEditor({
                     value={adv.mmproj_path ?? ""}
                     onChange={(v) => updateAdv({ mmproj_path: v })}
                     startDir={config.web_ui.default_model_path}
+                    note={(() => {
+                      const problem = projFile.error ?? projectorProblem(modelInfo, projFile.info);
+                      return problem ? <span className="text-amber-500">{problem}</span> : undefined;
+                    })()}
                   />
 
                   <PathField
@@ -826,6 +930,10 @@ export default function ConfigEditor({
                     value={adv.draft_model_path ?? ""}
                     onChange={(v) => updateAdv({ draft_model_path: v })}
                     startDir={config.web_ui.default_model_path}
+                    note={(() => {
+                      const problem = draftFile.error ?? draftProblem(modelInfo, draftFile.info);
+                      return problem ? <span className="text-amber-500">{problem}</span> : undefined;
+                    })()}
                   />
 
                   {adv.draft_model_path && (
@@ -835,6 +943,8 @@ export default function ConfigEditor({
                       value={adv.n_gpu_layers_draft ?? null}
                       onChange={(v) => updateAdv({ n_gpu_layers_draft: v })}
                       min={0}
+                      max={draftLayers ?? undefined}
+                      note={draftLayers != null ? `Draft model has ${draftLayers} offloadable layers` : undefined}
                       placeholder="default"
                       nullable
                     />

@@ -51,7 +51,7 @@ class ModelConfig(BaseModel):
     name: str | None = None
     id: str | None = None
     model_path: str = ""
-    ctx_size: int = 65536
+    ctx_size: int | None = None  # per slot; None = the model's trained context
     n_gpu_layers: int = -1
     parallel: int = 2
     auto_start: bool = False

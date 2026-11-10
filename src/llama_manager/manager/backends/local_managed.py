@@ -8,6 +8,7 @@ import time
 from enum import Enum
 from pathlib import Path
 
+from llama_manager import gguf
 from llama_manager.config import ModelConfig
 from llama_manager.util.event_bus import EventBus
 from llama_manager.util.log_buffer import LogBuffer
@@ -243,7 +244,7 @@ class LocalManagedModel(ManagedBackend):
             "--model", str(model_path),
             "--host", host,
             "--port", str(port),
-            "--ctx-size", str(model_config.ctx_size if model_config.kv_unified else model_config.ctx_size * model_config.parallel),
+            "--ctx-size", str(_total_ctx(model_config, model_path)),
             "--n-gpu-layers", str(model_config.n_gpu_layers),
             "--parallel", str(model_config.parallel),
         ]
@@ -442,3 +443,17 @@ class LocalManagedModel(ManagedBackend):
             self.started_at = None
             self.prompt_progress.clear()
             self._set_state(ServerState.error if rc != 0 else ServerState.stopped)
+
+
+def _total_ctx(model_config: ModelConfig, model_path: Path) -> int:
+    """--ctx-size for llama-server: per-slot context times slots unless KV is unified.
+
+    An unset context uses the model's trained length per slot; if the file
+    can't be read, 0 lets llama-server pick its own default.
+    """
+    per_slot = model_config.ctx_size
+    if per_slot is None:
+        per_slot = gguf.trained_context(model_path)
+        if per_slot is None:
+            return 0
+    return per_slot if model_config.kv_unified else per_slot * model_config.parallel

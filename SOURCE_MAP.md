@@ -13,6 +13,7 @@ Quick-reference map of every module in `src/llama_manager/` and `frontend/src/` 
 | `__init__.py` | Package init | version `0.4.0` |
 | `__main__.py` | CLI entry point | argparse: `--dev`, `--verbose`, `--debug`; starts uvicorn |
 | `config.py` | Pydantic v2 config models; loads/saves `server_config.json` | `AppConfig`, `ModelConfig`, `ModelAdvanced`, `WebUIConfig`, `ApiServerConfig`, `RemoteManagerConfig`, `ManagerUplinkConfig`, `load_config()`, `save_config()` |
+| `gguf.py` | Reads GGUF header metadata (no tensor data) and summarises what configures llama-server: trained context, layers, KV cache size, tokenizer, sampling defaults, projector dims; finds sibling projectors; maps split-model shards to shard 1 | `read_metadata()`, `summarize()`, `find_projectors()`, `trained_context()` |
 | `main.py` | FastAPI app + lifespan; mounts routers; serves frontend SPA | `app` (FastAPI), `lifespan` |
 | `process_manager.py` | Subprocess lifecycle for one llama-server instance; state machine; log streaming | `ProcessManager` (`start`, `stop`, `restart`, `get_status`, `subscribe`, `unsubscribe`) |
 | `log_buffer.py` | Thread-safe circular log buffer with monotonic IDs | `LogBuffer`, `LogLine` |
@@ -85,6 +86,7 @@ Quick-reference map of every module in `src/llama_manager/` and `frontend/src/` 
 |------|---------|-------------|
 | `types.ts` | TypeScript interfaces mirroring all backend response shapes | `ServerStatus`, `ServerConfig`, `ModelConfig`, `HealthStatus`, `SlotInfo`, `ProxyStatus`, `RequestLogEntry`, `RemoteManagerStatus`, `UplinkStatus`, … |
 | `client.ts` | Generic fetch wrapper + all endpoint functions | `api` object (`getStatus`, `start`, `stop`, `restart`, `putConfig`, `getHealth`, `getSlots`, `cancelSlot`, …), `wsUrl()` |
+| `gguf.ts` | GGUF info from `/api/fs/gguf`, debounced fetch hook, and the rules for adjusting a model's settings when its file is picked (cap out-of-range values, fill blanks) plus projector/draft compatibility checks and KV cache estimate | `useGgufInfo()`, `applyModelFile()`, `projectorProblem()`, `draftProblem()`, `kvCacheBytes()` |
 | `prefs.ts` | Browser-remembered UI preferences (`pref:*` localStorage keys) with guarded access | `usePref()`, `readPref()`, `writePref()`, `boolPref`, `oneOfPref()` |
 | `chat.ts` | Chat page model: `ChatSession`/`Msg` types, localStorage persistence, SSE chunk parsing, stats line formatting, model-generated chat titles, backend tree types and `x-llama-backend` pin helpers | `loadChats()`, `saveChats()`, `newChat()`, `parseChunk()`, `formatStats()`, `summarizeChat()` |
 | `hooks.ts` | React polling and WebSocket hooks | `useServerStatus()`, `useProxyStatus()`, `useHealth()`, `useSlots()`, `useProps()`, `useLogs()`, `useRemotes()`, `useSlotStream()`, `useHealthStream()`, `useUplinkStatus()` |

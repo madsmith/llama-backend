@@ -6,6 +6,7 @@ import type {
   SlotInfo,
   RequestLogEntry,
 } from "./types";
+import type { GgufInfo } from "./gguf";
 import { getWsV2 } from "./wsv2";
 
 const BASE = "";
@@ -62,5 +63,7 @@ export const api = {
     request<{ path: string; entries: Array<{ name: string; type: "dir" | "file" }> }>(
       `/api/fs/browse?path=${encodeURIComponent(path)}`,
     ),
+  ggufInfo: (path: string, projectors = false) =>
+    request<GgufInfo>(`/api/fs/gguf?path=${encodeURIComponent(path)}${projectors ? "&projectors=1" : ""}`),
 };
 
