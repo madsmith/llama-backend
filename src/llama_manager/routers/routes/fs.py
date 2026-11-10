@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from fastapi import Query
@@ -9,9 +10,13 @@ from llama_manager import gguf
 
 
 class FsRoutes:
-    async def browse(self, path: str = Query(default="")):
+    async def browse(self, path: str = Query(default=""), only: str = Query(default="")):
+        """List a directory. only="executable" returns just folders and executable
+        files, so picking a binary doesn't expose every file name on the host."""
         if path:
-            target = Path(path).expanduser().resolve()
+            # Normalise without following symlinks, so a picked file keeps its
+            # stable path (e.g. /opt/homebrew/bin/llama-server, not its Cellar target).
+            target = Path(os.path.normpath(Path(path).expanduser().absolute()))
         else:
             target = Path.cwd()
 
@@ -28,6 +33,8 @@ class FsRoutes:
             raw.sort(key=lambda e: (not e.is_dir(), e.name.lower()))
             entries = []
             for e in raw:
+                if only == "executable" and not (e.is_dir() or (e.is_file() and os.access(e, os.X_OK))):
+                    continue
                 entry: dict = {"name": e.name, "type": "dir" if e.is_dir() else "file"}
                 if e.is_file():
                     try:

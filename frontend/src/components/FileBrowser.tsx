@@ -14,10 +14,17 @@ function formatSize(bytes: number): string {
   return bytes + " B";
 }
 
+/**
+ * "file": a model file (.gguf unless "Show all files").
+ * "dir": folders only; Ok confirms the current folder.
+ * "executable": folders and executable files only, filtered on the server so
+ * other file names on the host aren't sent to the browser.
+ */
+export type BrowseMode = "file" | "dir" | "executable";
+
 interface Props {
   initialPath: string;
-  /** "dir" lists folders only and confirms the current folder. */
-  mode?: "file" | "dir";
+  mode?: BrowseMode;
   onConfirm: (path: string) => void;
   onClose: () => void;
 }
@@ -30,6 +37,7 @@ function joinPath(dir: string, name: string): string {
 
 export default function FileBrowser({ initialPath, mode = "file", onConfirm, onClose }: Props) {
   const dirMode = mode === "dir";
+  const exeMode = mode === "executable";
   const [dirPath, setDirPath] = useState("");
   const [inputText, setInputText] = useState(initialPath);
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -45,7 +53,7 @@ export default function FileBrowser({ initialPath, mode = "file", onConfirm, onC
     setLoading(true);
     setError(null);
     try {
-      const result = await api.browseFs(path);
+      const result = await api.browseFs(path, exeMode ? "executable" : undefined);
       setDirPath(result.path);
       setInputText(result.path);
       setEntries(result.entries);
@@ -62,13 +70,13 @@ export default function FileBrowser({ initialPath, mode = "file", onConfirm, onC
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [exeMode]);
 
   // Initial load — if given a file path, browse its parent and pre-select the file
   useEffect(() => {
     const lastSlash = initialPath.lastIndexOf("/");
     const tail = lastSlash >= 0 ? initialPath.slice(lastSlash + 1) : initialPath;
-    const looksLikeFile = !dirMode && tail.includes(".");
+    const looksLikeFile = exeMode ? tail !== "" : !dirMode && tail.includes(".");
     loadDir(initialPath, looksLikeFile ? tail : undefined);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -101,7 +109,7 @@ export default function FileBrowser({ initialPath, mode = "file", onConfirm, onC
   const visibleEntries = entries.filter((e) => {
     if (e.type === "dir") return true;
     if (dirMode) return false;
-    if (showAll) return true;
+    if (exeMode || showAll) return true;
     return e.name.toLowerCase().endsWith(GGUF_EXT);
   });
 
@@ -121,7 +129,7 @@ export default function FileBrowser({ initialPath, mode = "file", onConfirm, onC
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700 flex-shrink-0">
           <h2 className="text-base font-semibold text-gray-100">
-            {dirMode ? "Select Folder" : "Select Model File"}
+            {dirMode ? "Select Folder" : exeMode ? "Select Executable" : "Select Model File"}
           </h2>
           <button
             type="button"
@@ -141,7 +149,7 @@ export default function FileBrowser({ initialPath, mode = "file", onConfirm, onC
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={handleInputKeyDown}
             className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-100 font-mono focus:border-blue-500 focus:outline-none"
-            placeholder="/path/to/model.gguf"
+            placeholder={exeMode ? "/path/to/llama-server" : dirMode ? "/path/to/folder" : "/path/to/model.gguf"}
             spellCheck={false}
           />
         </div>
@@ -237,6 +245,8 @@ export default function FileBrowser({ initialPath, mode = "file", onConfirm, onC
                     >
                       {dirMode
                         ? "No subfolders"
+                        : exeMode
+                        ? "No executables here"
                         : showAll
                         ? "Empty directory"
                         : "No .gguf files here — check \"Show all files\""}
@@ -252,6 +262,8 @@ export default function FileBrowser({ initialPath, mode = "file", onConfirm, onC
         <div className="flex items-center justify-between px-5 py-4 border-t border-gray-700 flex-shrink-0">
           {dirMode ? (
             <span className="text-xs text-gray-600">Ok selects the folder shown above.</span>
+          ) : exeMode ? (
+            <span className="text-xs text-gray-600">Only folders and executable files are shown.</span>
           ) : (
           <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer select-none">
             <input

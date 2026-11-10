@@ -306,10 +306,11 @@ export default function ConfigEditor({
           The proxy server exposes OpenAI-compatible endpoints. External
           clients connect here instead of directly to llama-server.
         </p>
-        <TextField
+        <PathField
           label="Path to llama-server executable"
           value={config.api_server.llama_server_path}
           onChange={(v) => setConfig({ ...config, api_server: { ...config.api_server, llama_server_path: v } })}
+          mode="executable"
           bg="gray-800"
         />
         <div className="grid grid-cols-2 gap-4">
@@ -959,12 +960,14 @@ export default function ConfigEditor({
                     onChange={(v) => updateAdv({ metrics: v })}
                   />
 
-                  <TextField
+                  <PathField
                     label="llama-server Path Override"
                     tip="Use a different llama-server binary for this model only. Blank inherits the path from the Proxy Server tab."
                     value={adv.llama_server_path}
                     placeholder={config.api_server.llama_server_path || "not set"}
                     onChange={(v) => updateAdv({ llama_server_path: v })}
+                    mode="executable"
+                    startDir={config.api_server.llama_server_path}
                   />
 
                   <TextField

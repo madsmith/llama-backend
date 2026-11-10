@@ -59,9 +59,9 @@ export const api = {
   generateUplinkToken: () =>
     getWsV2()
       .sendRequest<{ token: string }>({ msg: "generate_token" }, "generate_token_response"),
-  browseFs: (path: string) =>
+  browseFs: (path: string, only?: "executable") =>
     request<{ path: string; entries: Array<{ name: string; type: "dir" | "file" }> }>(
-      `/api/fs/browse?path=${encodeURIComponent(path)}`,
+      `/api/fs/browse?path=${encodeURIComponent(path)}${only ? `&only=${only}` : ""}`,
     ),
   ggufInfo: (path: string, projectors = false) =>
     request<GgufInfo>(`/api/fs/gguf?path=${encodeURIComponent(path)}${projectors ? "&projectors=1" : ""}`),

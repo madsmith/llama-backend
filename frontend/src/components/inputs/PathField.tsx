@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Tip } from "./Tip";
-import FileBrowser from "../FileBrowser";
+import FileBrowser, { type BrowseMode } from "../FileBrowser";
 
 interface Props {
   label: string;
@@ -11,8 +11,8 @@ interface Props {
   placeholder?: string;
   /** Where the browser opens when the field is empty. */
   startDir?: string;
-  /** Pick a file (default) or a directory. */
-  mode?: "file" | "dir";
+  /** Pick a model file (default), a directory, or an executable. */
+  mode?: BrowseMode;
   bg?: "gray-800" | "gray-900";
 }
 
