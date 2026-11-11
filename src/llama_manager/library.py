@@ -102,19 +102,24 @@ class ModelLibrary:
     def entries(self) -> list[LibraryEntry]:
         return list(self._entries.values())
 
-    async def refresh(self, folders: list[Path], *, if_older_than: float | None = None) -> None:
-        """Rescan folders (in a worker thread). Unchanged files reuse cached headers."""
+    async def refresh(self, folders: list[Path], *, if_older_than: float | None = None) -> bool:
+        """Rescan folders (in a worker thread). Unchanged files reuse cached headers.
+
+        Returns whether the set of models changed.
+        """
         key = tuple(folders)
         async with self._lock:
             if (if_older_than is not None and key == self._folders
                     and time.monotonic() - self._scanned_at < if_older_than):
-                return
+                return False
             t0 = time.monotonic()
             entries = await asyncio.to_thread(self._scan, key)
+            before = set(self._entries)
             self._entries = {e.quant_id: e for e in entries}
             self._folders = key
             self._scanned_at = time.monotonic()
             log.info("model library: %d models in %d folders (%.1fs)", len(entries), len(key), self._scanned_at - t0)
+            return set(self._entries) != before
 
     def _scan(self, folders: tuple[Path, ...]) -> list[LibraryEntry]:
         found: dict[str, list[LibraryEntry]] = {}

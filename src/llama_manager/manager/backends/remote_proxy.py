@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,8 @@ class RemoteModelProxy(ManagedBackend):
         self._cached_slots: list[dict] | None = None
         self._cached_health: dict | None = None
         self.llama_server_port: int | None = None
+        self.priority: int = 1  # as configured on the remote manager
+        self.parallel: int | None = None
 
     # ------------------------------------------------------------------
     # Backend protocol
@@ -182,3 +185,54 @@ class RemoteModelProxy(ManagedBackend):
 
     async def send_command(self, cmd: str) -> None:
         await self._client.send_command(self._suid, cmd)
+
+
+class RemoteLibraryModel:
+    """A model a remote manager can autoload from its model library.
+
+    Not a server yet: requests go to the remote proxy, which loads the model
+    (or not, if it lacks memory) and serves it there.
+    """
+
+    def __init__(self, manager_id: str, model_id: str, proxy_url: str, label: str,
+                 priority: int, parallel: int) -> None:
+        self._manager_id = manager_id
+        self._suid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"llama-manager-remote-library:{manager_id}:{model_id}"))
+        self.model_id = model_id
+        self.proxy_url = proxy_url
+        self.label = label
+        self.priority = priority
+        self.parallel = parallel
+
+    def get_manager_id(self) -> str:
+        return self._manager_id
+
+    def get_suid(self) -> str:
+        return self._suid
+
+    def get_name(self) -> str | None:
+        return f"{self.model_id} on {self.label}"
+
+    def get_base_url(self) -> str:
+        return self.proxy_url
+
+    def get_model_ids(self) -> list[str]:
+        return [self.model_id]
+
+    def map_model_id(self, model_id: str | None) -> str | None:
+        return model_id
+
+    def is_available(self) -> bool:
+        return True
+
+    def get_status(self) -> dict:
+        return {"state": "unknown", "pid": None, "host": None, "port": None, "uptime": None}
+
+    async def get_slots(self) -> list[dict] | None:
+        return None
+
+    async def get_health(self) -> dict:
+        return {"status": "unknown"}
+
+    async def ensure_ready(self, jit_enabled: bool, timeout: float) -> None:
+        pass  # the remote manager loads it on request

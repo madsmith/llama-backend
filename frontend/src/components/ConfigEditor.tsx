@@ -293,6 +293,15 @@ export default function ConfigEditor({
                 layout="stacked"
                 bg="gray-800"
               />
+              <IntegerField
+                label="Priority"
+                tip="When other servers here or on remote managers serve the same model, requests go to the highest priority server with a free slot."
+                value={autoload.priority ?? defaultAutoload.priority}
+                onChange={(v) => setAutoload({ priority: v ?? defaultAutoload.priority })}
+                min={1}
+                layout="stacked"
+                bg="gray-800"
+              />
             </div>
             {autoload.memory_budget_gib == null && (
               <p className="-mt-2 text-xs text-gray-600">
@@ -804,7 +813,7 @@ export default function ConfigEditor({
 
                   <IntegerField
                     label="Priority"
-                    tip="When multiple backends serve the same model ID, the one with the highest priority handles the request."
+                    tip="When multiple servers serve the same model ID, requests go to the highest priority one with a free slot."
                     value={model.priority ?? 1}
                     onChange={(v) => updateModel({ priority: v ?? 1 })}
                     min={1}

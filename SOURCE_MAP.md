@@ -22,6 +22,8 @@ Quick-reference map of every module in `src/llama_manager/` and `frontend/src/` 
 | `llama_client.py` | HTTP client for llama-server endpoints (`/health`, `/slots`, `/props`) (non-JSON `/health` counts by status code, for vLLM) | `LlamaClient` |
 | `manager/backend_probe.py` | Detects a remote API server's type (llama.cpp / vLLM / generic OpenAI) and summarises vLLM `/metrics` (requests, throughput, KV cache, TTFT, prefix hits) in place of `/slots` | `detect_backend()`, `VllmMetricsReader` |
 | `remote_manager_client.py` | WebSocket client to a remote Llama Manager; duck-types ProcessManager for remote models | `RemoteManagerClient`, `RemoteModelProxy` |
+| `manager/routing.py` | `RouteCandidate`: one server that could take a request. `LlamaManager.route_candidates()` lists configured, remote (with the priority their manager reports) and autoloadable ones, local and remote; `acquire()` claims a slot on the highest priority one with a free slot (running beats loading, then remote beats local); `release()` ends the claim | `RouteCandidate` |
+| `manager/backends/remote_proxy.py` | `RemoteModelProxy` for a remote manager's configured model; `RemoteLibraryModel` for a model a remote can autoload (from the `library` field of its uplink snapshot) | `RemoteModelProxy`, `RemoteLibraryModel` |
 
 ### `kv_cache/`
 

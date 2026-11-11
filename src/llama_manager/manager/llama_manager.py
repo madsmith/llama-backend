@@ -13,7 +13,7 @@ from fastapi import FastAPI
 
 from llama_manager import gguf
 from llama_manager.config import AppConfig, ModelAdvanced, ModelConfig, save_config
-from llama_manager.library import MISS_RESCAN_SECONDS, LibraryEntry, ModelLibrary
+from llama_manager.library import MISS_RESCAN_SECONDS, AmbiguousModel, LibraryEntry, ModelLibrary
 from llama_manager.dev import DevViteService
 from llama_manager.kv_cache import PrunedFile, prune_slot_storage, resolve_slot_save_path
 from llama_manager.protocol.backend import Backend, LlamaManagerProtocol
@@ -24,11 +24,13 @@ from llama_manager.manager.remote_client import RemoteManagerClient
 from llama_manager.manager.backends import (
     LocalManagedModel,
     OrphanProcessManager,
+    RemoteLibraryModel,
     RemoteModelProxy,
     RemoteUnmanagedModel,
 )
 
 from .llama_client import LlamaClient
+from .routing import RouteCandidate
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +76,9 @@ class LlamaManager(LlamaManagerProtocol):
         self._library_task: asyncio.Task | None = None
         self._header_cache: dict[tuple[str, int, float], dict | None] = {}
         self._pool_total: int | None = None  # bytes in the measured memory pool
+        # Requests routed to each backend (by suid) and not finished yet.
+        self._inflight: dict[str, int] = {}
+        self._route_lock = asyncio.Lock()
 
     def enable_save_logs(self) -> None:
         self.proxy.enable_save_logs()
@@ -151,24 +156,15 @@ class LlamaManager(LlamaManagerProtocol):
     def find_backends(self, model_id: str | None) -> list[Backend]:
         """Return all backends matching model_id, best first.
 
-        Remote proxies (uplink) come first, then local/unmanaged sorted by
-        priority descending. Penalized backends are kept as a last resort
-        (after all healthy ones) so a crashed model can still be JIT-restarted
-        when nothing else serves it.
+        Sorted by priority descending (remote proxies use the priority their
+        manager reports; at equal priority they come first). Penalized backends
+        are kept as a last resort (after all healthy ones) so a crashed model
+        can still be JIT-restarted when nothing else serves it.
         """
-        result: list[Backend] = []
-
-        # Remote proxies — not subject to local penalty tracking
+        candidates: list[Backend] = []
         for proxy in self.get_remote_models():
             if model_id is None or model_id in proxy.get_model_ids():
-                result.append(proxy)
-
-        def _rank(b: Backend) -> tuple[bool, int]:
-            m = self.get_model_config(b.get_suid())
-            priority = m.priority if m is not None else 1
-            return (not self.is_penalized(b.get_suid()), priority)
-
-        candidates: list[Backend] = []
+                candidates.append(proxy)
         for m in self._local_models.values():
             if model_id is None or model_id in m.get_model_ids():
                 candidates.append(m)
@@ -176,9 +172,17 @@ class LlamaManager(LlamaManagerProtocol):
             if model_id is None or model_id in m.get_model_ids():
                 candidates.append(m)
 
-        candidates.sort(key=_rank, reverse=True)
-        result.extend(candidates)
-        return result
+        candidates.sort(key=lambda b: (not self.is_penalized(b.get_suid()), self.backend_priority(b)), reverse=True)
+        return candidates
+
+    def backend_priority(self, backend: Backend) -> int:
+        if isinstance(backend, (RemoteModelProxy, RemoteLibraryModel)):
+            return backend.priority
+        suid = backend.get_suid()
+        if self.is_autoloaded(suid):
+            return self.config.autoload.priority
+        m = self.get_model_config(suid)
+        return m.priority if m is not None else 1
 
     def find_backend(self, model_id: str | None) -> Backend | None:
         """Return the best backend for model_id (penalized last), or None."""
@@ -262,30 +266,127 @@ class LlamaManager(LlamaManagerProtocol):
             return
         async def refresh() -> None:
             await self.measure_memory()  # sizes the pool for default-quant choice
-            await self.library.refresh(self.autoload_folders())
+            if await self.library.refresh(self.autoload_folders()):
+                self.event_bus.publish({"type": "library_changed"})  # uplinks re-send their snapshot
 
         self._library_task = asyncio.create_task(refresh())
 
     def library_model_ids(self) -> list[str]:
-        return self.library.model_ids() if self.config.autoload.enabled else []
+        """Models loadable on request, here or by remote managers."""
+        ids = self.library.model_ids() if self.config.autoload.enabled else []
+        for client in self.remote_manager_clients:
+            ids += client.library_model_ids()
+        return ids
 
-    async def resolve_backends(self, model_id: str | None) -> list[Backend]:
-        """Backends for a request: configured ones first, else an autoloaded one.
+    async def route_candidates(self, model_id: str | None) -> list[RouteCandidate]:
+        """Every server that can take a request for model_id, best first.
 
-        Raises library.AmbiguousModel when a bare repo name matches several.
+        Configured and running servers, models remote managers can autoload,
+        and this manager's own library model. acquire() then picks the highest
+        priority one with a free slot.
+        Raises library.AmbiguousModel when a bare repo name matches several
+        library repos and nothing else serves it.
         """
-        backends = self.find_backends(model_id)
-        if backends or model_id is None or not self.config.autoload.enabled:
-            return backends
+        candidates = [RouteCandidate(self.backend_priority(b), backend=b) for b in self.find_backends(model_id)]
+        if model_id is None:
+            return candidates
+
+        for client in self.remote_manager_clients:
+            offer = client.library_offer(model_id)
+            # A configured model on that remote with this id is the same route.
+            if offer is not None and not any(model_id in p.get_model_ids() for p in client.models):
+                candidates.append(RouteCandidate(offer.priority, backend=offer))
+
+        if self.config.autoload.enabled:
+            try:
+                entry = await self._resolve_library(model_id, rescan=not candidates)
+            except AmbiguousModel:
+                if candidates:
+                    entry = None
+                else:
+                    raise
+            if entry is not None:
+                suid = self._autoload_by_quant.get(entry.quant_id)
+                existing = self._local_models.get(suid) if suid else None
+                if existing is None:
+                    candidates.append(RouteCandidate(self.config.autoload.priority, entry=entry))
+                elif not any(c.backend is existing for c in candidates):
+                    candidates.append(RouteCandidate(self.config.autoload.priority, backend=existing))
+        return candidates
+
+    async def _resolve_library(self, model_id: str, *, rescan: bool) -> LibraryEntry | None:
         budget, pins = self.memory_budget_bytes(), self.config.autoload.pins
         entry = self.library.resolve(model_id, budget, pins)
-        if entry is None:
+        if entry is None and rescan:
             # Maybe a file that appeared since the last scan.
-            await self.library.refresh(self.autoload_folders(), if_older_than=MISS_RESCAN_SECONDS)
+            if await self.library.refresh(self.autoload_folders(), if_older_than=MISS_RESCAN_SECONDS):
+                self.event_bus.publish({"type": "library_changed"})
             entry = self.library.resolve(model_id, budget, pins)
-        if entry is None:
-            return []
-        return [self._autoload_backend(entry)]
+        return entry
+
+    async def acquire(self, candidates: list[RouteCandidate]) -> tuple[RouteCandidate, Backend] | None:
+        """Claim a slot on the best candidate not marked failed.
+
+        Highest priority with a free slot wins; at equal priority a running
+        server beats one that has to load, then remote beats local. When all
+        are full, the highest priority one gets the request and it queues
+        there. Penalized (recently crashed) servers go last. The claim lasts
+        until release(); pair every successful acquire with one.
+        """
+        async with self._route_lock:
+            best: tuple[tuple, RouteCandidate] | None = None
+            for i, c in enumerate(candidates):
+                if c.failed:
+                    continue
+                b = c.backend
+                penalized = b is not None and self.is_penalized(b.get_suid())
+                running = b is not None and b.get_status().get("state") == "running"
+                remote = isinstance(b, (RemoteModelProxy, RemoteLibraryModel))
+                key = (not penalized, await self._has_free_slot(c), c.priority, running, remote, -i)
+                if best is None or key > best[0]:
+                    best = (key, c)
+            if best is None:
+                return None
+            c = best[1]
+            if c.backend is None:
+                assert c.entry is not None
+                c.backend = self._autoload_backend(c.entry)
+            suid = c.backend.get_suid()
+            self._inflight[suid] = self._inflight.get(suid, 0) + 1
+            return c, c.backend
+
+    def release(self, suid: str) -> None:
+        """End a claim from acquire(); also marks the server as just used."""
+        n = self._inflight.get(suid, 0) - 1
+        if n > 0:
+            self._inflight[suid] = n
+        else:
+            self._inflight.pop(suid, None)
+        self.touch(suid)
+
+    async def _has_free_slot(self, c: RouteCandidate) -> bool:
+        b = c.backend
+        if b is None:
+            return True  # not loaded: every slot is free
+        suid = b.get_suid()
+        claimed = self._inflight.get(suid, 0)
+        capacity, processing = self._slot_capacity(b), 0
+        if b.get_status().get("state") == "running":
+            try:
+                slots = await self.slot_status.get_slots(suid)
+            except Exception:
+                slots = None
+            if slots:
+                capacity = len(slots)
+                processing = sum(1 for s in slots if s.get("is_processing"))
+        # Requests from other clients show up as processing; ours may not yet.
+        return max(claimed, processing) < capacity
+
+    def _slot_capacity(self, b: Backend) -> int:
+        if isinstance(b, (RemoteModelProxy, RemoteLibraryModel)):
+            return b.parallel or 1
+        m = self.get_model_config(b.get_suid())
+        return m.parallel if m is not None else 1
 
     def _autoload_backend(self, entry: LibraryEntry) -> LocalManagedModel:
         suid = self._autoload_by_quant.get(entry.quant_id)
@@ -349,6 +450,8 @@ class LlamaManager(LlamaManagerProtocol):
         return weights + kv + SERVER_OVERHEAD_BYTES
 
     async def _is_busy(self, local_model: LocalManagedModel) -> bool:
+        if self._inflight.get(local_model.get_suid()):
+            return True  # routed here and not finished, maybe not processing yet
         try:
             slots = await local_model.get_slots()
         except Exception:
@@ -522,6 +625,8 @@ class LlamaManager(LlamaManagerProtocol):
                     local_model = self._local_models.get(m.suid)
                     if local_model is None or local_model.state.value != "running":
                         continue
+                    if self._inflight.get(m.suid):
+                        continue  # a long request is still running
                     last = self._model_last_activity.get(m.suid)
                     if last is None:
                         continue

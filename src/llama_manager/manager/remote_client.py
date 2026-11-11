@@ -8,7 +8,7 @@ import websockets
 
 from llama_manager.config import AppConfig, RemoteManagerConfig
 from llama_manager.util.event_bus import EventBus
-from llama_manager.manager.backends import RemoteModelProxy
+from llama_manager.manager.backends import RemoteLibraryModel, RemoteModelProxy
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +36,10 @@ class RemoteManagerClient:
         self._pending_requests: dict[str, asyncio.Future[list[dict]]] = {}
         self._request_counter: int = 0
         self._logged_connection_error: bool = False
+        # The remote's autoload library: {"priority", "parallel", "models": [{quant_id, repo_id, repo_name}]}.
+        self.library: dict | None = None
+        self._library_offers: dict[str, RemoteLibraryModel] = {}
+        self._proxy_url: str = ""
 
     def get_config(self) -> RemoteManagerConfig:
         return self._config
@@ -160,6 +164,7 @@ class RemoteManagerClient:
         if t == "snapshot":
             proxy_port = msg.get("proxy_port", 1234)
             await self._reconcile_models(msg.get("models", []), proxy_port)
+            self._set_library(msg.get("library"))
 
         elif t == "state":
             proxy = self._get_proxy(msg.get("suid", ""))
@@ -210,6 +215,49 @@ class RemoteManagerClient:
             if future is not None and not future.done():
                 future.set_result(msg.get("props"))
 
+    def _set_library(self, library: dict | None) -> None:
+        self.library = library if isinstance(library, dict) else None
+        self._library_offers.clear()  # priority, parallel or URL may have changed
+
+    def library_model_ids(self) -> list[str]:
+        if not self.library:
+            return []
+        ids: set[str] = set()
+        for e in self.library.get("models", []):
+            ids.update((e.get("repo_id", ""), e.get("quant_id", "")))
+        ids.discard("")
+        return sorted(ids)
+
+    def library_offer(self, model_id: str) -> RemoteLibraryModel | None:
+        """A backend for model_id if the remote can autoload it, else None.
+
+        Matches the names the remote's library resolves: publisher/repo@quant,
+        publisher/repo, a bare repo name and repo@quant.
+        """
+        if not self.library or self.connection_state != "connected":
+            return None
+        model_id = model_id.lower()
+        repo, _, quant = model_id.partition("@")
+        if not any(
+            model_id in (e.get("quant_id"), e.get("repo_id"))
+            or (e.get("repo_name") == repo and (not quant or e.get("quant") == quant))
+            or (e.get("repo_id") == repo and e.get("quant") == quant)
+            for e in self.library.get("models", [])
+        ):
+            return None
+        offer = self._library_offers.get(model_id)
+        if offer is None:
+            offer = RemoteLibraryModel(
+                manager_id=self._manager_id,
+                model_id=model_id,
+                proxy_url=self._proxy_url,
+                label=self._config.name or self._config.host,
+                priority=int(self.library.get("priority") or 1),
+                parallel=int(self.library.get("parallel") or 1),
+            )
+            self._library_offers[model_id] = offer
+        return offer
+
     def _get_proxy(self, suid: str) -> RemoteModelProxy | None:
         for p in self.models:
             if p.get_suid() == suid:
@@ -219,6 +267,7 @@ class RemoteManagerClient:
     async def _reconcile_models(self, model_descriptors: list[dict], proxy_port: int = 1234) -> None:
         log_buffer_size = self._app_config.web_ui.log_buffer_size
         proxy_url = f"http://{self._config.host}:{proxy_port}"
+        self._proxy_url = proxy_url
 
         existing: dict[str, RemoteModelProxy] = {p.get_suid(): p for p in self.models}
 
@@ -259,6 +308,8 @@ class RemoteManagerClient:
             proxy.auto_start = bool(desc.get("auto_start", False))
             proxy.has_ttl = bool(desc.get("has_ttl", False))
             proxy.allow_proxy = bool(desc.get("allow_proxy", True))
+            proxy.priority = int(desc.get("priority") or 1)
+            proxy.parallel = desc.get("parallel")
             proxy.set_status(desc)
             new_models.append(proxy)
 

@@ -20,6 +20,7 @@ export const defaultAutoload: AutoloadConfig = {
   idle_ttl: 15,
   ctx_size: 32768,
   parallel: 1,
+  priority: 1,
   pins: {},
 };
 

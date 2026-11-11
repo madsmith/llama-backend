@@ -104,6 +104,8 @@ export interface AutoloadConfig {
   /** Per slot; capped at each model's trained context. */
   ctx_size: number;
   parallel: number;
+  /** Rank against other servers (here or on remote managers) for the same model; highest wins. */
+  priority: number;
   /** Repo id -> quant used when a request names the repo. */
   pins: Record<string, string>;
 }

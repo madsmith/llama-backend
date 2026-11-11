@@ -26,6 +26,7 @@ from llama_manager.kv_cache import (
 )
 
 from llama_manager.manager.backends.remote_proxy import RemoteModelProxy
+from llama_manager.manager.routing import RouteCandidate
 
 from .active_requests import ActiveRequestManager
 from llama_manager.util.log_buffer import ProxyRequest, ProxyResponse
@@ -135,10 +136,10 @@ class ProxyHandler:
                     if model_id is None and pinned_ids:
                         model_id = pinned_ids[0]
                     # No priority ranking or fallback: the caller chose this backend.
-                    candidates = [pinned]
+                    candidates = [RouteCandidate(self._manager.backend_priority(pinned), backend=pinned)]
                 else:
                     try:
-                        candidates = await self._manager.resolve_backends(model_id)
+                        candidates = await self._manager.route_candidates(model_id)
                     except AmbiguousModel as exc:
                         self._log_request(None, method, f"/v1/{path}", http_ver, req_size, request_id=request_id)
                         self._log_response(None, HTTPStatus.BAD_REQUEST, request_id=request_id)
@@ -154,18 +155,24 @@ class ProxyHandler:
                         self._proxy.request_log.update(request_id, response_status=HTTPStatus.NOT_FOUND, response_body=resp_body, elapsed=time.monotonic() - t0)
                     return JSONResponse(resp_body, status_code=HTTPStatus.NOT_FOUND)
 
-                # Try each candidate in priority order; skip any that fail to start.
+                # Highest priority with a free slot first; skip any that fail to start.
                 backend = None
                 last_error: str | None = None
-                for candidate in candidates:
+                while (picked := await self._manager.acquire(candidates)) is not None:
+                    candidate, picked_backend = picked
                     try:
-                        await self._manager.ensure_server(candidate)
-                        backend = candidate
+                        await self._manager.ensure_server(picked_backend)
+                        backend = picked_backend
                         break
                     except RuntimeError as exc:
-                        name = candidate.get_name() or candidate.get_suid()
+                        self._manager.release(picked_backend.get_suid())
+                        candidate.failed = True
+                        name = picked_backend.get_name() or picked_backend.get_suid()
                         last_error = str(exc)
                         self._proxy.log(f"Backend [{name}] unavailable: {exc}, trying next...", request_id=request_id)
+                    except BaseException:
+                        self._manager.release(picked_backend.get_suid())
+                        raise
 
                 if backend is None:
                     self._log_request(None, method, f"/v1/{path}", http_ver, req_size, request_id=request_id)
@@ -179,78 +186,85 @@ class ProxyHandler:
                     return JSONResponse(resp_body, status_code=HTTPStatus.SERVICE_UNAVAILABLE)
 
                 suid = backend.get_suid()
-                model_config = self._manager.get_model_config(suid)
-                self._manager.slot_status.mark_active(suid)
+                handed_off = False
+                try:
+                    model_config = self._manager.get_model_config(suid)
+                    self._manager.slot_status.mark_active(suid)
 
-                body = adapter.prepare_body(body, model_config)
-                server_name = backend.get_name() or model_id
-                self._log_request(server_name, method, f"/v1/{path}", http_ver, req_size, request_id=request_id)
+                    body = adapter.prepare_body(body, model_config)
+                    server_name = backend.get_name() or model_id
+                    self._log_request(server_name, method, f"/v1/{path}", http_ver, req_size, request_id=request_id)
 
-                self._manager.touch(suid)
-                body = self._rewrite_body(body, model_id, backend)
+                    self._manager.touch(suid)
+                    body = self._rewrite_body(body, model_id, backend)
 
-                # ----- KV cache logic -----
-                slot_dir = self._manager.get_slot_save_path(suid)
-                kv = None
-                result = None  # CacheHit | CacheMiss | CacheInvalid
-                slot_id = None
-                slots = None
+                    # ----- KV cache logic -----
+                    slot_dir = self._manager.get_slot_save_path(suid)
+                    kv = None
+                    result = None  # CacheHit | CacheMiss | CacheInvalid
+                    slot_id = None
+                    slots = None
 
-                if slot_dir is not None and model_config is not None:
-                    kv = KVCacheProvider.get(slot_dir)
-                    slots = SlotAvailabilityProvider.get(suid, model_config.parallel)
-                    messages = body.get("messages", [])
-                    result = kv.get(messages)
+                    if slot_dir is not None and model_config is not None:
+                        kv = KVCacheProvider.get(slot_dir)
+                        slots = SlotAvailabilityProvider.get(suid, model_config.parallel)
+                        messages = body.get("messages", [])
+                        result = kv.get(messages)
 
-                    if isinstance(result, (CacheHit, CacheMiss)):
-                        slot_id = await slots.get_available()
-                        if slot_id is None:
-                            logger.warning("KV cache: no slots available")
-                        elif isinstance(result, CacheHit):
-                            cache_id = result.get_cache_id()
-                            client = self._manager.get_client_at(backend.get_base_url())
-                            restored = await client.slot_restore(slot_id, f"{cache_id}.bin")
-                            if restored:
-                                self._proxy.log(f"KV cache: restored slot {slot_id} from {cache_id}.bin", request_id=request_id)
-                                kv.record_restore(cache_id, slot_id)
-                                body = {**body, "id_slot": slot_id}
+                        if isinstance(result, (CacheHit, CacheMiss)):
+                            slot_id = await slots.get_available()
+                            if slot_id is None:
+                                logger.warning("KV cache: no slots available")
+                            elif isinstance(result, CacheHit):
+                                cache_id = result.get_cache_id()
+                                client = self._manager.get_client_at(backend.get_base_url())
+                                restored = await client.slot_restore(slot_id, f"{cache_id}.bin")
+                                if restored:
+                                    self._proxy.log(f"KV cache: restored slot {slot_id} from {cache_id}.bin", request_id=request_id)
+                                    kv.record_restore(cache_id, slot_id)
+                                    body = {**body, "id_slot": slot_id}
+                                else:
+                                    self._proxy.log(f"KV cache: restore failed for slot {slot_id}", request_id=request_id)
+                                    await slots.free(slot_id)
+                                    slot_id = None
                             else:
-                                self._proxy.log(f"KV cache: restore failed for slot {slot_id}", request_id=request_id)
-                                await slots.free(slot_id)
-                                slot_id = None
-                        else:
-                            body = {**body, "id_slot": slot_id}
+                                body = {**body, "id_slot": slot_id}
 
-                backend_url = backend.get_base_url()
-                upstream_headers = (
-                    {BACKEND_HEADER: suid} if pinned_suid and isinstance(backend, RemoteModelProxy) else None
-                )
-
-                # Streaming SSE
-                if body.get("stream"):
-                    cs = None
-                    if isinstance(result, CacheMiss) and slot_id is not None:
-                        assert kv is not None and slots is not None
-                        cs = (kv, result.get_cache_id(), slot_id, slots)
-                    elif slot_id is not None and slots is not None:
-                        await slots.free(slot_id)
-                    return await self._stream(
-                        backend_url, path, body, t0, server_name, request,
-                        suid=suid, cache_save=cs, request_id=request_id,
-                        headers=upstream_headers,
+                    backend_url = backend.get_base_url()
+                    upstream_headers = (
+                        {BACKEND_HEADER: suid} if pinned_suid and isinstance(backend, RemoteModelProxy) else None
                     )
 
-                active_slot_id = body.get("id_slot")
-                cancel_event: asyncio.Event | None = None
-                if suid is not None and active_slot_id is not None:
-                    cancel_event = ActiveRequestManager.register(suid, active_slot_id)
+                    # Streaming SSE
+                    if body.get("stream"):
+                        cs = None
+                        if isinstance(result, CacheMiss) and slot_id is not None:
+                            assert kv is not None and slots is not None
+                            cs = (kv, result.get_cache_id(), slot_id, slots)
+                        elif slot_id is not None and slots is not None:
+                            await slots.free(slot_id)
+                        handed_off = True  # _stream releases the claim when it ends
+                        return await self._stream(
+                            backend_url, path, body, t0, server_name, request,
+                            suid=suid, cache_save=cs, request_id=request_id,
+                            headers=upstream_headers,
+                        )
 
-                resolve_lock: asyncio.Lock | None = None
-                lock_held = False
-                if suid is not None and active_slot_id is None:
-                    resolve_lock = self._proxy.get_resolve_lock(suid)
-                    await resolve_lock.acquire()
-                    lock_held = True
+                    active_slot_id = body.get("id_slot")
+                    cancel_event: asyncio.Event | None = None
+                    if suid is not None and active_slot_id is not None:
+                        cancel_event = ActiveRequestManager.register(suid, active_slot_id)
+
+                    resolve_lock: asyncio.Lock | None = None
+                    lock_held = False
+                    if suid is not None and active_slot_id is None:
+                        resolve_lock = self._proxy.get_resolve_lock(suid)
+                        await resolve_lock.acquire()
+                        lock_held = True
+                except BaseException:
+                    if not handed_off:
+                        self._manager.release(suid)
+                    raise
 
                 try:
                     async with httpx.AsyncClient() as client:
@@ -312,7 +326,7 @@ class ProxyHandler:
                     return JSONResponse(resp_json, status_code=resp.status_code)
                 finally:
                     if suid is not None:
-                        self._manager.touch(suid)  # last use = when the request ended
+                        self._manager.release(suid)  # frees the routing claim; last use = now
                     if lock_held and resolve_lock is not None:
                         resolve_lock.release()
                     if active_slot_id is not None and suid is not None:
@@ -506,8 +520,9 @@ class ProxyHandler:
         async def finish(stream_ok: bool) -> None:
             release_lock()
             if suid is not None:
-                # Last use = when work ends, so a long generation isn't "stale".
-                self._manager.touch(suid)
+                # Frees the routing claim. Last use = when work ends, so a long
+                # generation isn't "stale".
+                self._manager.release(suid)
             if suid is not None and active_slot_id is not None:
                 ActiveRequestManager.unregister(suid, active_slot_id)
             if cache_save:

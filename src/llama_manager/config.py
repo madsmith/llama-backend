@@ -126,6 +126,7 @@ class AutoloadConfig(BaseModel):
     idle_ttl: int = 15  # minutes without requests before an autoloaded server stops
     ctx_size: int = 32768  # per slot, capped at the model's trained context
     parallel: int = 1
+    priority: int = 1  # routing rank against other servers for the same model; highest wins
     pins: dict[str, str] = {}  # repo id -> quant used when a request names the repo
 
 

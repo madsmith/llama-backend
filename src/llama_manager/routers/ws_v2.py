@@ -586,8 +586,25 @@ class UplinkConnection:
                     "auto_start": suid_to_cfg[suid].auto_start,
                     "has_ttl": suid_to_cfg[suid].model_ttl is not None,
                     "allow_proxy": suid_to_cfg[suid].allow_proxy,
+                    "priority": suid_to_cfg[suid].priority,
+                    "parallel": suid_to_cfg[suid].parallel,
                 }
                 for suid, lm in local_models
+            ],
+            "library": self._library_snapshot(),
+        }
+
+    def _library_snapshot(self) -> dict | None:
+        """Models this manager can autoload, so a downstream manager can route to them."""
+        auto = self.manager.config.autoload
+        if not auto.enabled:
+            return None
+        return {
+            "priority": auto.priority,
+            "parallel": auto.parallel,
+            "models": [
+                {"quant_id": e.quant_id, "repo_id": e.repo_id, "repo_name": e.repo_name, "quant": e.quant}
+                for e in self.manager.library.entries
             ],
         }
 
@@ -636,6 +653,7 @@ class UplinkConnection:
             asyncio.create_task(self._listen_server_log(model_suids)),
             asyncio.create_task(self._listen_health(model_suids)),
             asyncio.create_task(self._listen_config_changed()),
+            asyncio.create_task(self._listen_config_changed("library_changed")),
         ]
         slot_handles: list[int] = []
         for suid in model_suids:
@@ -741,8 +759,8 @@ class UplinkConnection:
         finally:
             self.manager.event_bus.unsubscribe(q)
 
-    async def _listen_config_changed(self) -> None:
-        q = self.manager.event_bus.subscribe("config_changed")
+    async def _listen_config_changed(self, event_type: str = "config_changed") -> None:
+        q = self.manager.event_bus.subscribe(event_type)
         try:
             while True:
                 await q.get()
