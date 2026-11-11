@@ -9,6 +9,7 @@ import type {
   SlotInfo,
   RemoteManagerStatus,
   UplinkStatus,
+  AutoloadedServer,
 } from "./types";
 
 export function pollRatesFromConfig(cfg: ServerConfig | null) {
@@ -142,6 +143,32 @@ export function useLogs(type: "proxy" | "server", serverId?: string) {
   const clear = useCallback(() => setLines([]), []);
 
   return { lines, connected, clear, isPending, hasMore, isLoadingMore, loadMore };
+}
+
+/**
+ * Servers autoloaded this session, kept live: the server pushes the list when
+ * one is created, loads or unloads. Includes unloaded ones (for their logs).
+ */
+export function useAutoloaded(): AutoloadedServer[] {
+  const [servers, setServers] = useState<AutoloadedServer[]>([]);
+
+  useEffect(() => {
+    const ws = getWsV2();
+    const unsubResponse = ws.subscribe(
+      "autoloaded_response",
+      (msg) => setServers((msg.servers ?? []) as AutoloadedServer[]),
+      () => ws.send({ msg: "autoloaded" }),
+    );
+    const unsubEvent = ws.subscribeToEvent("autoloaded", null, (data) => {
+      setServers((data.servers ?? []) as AutoloadedServer[]);
+    });
+    return () => {
+      unsubResponse();
+      unsubEvent();
+    };
+  }, []);
+
+  return servers;
 }
 
 export function useRemotes(pollMs = 3000) {

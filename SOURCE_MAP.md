@@ -13,10 +13,12 @@ Quick-reference map of every module in `src/llama_manager/` and `frontend/src/` 
 | `__init__.py` | Package init | version `0.4.0` |
 | `__main__.py` | CLI entry point | argparse: `--dev`, `--verbose`, `--debug`; starts uvicorn |
 | `config.py` | Pydantic v2 config models; loads/saves `server_config.json` | `AppConfig`, `ModelConfig`, `ModelAdvanced`, `WebUIConfig`, `ApiServerConfig`, `RemoteManagerConfig`, `ManagerUplinkConfig`, `load_config()`, `save_config()` |
+| `library.py` | Model library for autoload: scans model folders for GGUFs (cached headers, split models as one entry, projectors skipped), assigns `publisher/repo` and `publisher/repo@quant` IDs, resolves request names (pins, then largest quant that fits the budget, oldest breaks ties) | `ModelLibrary`, `LibraryEntry`, `AmbiguousModel` |
 | `gguf.py` | Reads GGUF header metadata (no tensor data) and summarises what configures llama-server: trained context, layers, KV cache size, tokenizer, sampling defaults, projector dims; finds sibling projectors; maps split-model shards to shard 1 | `read_metadata()`, `summarize()`, `find_projectors()`, `trained_context()` |
 | `main.py` | FastAPI app + lifespan; mounts routers; serves frontend SPA | `app` (FastAPI), `lifespan` |
 | `process_manager.py` | Subprocess lifecycle for one llama-server instance; state machine; log streaming | `ProcessManager` (`start`, `stop`, `restart`, `get_status`, `subscribe`, `unsubscribe`) |
 | `log_buffer.py` | Thread-safe circular log buffer with monotonic IDs | `LogBuffer`, `LogLine` |
+| `system.py` | Host memory: total RAM, and live free memory for model servers (free VRAM via `nvidia-smi`; on Apple silicon the smaller of the kernel's available level and the Metal limit minus wired memory; else `MemAvailable`) | `total_ram_bytes()`, `available_memory()`, `MemorySnapshot` |
 | `llama_client.py` | HTTP client for llama-server endpoints (`/health`, `/slots`, `/props`) (non-JSON `/health` counts by status code, for vLLM) | `LlamaClient` |
 | `manager/backend_probe.py` | Detects a remote API server's type (llama.cpp / vLLM / generic OpenAI) and summarises vLLM `/metrics` (requests, throughput, KV cache, TTFT, prefix hits) in place of `/slots` | `detect_backend()`, `VllmMetricsReader` |
 | `remote_manager_client.py` | WebSocket client to a remote Llama Manager; duck-types ProcessManager for remote models | `RemoteManagerClient`, `RemoteModelProxy` |

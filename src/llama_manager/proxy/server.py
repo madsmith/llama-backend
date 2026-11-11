@@ -132,16 +132,17 @@ class ProxyServer:
                 + list(self._manager.get_remote_unmanaged().values())
             )
 
-            for backend in all_backends:
-                for model_id in backend.get_model_ids():
-                    if model_id and model_id not in seen:
-                        seen.add(model_id)
-                        data.append({
-                            "id": model_id,
-                            "object": "model",
-                            "created": created,
-                            "owned_by": "system",
-                        })
+            ids = [i for b in all_backends for i in b.get_model_ids()]
+            ids += self._manager.library_model_ids()  # loadable on request
+            for model_id in ids:
+                if model_id and model_id not in seen:
+                    seen.add(model_id)
+                    data.append({
+                        "id": model_id,
+                        "object": "model",
+                        "created": created,
+                        "owned_by": "system",
+                    })
 
             return JSONResponse({"object": "list", "data": data})
 
@@ -155,14 +156,15 @@ class ProxyServer:
                 + list(self._manager.get_remote_unmanaged().values())
             )
 
-            for backend in all_backends:
-                if model_id in backend.get_model_ids():
-                    return JSONResponse({
-                        "id": model_id,
-                        "object": "model",
-                        "created": int(time.time()),
-                        "owned_by": "system",
-                    })
+            known = {i for b in all_backends for i in b.get_model_ids()}
+            known.update(self._manager.library_model_ids())
+            if model_id in known:
+                return JSONResponse({
+                    "id": model_id,
+                    "object": "model",
+                    "created": int(time.time()),
+                    "owned_by": "system",
+                })
 
             return JSONResponse(
                 {"error": {"message": f"Model '{model_id}' not found", "type": "invalid_request_error", "code": "model_not_found"}},

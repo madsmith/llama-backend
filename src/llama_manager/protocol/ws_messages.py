@@ -112,6 +112,10 @@ class RemotesRequest(BaseModel):
     msg: Literal["remotes"] = "remotes"
 
 
+class AutoloadedRequest(BaseModel):
+    msg: Literal["autoloaded"] = "autoloaded"
+
+
 class UplinkStatusRequest(BaseModel):
     msg: Literal["uplink_status"] = "uplink_status"
 
@@ -141,6 +145,7 @@ IncomingMessage = Annotated[
         GenerateTokenRequest,
         LoadLogRequest,
         RemotesRequest,
+        AutoloadedRequest,
         UplinkStatusRequest,
         ServerControlRequest,
         PropsRequest,
@@ -315,6 +320,12 @@ class RemoteManagerInfo(BaseModel):
 class RemotesResponse(BaseModel):
     msg: Literal["remotes_response"] = "remotes_response"
     remotes: list[RemoteManagerInfo]
+
+
+class AutoloadedResponse(BaseModel):
+    """Servers started on demand from the model library this session."""
+    msg: Literal["autoloaded_response"] = "autoloaded_response"
+    servers: list[dict[str, Any]]
 
 
 class UplinkStatusResponse(BaseModel):

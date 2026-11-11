@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from llama_manager.protocol.backend import Backend
     from .server import ProxyServer
 from llama_manager.config import ModelConfig
+from llama_manager.library import AmbiguousModel
 from llama_manager.kv_cache import (
     CacheHit,
     CacheMiss,
@@ -136,7 +137,15 @@ class ProxyHandler:
                     # No priority ranking or fallback: the caller chose this backend.
                     candidates = [pinned]
                 else:
-                    candidates = self._manager.find_backends(model_id)
+                    try:
+                        candidates = await self._manager.resolve_backends(model_id)
+                    except AmbiguousModel as exc:
+                        self._log_request(None, method, f"/v1/{path}", http_ver, req_size, request_id=request_id)
+                        self._log_response(None, HTTPStatus.BAD_REQUEST, request_id=request_id)
+                        resp_body = adapter.error_body(HTTPStatus.BAD_REQUEST, str(exc))
+                        if request_id:
+                            self._proxy.request_log.update(request_id, response_status=HTTPStatus.BAD_REQUEST, response_body=resp_body, elapsed=time.monotonic() - t0)
+                        return JSONResponse(resp_body, status_code=HTTPStatus.BAD_REQUEST)
                 if not candidates:
                     self._log_request(None, method, f"/v1/{path}", http_ver, req_size, request_id=request_id)
                     self._log_response(None, HTTPStatus.NOT_FOUND, request_id=request_id)
@@ -147,6 +156,7 @@ class ProxyHandler:
 
                 # Try each candidate in priority order; skip any that fail to start.
                 backend = None
+                last_error: str | None = None
                 for candidate in candidates:
                     try:
                         await self._manager.ensure_server(candidate)
@@ -154,12 +164,16 @@ class ProxyHandler:
                         break
                     except RuntimeError as exc:
                         name = candidate.get_name() or candidate.get_suid()
+                        last_error = str(exc)
                         self._proxy.log(f"Backend [{name}] unavailable: {exc}, trying next...", request_id=request_id)
 
                 if backend is None:
                     self._log_request(None, method, f"/v1/{path}", http_ver, req_size, request_id=request_id)
                     self._log_response(None, HTTPStatus.SERVICE_UNAVAILABLE, elapsed=time.monotonic() - t0, request_id=request_id)
-                    resp_body = adapter.error_body(HTTPStatus.SERVICE_UNAVAILABLE, f"No available backend for model: {model_id}")
+                    msg = f"No available backend for model: {model_id}"
+                    if last_error and len(candidates) == 1:
+                        msg += f" ({last_error})"
+                    resp_body = adapter.error_body(HTTPStatus.SERVICE_UNAVAILABLE, msg)
                     if request_id:
                         self._proxy.request_log.update(request_id, response_status=HTTPStatus.SERVICE_UNAVAILABLE, response_body=resp_body, elapsed=time.monotonic() - t0)
                     return JSONResponse(resp_body, status_code=HTTPStatus.SERVICE_UNAVAILABLE)
@@ -297,6 +311,8 @@ class ProxyHandler:
                         self._proxy.request_log.update(request_id, response_status=resp.status_code, response_body=resp_json, elapsed=elapsed)
                     return JSONResponse(resp_json, status_code=resp.status_code)
                 finally:
+                    if suid is not None:
+                        self._manager.touch(suid)  # last use = when the request ended
                     if lock_held and resolve_lock is not None:
                         resolve_lock.release()
                     if active_slot_id is not None and suid is not None:
@@ -489,6 +505,9 @@ class ProxyHandler:
 
         async def finish(stream_ok: bool) -> None:
             release_lock()
+            if suid is not None:
+                # Last use = when work ends, so a long generation isn't "stale".
+                self._manager.touch(suid)
             if suid is not None and active_slot_id is not None:
                 ActiveRequestManager.unregister(suid, active_slot_id)
             if cache_save:

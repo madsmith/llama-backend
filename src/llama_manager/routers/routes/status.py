@@ -1,49 +1,32 @@
 from __future__ import annotations
 
 import os
-import subprocess
-import sys
 
 from fastapi import Query
 from fastapi.responses import JSONResponse
 
 from llama_manager.manager.llama_manager import LlamaManager
 from llama_manager.proxy import ActiveRequestManager
-
-
-def _total_ram_bytes() -> int | None:
-    """Physical RAM in bytes on macOS and Linux, or None if it can't be determined."""
-    try:
-        total = os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
-        if total > 0:
-            return total
-    except (ValueError, OSError, AttributeError):
-        pass
-    if sys.platform == "darwin":
-        try:
-            out = subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True, timeout=2)
-            return int(out.stdout.strip())
-        except (OSError, ValueError, subprocess.SubprocessError):
-            return None
-    try:
-        with open("/proc/meminfo") as f:
-            for line in f:
-                if line.startswith("MemTotal:"):
-                    return int(line.split()[1]) * 1024
-    except (OSError, ValueError, IndexError):
-        pass
-    return None
+from llama_manager.util.system import total_ram_bytes
 
 
 class StatusRoutes:
     def __init__(self, manager: LlamaManager) -> None:
         self.manager = manager
 
+    async def _memory(self) -> dict | None:
+        """What autoload's live budget sees: free memory in the pool models load into."""
+        snap = await self.manager.measure_memory()
+        if snap is None:
+            return None
+        return {"available_mib": snap.available // 1024**2, "total_mib": snap.total // 1024**2, "source": snap.source}
+
     async def get_system(self):
-        total = _total_ram_bytes()
+        total = total_ram_bytes()
         return {
             "total_ram_mib": total // (1024 * 1024) if total else None,
             "cwd": os.getcwd(),
+            "memory": await self._memory(),
         }
 
     async def get_health(self, model_suid: str = Query(...)):

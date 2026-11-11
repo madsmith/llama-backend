@@ -3,18 +3,23 @@ from __future__ import annotations
 import asyncio
 import logging
 import secrets
+import socket
 import time
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
 
-from llama_manager.config import AppConfig, ModelConfig, save_config
+from llama_manager import gguf
+from llama_manager.config import AppConfig, ModelAdvanced, ModelConfig, save_config
+from llama_manager.library import MISS_RESCAN_SECONDS, LibraryEntry, ModelLibrary
 from llama_manager.dev import DevViteService
 from llama_manager.kv_cache import PrunedFile, prune_slot_storage, resolve_slot_save_path
 from llama_manager.protocol.backend import Backend, LlamaManagerProtocol
 from llama_manager.proxy import ProxyServer, SlotStatusService
 from llama_manager.util.event_bus import EventBus
+from llama_manager.util.system import MemorySnapshot, available_memory, total_ram_bytes
 from llama_manager.manager.remote_client import RemoteManagerClient
 from llama_manager.manager.backends import (
     LocalManagedModel,
@@ -36,6 +41,15 @@ type LocalModelIdentifier = str
 # when the model reaches running or stopped.
 BACKEND_PENALTY_SECONDS = 60
 
+# Share of system RAM autoload may fill when no budget is configured.
+DEFAULT_BUDGET_FRACTION = 0.75
+# Compute buffers and runtime state on top of weights and KV cache.
+SERVER_OVERHEAD_BYTES = 1024**3
+
+
+class AutoloadUnavailable(RuntimeError):
+    """An autoloaded model can't be started (e.g. not enough memory)."""
+
 
 class LlamaManager(LlamaManagerProtocol):
     def __init__(self, config: AppConfig) -> None:
@@ -52,6 +66,14 @@ class LlamaManager(LlamaManagerProtocol):
         self._model_last_activity: dict[str, float] = {}
         self._penalized_until: dict[str, float] = {}
         self.orphans = OrphanProcessManager(Path(config.pid_file))
+        # Autoload: servers created on demand for files in the model library.
+        self.library = ModelLibrary()
+        self._autoload_configs: dict[str, ModelConfig] = {}  # suid -> generated config
+        self._autoload_by_quant: dict[str, str] = {}  # library quant id -> suid
+        self._autoload_lock = asyncio.Lock()
+        self._library_task: asyncio.Task | None = None
+        self._header_cache: dict[tuple[str, int, float], dict | None] = {}
+        self._pool_total: int | None = None  # bytes in the measured memory pool
 
     def enable_save_logs(self) -> None:
         self.proxy.enable_save_logs()
@@ -119,6 +141,9 @@ class LlamaManager(LlamaManagerProtocol):
         if state == "running":
             self.touch(suid)
 
+        if suid in self._autoload_configs:
+            self.event_bus.publish({"type": "autoloaded"})  # loaded/unloaded: refresh the list
+
     # ------------------------------------------------------------------
     # Backend resolution
     # ------------------------------------------------------------------
@@ -167,11 +192,268 @@ class LlamaManager(LlamaManagerProtocol):
                 or next((proxy for proxy in self.get_remote_models() if proxy.get_suid() == suid), None))
 
     def get_model_config(self, suid: str) -> ModelConfig | None:
-        """Return the ModelConfig for a locally-configured model by suid."""
+        """Return the ModelConfig for a configured or autoloaded model by suid."""
         for m in self.config.models:
             if m.suid == suid:
                 return m
-        return None
+        return self._autoload_configs.get(suid)
+
+    def is_autoloaded(self, suid: str) -> bool:
+        return suid in self._autoload_configs
+
+    def autoloaded_servers(self) -> list[dict]:
+        """Autoloaded servers this session (loaded or not), for the UI."""
+        now = time.monotonic()
+        servers = []
+        for suid, cfg in self._autoload_configs.items():
+            local_model = self._local_models.get(suid)
+            if local_model is None:
+                continue
+            last = self._model_last_activity.get(suid)
+            estimate = self.estimate_memory(cfg)
+            servers.append({
+                "suid": suid,
+                "name": cfg.name,
+                "model_id": cfg.effective_id,
+                "model_path": cfg.model_path,
+                "ctx_size": cfg.ctx_size,
+                "parallel": cfg.parallel,
+                "idle_ttl": cfg.model_ttl,
+                "memory_mib": estimate // 1024**2 if estimate else None,
+                "idle_seconds": round(now - last) if last is not None else None,
+                **local_model.get_status(),
+            })
+        return servers
+
+    # ------------------------------------------------------------------
+    # Autoload: start servers for library models named in requests
+    # ------------------------------------------------------------------
+
+    def autoload_folders(self) -> list[Path]:
+        folders = [f for f in self.config.autoload.folders if f.strip()]
+        if not folders and self.config.web_ui.default_model_path:
+            folders = [self.config.web_ui.default_model_path]
+        return [Path(f).expanduser() for f in folders]
+
+    def memory_budget_bytes(self) -> int | None:
+        """Memory to size models against when choosing a repo's default quant.
+
+        A fixed budget if configured; otherwise the measured pool (VRAM, or
+        the Metal limit on Apple silicon) minus the reserve, so the choice
+        doesn't flip with whatever happens to be loaded right now.
+        """
+        auto = self.config.autoload
+        if auto.memory_budget_gib is not None:
+            return int(auto.memory_budget_gib * 1024**3)
+        if self._pool_total:
+            return max(0, self._pool_total - int(auto.memory_reserve_gib * 1024**3))
+        return self._fallback_budget()
+
+    @staticmethod
+    def _fallback_budget() -> int | None:
+        total = total_ram_bytes()
+        return int(total * DEFAULT_BUDGET_FRACTION) if total else None
+
+    def refresh_library(self) -> None:
+        """Rescan model folders in the background."""
+        if not self.config.autoload.enabled:
+            return
+        if self._library_task is not None and not self._library_task.done():
+            return
+        async def refresh() -> None:
+            await self.measure_memory()  # sizes the pool for default-quant choice
+            await self.library.refresh(self.autoload_folders())
+
+        self._library_task = asyncio.create_task(refresh())
+
+    def library_model_ids(self) -> list[str]:
+        return self.library.model_ids() if self.config.autoload.enabled else []
+
+    async def resolve_backends(self, model_id: str | None) -> list[Backend]:
+        """Backends for a request: configured ones first, else an autoloaded one.
+
+        Raises library.AmbiguousModel when a bare repo name matches several.
+        """
+        backends = self.find_backends(model_id)
+        if backends or model_id is None or not self.config.autoload.enabled:
+            return backends
+        budget, pins = self.memory_budget_bytes(), self.config.autoload.pins
+        entry = self.library.resolve(model_id, budget, pins)
+        if entry is None:
+            # Maybe a file that appeared since the last scan.
+            await self.library.refresh(self.autoload_folders(), if_older_than=MISS_RESCAN_SECONDS)
+            entry = self.library.resolve(model_id, budget, pins)
+        if entry is None:
+            return []
+        return [self._autoload_backend(entry)]
+
+    def _autoload_backend(self, entry: LibraryEntry) -> LocalManagedModel:
+        suid = self._autoload_by_quant.get(entry.quant_id)
+        if suid is not None and suid in self._local_models:
+            return self._local_models[suid]
+        model_config = self._autoload_model_config(entry)
+        local_model = self._build_local_model(model_config, _free_port(), None, self.config)
+        self._autoload_configs[model_config.suid] = model_config
+        self._autoload_by_quant[entry.quant_id] = model_config.suid
+        self._local_models[model_config.suid] = local_model
+        self.event_bus.publish({"type": "autoloaded"})
+        return local_model
+
+    def _autoload_model_config(self, entry: LibraryEntry) -> ModelConfig:
+        """Settings for a library model, from its header and the autoload defaults."""
+        info, auto = entry.info, self.config.autoload
+        trained = info.get("context_length")
+        adv = ModelAdvanced(**info.get("sampling", {}))
+        embd = info.get("embedding_length")
+        for proj in gguf.find_projectors(entry.path):
+            dims = [d for d in (proj["projector"] or {}).values() if d]
+            if embd is None or embd in dims:
+                adv.mmproj_path = proj["path"]
+                break
+        if info.get("embedding"):
+            adv.extra_args = ["--embedding"]
+        return ModelConfig(
+            suid=str(uuid.uuid5(uuid.NAMESPACE_URL, f"llama-manager-autoload:{entry.quant_id}")),
+            name=entry.quant_id,
+            id=entry.quant_id,
+            model_path=str(entry.path),
+            ctx_size=min(auto.ctx_size, trained) if trained else auto.ctx_size,
+            parallel=auto.parallel,
+            model_ttl=auto.idle_ttl,
+            advanced=adv,
+        )
+
+    def estimate_memory(self, model_config: ModelConfig) -> int | None:
+        """Approximate memory a model server needs: weights, projector, KV cache, overhead."""
+        try:
+            path = gguf.metadata_file(model_config.model_path)
+            st = path.stat()
+        except (OSError, ValueError):
+            return None
+        key = (str(path), st.st_size, st.st_mtime)
+        if key not in self._header_cache:
+            try:
+                self._header_cache[key] = gguf.summarize(path)
+            except (OSError, gguf.GGUFError):
+                self._header_cache[key] = None
+        info = self._header_cache[key]
+        if info is None:
+            return None
+        weights = sum(p.stat().st_size for p in gguf.model_files(path) if p.exists())
+        proj = Path(model_config.advanced.mmproj_path).expanduser() if model_config.advanced.mmproj_path else None
+        if proj is not None and proj.is_file():
+            weights += proj.stat().st_size
+        per_slot = model_config.ctx_size or info.get("context_length") or 0
+        kv = gguf.kv_cache_bytes(info, per_slot, model_config.parallel,
+                                 bool(model_config.kv_unified), model_config.advanced.swa_full) or 0
+        return weights + kv + SERVER_OVERHEAD_BYTES
+
+    async def _is_busy(self, local_model: LocalManagedModel) -> bool:
+        try:
+            slots = await local_model.get_slots()
+        except Exception:
+            return False
+        return any(s.get("is_processing") for s in slots or [])
+
+    async def measure_memory(self) -> MemorySnapshot | None:
+        server = self.config.api_server.llama_server_path or None
+        snap = await asyncio.to_thread(available_memory, server)
+        if snap is not None:
+            self._pool_total = snap.total
+        return snap
+
+    async def _make_room(self, target: LocalManagedModel) -> None:
+        """Stop idle autoloaded servers, stalest first, until target fits.
+
+        With a fixed memory budget, fit is judged from estimates. Otherwise it's
+        judged from memory measured now (free VRAM on NVIDIA, unified memory on
+        Apple silicon), which also accounts for processes this manager doesn't
+        run. Busy and configured servers are never stopped.
+        """
+        target_cfg = self.get_model_config(target.get_suid())
+        assert target_cfg is not None
+        need = self.estimate_memory(target_cfg) or 0
+        max_loaded = max(1, self.config.autoload.max_loaded)
+        gib = 1024**3
+
+        def loaded() -> list[LocalManagedModel]:
+            return [m for m in self._local_models.values()
+                    if m is not target and m.state.value in ("starting", "running")]
+
+        def estimate(m: LocalManagedModel) -> int:
+            cfg = self.get_model_config(m.get_suid())
+            return (self.estimate_memory(cfg) or 0) if cfg else 0
+
+        async def idle_autoloaded() -> list[LocalManagedModel]:
+            """Eviction candidates, stalest (longest since last use) first."""
+            candidates = sorted(
+                (m for m in loaded() if self.is_autoloaded(m.get_suid())),
+                key=lambda m: self._model_last_activity.get(m.get_suid(), 0.0),
+            )
+            return [m for m in candidates if not await self._is_busy(m)]
+
+        async def evict(victim: LocalManagedModel) -> None:
+            self.proxy.log(f"Autoload: stopping idle [{victim.get_name()}] to make room for [{target_cfg.name}]")
+            await victim.stop()
+
+        budget = self.memory_budget_bytes() if self.config.autoload.memory_budget_gib is not None else None
+        snap = None if budget is not None else await self.measure_memory()
+        if budget is None and snap is None:
+            budget = self._fallback_budget()  # can't measure here: estimate against 75% of RAM
+
+        if budget is not None:
+            used = lambda: sum(estimate(m) for m in loaded())  # noqa: E731
+            fixed_use = sum(estimate(m) for m in loaded() if not self.is_autoloaded(m.get_suid()))
+            if fixed_use + need > budget:
+                where = f" alongside {fixed_use / gib:.1f} GiB of configured servers" if fixed_use else ""
+                raise AutoloadUnavailable(
+                    f"{target_cfg.name} needs ~{need / gib:.1f} GiB, which doesn't fit the "
+                    f"{budget / gib:.0f} GiB memory budget{where}")
+            while (sum(1 for m in loaded() if self.is_autoloaded(m.get_suid())) >= max_loaded
+                   or used() + need > budget):
+                victims = await idle_autoloaded()
+                if not victims:
+                    raise AutoloadUnavailable(
+                        f"not enough memory to load {target_cfg.name}: needs ~{need / gib:.1f} GiB, "
+                        f"{used() / gib:.1f} GiB of the {budget / gib:.0f} GiB budget in use by busy servers")
+                await evict(victims[0])
+            return
+
+        reserve = int(self.config.autoload.memory_reserve_gib * gib)
+        while True:
+            assert snap is not None
+            # Servers still starting haven't allocated yet; count their estimates.
+            pending = sum(estimate(m) for m in loaded() if m.state.value == "starting")
+            free = snap.available - reserve - pending
+            too_many = sum(1 for m in loaded() if self.is_autoloaded(m.get_suid())) >= max_loaded
+            if not too_many and need <= free:
+                return
+            victims = await idle_autoloaded()
+            reclaimable = sum(estimate(v) for v in victims)
+            if need > free + reclaimable:
+                raise AutoloadUnavailable(
+                    f"not enough memory to load {target_cfg.name}: needs ~{need / gib:.1f} GiB, "
+                    f"{max(free, 0) / gib:.1f} GiB free on {snap.source} after a {reserve / gib:.0f} GiB reserve"
+                    + (f", and stopping idle autoloaded servers would free only ~{reclaimable / gib:.1f} GiB"
+                       if victims else ""))
+            if not victims:
+                raise AutoloadUnavailable(
+                    f"{max_loaded} autoloaded server(s) already running and all are busy")
+            victim = victims[0]
+            before = snap.available
+            await evict(victim)
+            snap = await self._await_release(before, estimate(victim))
+
+    async def _await_release(self, before: int, expected: int) -> MemorySnapshot:
+        """Re-measure after a stop until the freed memory shows up (or 10 s pass)."""
+        deadline = time.monotonic() + 10
+        while True:
+            snap = await self.measure_memory()
+            if snap is None:
+                raise AutoloadUnavailable("memory can no longer be measured")
+            if snap.available - before >= expected // 2 or time.monotonic() >= deadline:
+                return snap
+            await asyncio.sleep(0.5)
 
     # ------------------------------------------------------------------
     # JIT + TTL: server lifecycle APIs used by the proxy handler
@@ -214,6 +496,18 @@ class LlamaManager(LlamaManagerProtocol):
         """
         jit_enabled = self.config.api_server.jit_model_server
         timeout = self.config.api_server.jit_timeout or 80
+        if isinstance(backend, LocalManagedModel) and self.is_autoloaded(backend.get_suid()):
+            if backend.state.value in ("stopped", "error"):
+                # One load at a time, held until the server is up: the next
+                # load then measures memory after this one has allocated.
+                async with self._autoload_lock:
+                    if backend.state.value in ("stopped", "error"):
+                        await self._make_room(backend)
+                        self.proxy.log(f"Autoload: starting [{backend.get_name()}]")
+                        await backend.start()
+                        await backend.ensure_ready(True, timeout)
+                        return
+            jit_enabled = True  # autoloaded servers always start on demand
         await backend.ensure_ready(jit_enabled, timeout)
 
     async def task_ttl_checker(self) -> None:
@@ -222,7 +516,7 @@ class LlamaManager(LlamaManagerProtocol):
             await asyncio.sleep(30)
             try:
                 now = time.monotonic()
-                for m in self.config.models:
+                for m in [*self.config.models, *self._autoload_configs.values()]:
                     if m.model_ttl is None or m.type == "remote":
                         continue
                     local_model = self._local_models.get(m.suid)
@@ -244,11 +538,14 @@ class LlamaManager(LlamaManagerProtocol):
 
     def _make_local_model(self, idx: int, config: AppConfig) -> LocalManagedModel:
         """Construct a LocalManagedModel with all config pre-resolved."""
-        model_config = config.models[idx]
         port = config.api_server.llama_server_starting_port + idx
+        return self._build_local_model(config.models[idx], port, resolve_slot_save_path(config, idx), config)
+
+    def _build_local_model(
+        self, model_config: ModelConfig, port: int, slot_save_path: Path | None, config: AppConfig,
+    ) -> LocalManagedModel:
         raw_path = model_config.advanced.llama_server_path or config.api_server.llama_server_path
         llama_server_path = Path(raw_path).expanduser() if raw_path else None
-        slot_save_path = resolve_slot_save_path(config, idx)
         return LocalManagedModel(
             manager=self,
             model_config=model_config,
@@ -316,6 +613,7 @@ class LlamaManager(LlamaManagerProtocol):
         self._data_publisher_task = asyncio.create_task(self.data_publisher())
         self._ttl_task = asyncio.create_task(self.task_ttl_checker())
         await self.slot_status.start()
+        self.refresh_library()
 
     async def _stop(self, vite: DevViteService | None) -> None:
         # Kill Vite first — before any slow model/proxy teardown.  In dev mode
@@ -387,7 +685,8 @@ class LlamaManager(LlamaManagerProtocol):
                     local_models[key] = self._make_local_model(idx, config)
 
         # Shrink: stop and remove entries for models no longer in config
-        valid_suids = {m.suid for m in config.models}
+        # (autoloaded servers aren't in config; their TTL stops them).
+        valid_suids = {m.suid for m in config.models} | self._autoload_configs.keys()
         orphaned_keys = [k for k in local_models if k not in valid_suids]
         for key in orphaned_keys:
             local_model = local_models[key]
@@ -397,6 +696,7 @@ class LlamaManager(LlamaManagerProtocol):
             unmanaged.pop(key, None)
 
         await self._sync_remote_managers(config)
+        self.refresh_library()
         return config
 
     # ------------------------------------------------------------------
@@ -474,3 +774,10 @@ class LlamaManager(LlamaManagerProtocol):
 
     def generate_token(self) -> str:
         return secrets.token_hex(32)
+
+
+def _free_port() -> int:
+    """A currently unused localhost port for an autoloaded llama-server."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]

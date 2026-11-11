@@ -89,10 +89,30 @@ export interface RemoteManagerConfig {
   enabled: boolean;
 }
 
+/** Start servers on demand for GGUF files in model folders. */
+export interface AutoloadConfig {
+  enabled: boolean;
+  /** Empty = Default Model Path. */
+  folders: string[];
+  /** Fixed cap on estimated use; null = measure free memory live. */
+  memory_budget_gib: number | null;
+  /** Live mode: memory kept free for everything else. */
+  memory_reserve_gib: number;
+  max_loaded: number;
+  /** Minutes without requests before an autoloaded server stops. */
+  idle_ttl: number;
+  /** Per slot; capped at each model's trained context. */
+  ctx_size: number;
+  parallel: number;
+  /** Repo id -> quant used when a request names the repo. */
+  pins: Record<string, string>;
+}
+
 export interface ServerConfig {
   models: ModelConfig[];
   web_ui: WebUIConfig;
   api_server: ApiServerConfig;
+  autoload?: AutoloadConfig;
   manager_uplink?: ManagerUplinkConfig;
   remote_managers?: RemoteManagerConfig[];
   manager_id?: string;
@@ -216,4 +236,23 @@ export interface RequestLogEntry {
   response_body: Record<string, unknown> | string | null;
   streaming: boolean;
   elapsed: number | null;
+}
+
+/** A server started on demand from the model library (not in config). */
+export interface AutoloadedServer {
+  suid: string;
+  /** Library quant id, e.g. "lmstudio-community/qwen3.5-27b@q4_k_m". */
+  name: string;
+  model_id: string;
+  model_path: string;
+  ctx_size: number | null;
+  parallel: number;
+  idle_ttl: number | null;
+  memory_mib: number | null;
+  idle_seconds: number | null;
+  state: ServerStatus["state"];
+  pid: number | null;
+  host: string | null;
+  port: number | null;
+  uptime: number | null;
 }

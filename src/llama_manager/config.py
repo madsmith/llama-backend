@@ -116,6 +116,19 @@ class ApiServerConfig(BaseModel):
     jit_timeout: int | None = None
 
 
+class AutoloadConfig(BaseModel):
+    """Start model servers on demand for GGUF files found in model folders."""
+    enabled: bool = False
+    folders: list[str] = []  # empty = web_ui.default_model_path
+    memory_budget_gib: float | None = None  # fixed cap on estimated use; None = measure free memory live
+    memory_reserve_gib: float = 4  # live mode: keep this much free for everything else
+    max_loaded: int = 2  # autoloaded servers running at once
+    idle_ttl: int = 15  # minutes without requests before an autoloaded server stops
+    ctx_size: int = 32768  # per slot, capped at the model's trained context
+    parallel: int = 1
+    pins: dict[str, str] = {}  # repo id -> quant used when a request names the repo
+
+
 class ManagerUplinkConfig(BaseModel):
     enabled: bool = False
     token: str = ""
@@ -138,6 +151,7 @@ class AppConfig(BaseModel):
     models: list[ModelConfig] = [ModelConfig()]
     web_ui: WebUIConfig = WebUIConfig()
     api_server: ApiServerConfig = ApiServerConfig()
+    autoload: AutoloadConfig = AutoloadConfig()
     manager_uplink: ManagerUplinkConfig = ManagerUplinkConfig()
     remote_managers: list[RemoteManagerConfig] = []
     manager_id: str = ""

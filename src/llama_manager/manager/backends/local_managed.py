@@ -157,11 +157,15 @@ class LocalManagedModel(ManagedBackend):
 
         if self.state == ServerState.running:
             return
-        if self.state not in (ServerState.stopped, ServerState.error):
-            return
         name = self._model_config.name or self.get_suid()
-        self._log(f"JIT: starting (state={self.state.value})")
-        await self.start()
+        if self.state != ServerState.starting:
+            # stopped/error start now; stopping waits on the lock held by
+            # stop() and then starts, rather than sending the request to a
+            # server that's going away.
+            self._log(f"JIT: starting (state={self.state.value})")
+            await self.start()
+        # Otherwise another request already started it: wait for it below
+        # instead of forwarding to a server that isn't listening yet.
 
         # Wait for the server to be ready
         elapsed = 0.0

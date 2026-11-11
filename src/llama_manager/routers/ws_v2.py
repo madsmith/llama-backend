@@ -32,6 +32,8 @@ from llama_manager.protocol.ws_messages import (
     RemoteModelInfo,
     RemotesRequest,
     RemotesResponse,
+    AutoloadedRequest,
+    AutoloadedResponse,
     ServerControlRequest,
     ServerControlResponse,
     ServerStatusRequest,
@@ -456,6 +458,30 @@ class WsV2Connection:
         config = AppConfig.model_validate(msg.config)
         updated = await self.manager.apply_config(config)
         return PutConfigResponse(config=updated.model_dump())
+
+    @request_handler(AutoloadedRequest)
+    async def _on_autoloaded(self, _msg: AutoloadedRequest) -> BaseModel:
+        return AutoloadedResponse(servers=self.manager.autoloaded_servers())
+
+    @event_handler("autoloaded")
+    async def _on_subscribe_event_autoloaded(self, msg: SubscribeEventRequest) -> BaseModel:
+        """Push the autoloaded server list whenever one is created or changes state."""
+        q = self.manager.event_bus.subscribe("autoloaded")
+
+        async def _listen() -> None:
+            try:
+                while True:
+                    await q.get()
+                    self._push(EventResponse(type="autoloaded", data={"servers": self.manager.autoloaded_servers()}))
+            except asyncio.CancelledError:
+                pass
+            finally:
+                self.manager.event_bus.unsubscribe(q)
+
+        task = asyncio.create_task(_listen())
+        subscription_id = id(task)
+        self._subscriptions[subscription_id] = task.cancel
+        return SubscribeEventResponse(subscription_id=subscription_id)
 
     @request_handler(RemotesRequest)
     async def _on_remotes(self, _msg: RemotesRequest) -> BaseModel:

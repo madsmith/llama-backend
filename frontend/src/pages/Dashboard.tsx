@@ -32,6 +32,7 @@ import {
   useProxyStatusWS,
   useServerStatusWS,
   useRemotes,
+  useAutoloaded,
   useUplinkStatus,
   useHealthStream,
 } from "../api/hooks";
@@ -46,7 +47,6 @@ interface ServerSnapshot {
 }
 
 function ModelPanel({
-  modelIndex,
   modelSuid,
   name,
   modelId,
@@ -59,7 +59,6 @@ function ModelPanel({
   hideStopped,
   onSnapshot,
 }: {
-  modelIndex: number;
   modelSuid: string;
   name: string;
   modelId?: string | null;
@@ -70,7 +69,7 @@ function ModelPanel({
   allowProxy: boolean;
   proxyBaseUrl: string;
   hideStopped: boolean;
-  onSnapshot: (index: number, snap: ServerSnapshot) => void;
+  onSnapshot: (suid: string, snap: ServerSnapshot) => void;
 }) {
   const navigate = useNavigate();
   const { status, refresh } = useServerStatusWS(modelSuid);
@@ -78,8 +77,8 @@ function ModelPanel({
   const statusOrUnknown = status ?? { state: "unknown" as const, pid: null, host: null, port: null, uptime: null };
 
   useEffect(() => {
-    onSnapshot(modelIndex, { name, status, health, autoStart, hasTTL });
-  }, [modelIndex, name, status, health, autoStart, hasTTL, onSnapshot]);
+    onSnapshot(modelSuid, { name, status, health, autoStart, hasTTL });
+  }, [modelSuid, name, status, health, autoStart, hasTTL, onSnapshot]);
 
   // Only hide servers that are stopped by design (TTL-managed or not auto-started);
   // a stopped auto-start server is faulted and must stay visible.
@@ -214,10 +213,11 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const [config, setConfig] = useState<ServerConfig | null>(null);
   const { status: proxyStatus, refresh: refreshProxy } = useProxyStatusWS();
-  const [snapshots, setSnapshots] = useState<Map<number, ServerSnapshot>>(
+  const [snapshots, setSnapshots] = useState<Map<string, ServerSnapshot>>(
     new Map(),
   );
   const remotes = useRemotes();
+  const autoloaded = useAutoloaded();
   const uplink = useUplinkStatus();
   const [controlsOpen, setControlsOpen] = useState(false);
   const [hideStopped, setHideStopped] = usePref("pref:hideStopped", false);
@@ -233,16 +233,21 @@ export default function Dashboard() {
       .catch(() => {});
   }, []);
 
-  const handleSnapshot = useCallback((index: number, snap: ServerSnapshot) => {
+  const handleSnapshot = useCallback((suid: string, snap: ServerSnapshot) => {
     setSnapshots((prev) => {
       const next = new Map(prev);
-      next.set(index, snap);
+      next.set(suid, snap);
       return next;
     });
   }, []);
 
   const models = config?.models ?? [];
-  const servers = Array.from(snapshots.values());
+  // Autoloaded servers appear while loaded (or failed) and vanish once unloaded.
+  const loadedAuto = autoloaded.filter((a) => a.state !== "stopped" && a.state !== "unknown");
+  const shown = new Set([...models.map((m) => m.suid), ...loadedAuto.map((a) => a.suid)]);
+  const servers = Array.from(snapshots.entries())
+    .filter(([suid]) => shown.has(suid))
+    .map(([, snap]) => snap);
   const proxyBaseUrl = `http://${window.location.hostname}:${config?.api_server.port ?? 1234}`;
 
   return (
@@ -290,8 +295,7 @@ export default function Dashboard() {
         </div>
         {models.map((m, i) => (
           <ModelPanel
-            key={i}
-            modelIndex={i}
+            key={m.suid}
             modelSuid={m.suid}
             name={m.name ?? `Llama Server ${i + 1}`}
             modelId={effectiveModelId(m)}
@@ -306,6 +310,28 @@ export default function Dashboard() {
           />
         ))}
       </div>
+      {loadedAuto.length > 0 && (
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold text-gray-400">Autoloaded</h2>
+          <div className="flex gap-6 items-start flex-wrap">
+            {loadedAuto.map((a) => (
+              <ModelPanel
+                key={a.suid}
+                modelSuid={a.suid}
+                name={a.name.split("/").pop() ?? a.name}
+                modelId={a.model_id}
+                isRemote={false}
+                autoStart={false}
+                hasTTL
+                allowProxy
+                proxyBaseUrl={proxyBaseUrl}
+                hideStopped={hideStopped}
+                onSnapshot={handleSnapshot}
+              />
+            ))}
+          </div>
+        </div>
+      )}
       {remotes.length > 0 && (
         <div className="space-y-4">
           <h2 className="text-lg font-semibold text-gray-400">Remotes</h2>

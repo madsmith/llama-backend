@@ -109,6 +109,18 @@ def metadata_file(path: str | Path) -> Path:
     return path
 
 
+def model_files(path: str | Path) -> list[Path]:
+    """Every file of a model: all shards of a split model, else just the file."""
+    path = Path(path).expanduser()
+    m = _SHARD_RE.match(path.name)
+    if not m:
+        return [path]
+    return sorted(
+        p for p in path.parent.glob("*.gguf")
+        if (pm := _SHARD_RE.match(p.name)) and pm["stem"] == m["stem"] and pm["total"] == m["total"]
+    )
+
+
 def _num(v: Any) -> int | None:
     return int(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
@@ -192,6 +204,8 @@ def summarize(path: str | Path) -> dict[str, Any]:
         "block_count": n_layers,
         "embedding_length": _num(meta.get(a + "embedding_length")),
         "has_chat_template": isinstance(meta.get("tokenizer.chat_template"), str),
+        # Embedding models declare how token vectors are pooled (0 = none).
+        "embedding": bool(_num(meta.get(a + "pooling_type"))),
         "tokenizer": {
             "model": meta.get("tokenizer.ggml.model"),
             "pre": meta.get("tokenizer.ggml.pre"),
@@ -206,6 +220,19 @@ def summarize(path: str | Path) -> dict[str, Any]:
             "audio_dim": _num(meta.get("clip.audio.projection_dim")) if meta.get("clip.has_audio_encoder") else None,
         }
     return info
+
+
+def kv_cache_bytes(
+    info: dict[str, Any], per_slot_ctx: int, parallel: int, unified: bool = False, swa_full: bool = False,
+) -> int | None:
+    """Approximate f16 KV cache size; mirrors kvCacheBytes() in the frontend."""
+    kv = info.get("kv_cache")
+    if not kv:
+        return None
+    total = per_slot_ctx if unified else per_slot_ctx * parallel
+    window = kv.get("sliding_window")
+    swa_tokens = total if swa_full or not window else min(total, window * parallel)
+    return kv["full_bytes_per_token"] * total + kv["swa_bytes_per_token"] * swa_tokens
 
 
 def find_projectors(model_path: str | Path) -> list[dict[str, Any]]:

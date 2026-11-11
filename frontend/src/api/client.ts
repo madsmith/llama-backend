@@ -28,7 +28,12 @@ export const api = {
     request<ServerStatus>(`/api/server/stop?suid=${encodeURIComponent(suid)}`, { method: "POST" }),
   restart: (suid: string) =>
     request<ServerStatus>(`/api/server/restart?suid=${encodeURIComponent(suid)}`, { method: "POST" }),
-  getSystemInfo: () => request<{ total_ram_mib: number | null; cwd: string }>("/api/status/system"),
+  getSystemInfo: () => request<{
+      total_ram_mib: number | null;
+      cwd: string;
+      /** Free memory in the pool models load into (VRAM or unified memory). */
+      memory: { available_mib: number; total_mib: number; source: string } | null;
+    }>("/api/status/system"),
   getChatModels: () =>
     request<{ data: Array<{ id: string }> }>("/api/chat/models").then((r) => r.data.map((m) => m.id)),
   getChatBackends: () => request<BackendGroup[]>("/api/chat/backends"),

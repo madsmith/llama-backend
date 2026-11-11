@@ -7,7 +7,7 @@ import ServerControls from "../components/ServerControls";
 import ProxyStatusCard from "../components/ProxyStatusCard";
 import ProxyControls from "../components/ProxyControls";
 import LogViewer from "../components/LogViewer";
-import { useProxyStatus, useServerStatusWS, useLogs, useRemotes, pollRatesFromConfig } from "../api/hooks";
+import { useProxyStatus, useServerStatusWS, useLogs, useRemotes, useAutoloaded, pollRatesFromConfig } from "../api/hooks";
 
 function ModelLogCard({ modelSuid, name, selected, path, navigate, allowProxy, proxyBaseUrl }: {
   modelSuid: string;
@@ -140,6 +140,7 @@ export default function Logs() {
   }, []);
 
   const remotes = useRemotes();
+  const autoloaded = useAutoloaded();
   const models = useMemo(() => config?.models ?? [], [config]);
   const localModels = models
     .map((m, i) => ({ model: m, index: i }))
@@ -151,6 +152,7 @@ export default function Logs() {
     ? "Proxy Server"
     : localModels.find(({ model: m }) => m.suid === modelSuid)?.model.name
       ?? allRemoteModels.find(m => m.suid === modelSuid)?.name
+      ?? autoloaded.find(a => a.suid === modelSuid)?.name
       ?? "Server";
 
   // Redirect to proxy logs if current source is a config-level remote model (type="remote")
@@ -187,6 +189,19 @@ export default function Logs() {
               path={`/logs/${m.suid}`}
               navigate={navigate}
               allowProxy={m.allow_proxy ?? true}
+              proxyBaseUrl={proxyBaseUrl}
+            />
+          </div>
+        ))}
+        {autoloaded.map((a) => (
+          <div key={a.suid} data-source={a.suid}>
+            <ModelLogCard
+              modelSuid={a.suid}
+              name={a.name.split("/").pop() ?? a.name}
+              selected={!isProxy && modelSuid === a.suid}
+              path={`/logs/${a.suid}`}
+              navigate={navigate}
+              allowProxy
               proxyBaseUrl={proxyBaseUrl}
             />
           </div>

@@ -10,7 +10,7 @@ import {
   useGgufInfo,
 } from "../api/gguf";
 import type { ServerConfig, ModelConfig, ModelAdvanced, RemoteManagerConfig } from "../api/types";
-import type { SettingsTab } from "./config-defaults";
+import { defaultAutoload, type SettingsTab } from "./config-defaults";
 import { ToggleField, IntegerField, SliderField, TextField, PathField, TipFlag, SectionDivider } from "./inputs";
 
 const CTX_MIN = 1;
@@ -41,9 +41,10 @@ export default function ConfigEditor({
   const [msg, setMsg] = useState("");
   const [totalRamMib, setTotalRamMib] = useState<number | null>(null);
   const [cwd, setCwd] = useState("");
+  const [freeMemory, setFreeMemory] = useState<{ available_mib: number; total_mib: number; source: string } | null>(null);
 
   useEffect(() => {
-    api.getSystemInfo().then((r) => { setTotalRamMib(r.total_ram_mib); setCwd(r.cwd ?? ""); }).catch(() => {});
+    api.getSystemInfo().then((r) => { setTotalRamMib(r.total_ram_mib); setCwd(r.cwd ?? ""); setFreeMemory(r.memory ?? null); }).catch(() => {});
   }, []);
   const model = config.models[modelIndex];
   const adv = model.advanced;
@@ -132,6 +133,10 @@ export default function ConfigEditor({
   const ramBytes = totalRamMib != null ? totalRamMib * 1024 * 1024 : null;
 
   if (tab === "manager") {
+    const autoload = { ...defaultAutoload, ...config.autoload };
+    const setAutoload = (patch: Partial<typeof autoload>) =>
+      setConfig({ ...config, autoload: { ...autoload, ...patch } });
+    const autoFolders = autoload.folders.length ? autoload.folders : [""];
     return (
       <div className="space-y-4 max-w-xl">
         <SectionDivider title="Model Servers" first />
@@ -187,6 +192,124 @@ export default function ConfigEditor({
             note="Maximum seconds to wait for the model server to become ready."
             bg="gray-800"
           />
+        )}
+
+        <SectionDivider title="Autoload" />
+        <ToggleField
+          label="Autoload Models"
+          description="Start a server for any GGUF in the model folders when a request names it, without configuring it first."
+          checked={autoload.enabled}
+          onChange={(v) => setAutoload({ enabled: v })}
+          bg="gray-800"
+        />
+        {autoload.enabled && (
+          <>
+            <div className="space-y-2">
+              {autoFolders.map((folder, i) => (
+                <div key={i} className="flex items-end gap-2">
+                  <div className="flex-1">
+                    <PathField
+                      label={i === 0 ? "Model Folders" : ""}
+                      value={folder}
+                      placeholder={i === 0 ? config.web_ui.default_model_path || cwd : ""}
+                      onChange={(v) => setAutoload({ folders: autoFolders.map((f, j) => (j === i ? v : f)) })}
+                      mode="dir"
+                      startDir={config.web_ui.default_model_path}
+                      bg="gray-800"
+                    />
+                  </div>
+                  {autoFolders.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => setAutoload({ folders: autoFolders.filter((_, j) => j !== i) })}
+                      className="mb-1 px-2 py-1.5 text-gray-500 hover:text-red-400 transition"
+                      aria-label="Remove folder"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => setAutoload({ folders: [...autoFolders.filter(Boolean), ""] })}
+                disabled={!autoFolders[autoFolders.length - 1]}
+                className="text-xs text-blue-400 hover:text-blue-300 disabled:text-gray-600 transition"
+              >
+                + Add folder
+              </button>
+              <p className="text-xs text-gray-600">
+                Requests can name <code>publisher/repo</code>, <code>publisher/repo@quant</code>, or just <code>repo</code> when only one publisher has it. A repo loads its largest quant that fits the memory budget.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <IntegerField
+                label="Memory Budget"
+                unit="GiB"
+                tip="Leave blank to measure free memory when a model loads: free VRAM on NVIDIA GPUs, or unified memory on Apple silicon. That also accounts for other apps' models. Set a number to cap estimated use (weights, projector, KV cache) of this manager's servers instead."
+                value={autoload.memory_budget_gib}
+                onChange={(v) => setAutoload({ memory_budget_gib: v })}
+                nullable
+                min={1}
+                placeholder="live"
+                layout="stacked"
+                bg="gray-800"
+              />
+              <IntegerField
+                label="Reserve"
+                unit="GiB"
+                tip="With a live budget, memory left free for everything else when deciding whether a model fits."
+                value={autoload.memory_reserve_gib}
+                onChange={(v) => setAutoload({ memory_reserve_gib: v ?? defaultAutoload.memory_reserve_gib })}
+                min={0}
+                layout="stacked"
+                bg="gray-800"
+              />
+              <IntegerField
+                label="Max Loaded"
+                tip="Autoloaded servers running at once. When a new one is needed, the one idle longest is stopped first; busy servers are never stopped."
+                value={autoload.max_loaded}
+                onChange={(v) => setAutoload({ max_loaded: v ?? defaultAutoload.max_loaded })}
+                min={1}
+                layout="stacked"
+                bg="gray-800"
+              />
+              <IntegerField
+                label="Idle Timeout"
+                unit="minutes"
+                tip="Stop an autoloaded server after this long without requests."
+                value={autoload.idle_ttl}
+                onChange={(v) => setAutoload({ idle_ttl: v ?? defaultAutoload.idle_ttl })}
+                min={1}
+                layout="stacked"
+                bg="gray-800"
+              />
+              <IntegerField
+                label="Parallel Slots"
+                value={autoload.parallel}
+                onChange={(v) => setAutoload({ parallel: v ?? defaultAutoload.parallel })}
+                min={1}
+                max={16}
+                layout="stacked"
+                bg="gray-800"
+              />
+            </div>
+            {autoload.memory_budget_gib == null && (
+              <p className="-mt-2 text-xs text-gray-600">
+                {freeMemory
+                  ? `Free now: ${(freeMemory.available_mib / 1024).toFixed(0)} of ${(freeMemory.total_mib / 1024).toFixed(0)} GiB (${freeMemory.source}).`
+                  : "Free memory can't be measured on this machine; 75% of RAM is used instead."}
+              </p>
+            )}
+            <IntegerField
+              label="Context Size per Slot"
+              tip="Context for autoloaded servers, capped at each model's trained context. Trained contexts are often 128k–1M tokens, whose KV cache would crowd out other models."
+              value={autoload.ctx_size}
+              onChange={(v) => setAutoload({ ctx_size: v ?? defaultAutoload.ctx_size })}
+              min={512}
+              bg="gray-800"
+            />
+          </>
         )}
 
         <SectionDivider title="Proxy" />

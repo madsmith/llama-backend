@@ -1,4 +1,4 @@
-import type { ServerConfig, RemoteManagerConfig } from "../api/types";
+import type { AutoloadConfig, ServerConfig, RemoteManagerConfig } from "../api/types";
 
 export type SettingsTab = string;
 
@@ -9,6 +9,18 @@ export const defaultRemoteManager: RemoteManagerConfig = {
   token: "",
   reconnect_interval: 5,
   enabled: true,
+};
+
+export const defaultAutoload: AutoloadConfig = {
+  enabled: false,
+  folders: [],
+  memory_budget_gib: null,
+  memory_reserve_gib: 4,
+  max_loaded: 2,
+  idle_ttl: 15,
+  ctx_size: 32768,
+  parallel: 1,
+  pins: {},
 };
 
 export const defaultConfig: ServerConfig = {
@@ -76,6 +88,7 @@ export const defaultConfig: ServerConfig = {
     llama_server_path: "",
     jit_model_server: true,
   },
+  autoload: defaultAutoload,
   manager_uplink: {
     enabled: false,
     token: "",
