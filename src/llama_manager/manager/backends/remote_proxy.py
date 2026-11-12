@@ -47,6 +47,7 @@ class RemoteModelProxy(ManagedBackend):
         self._cached_health: dict | None = None
         self.llama_server_port: int | None = None
         self.priority: int = 1  # as configured on the remote manager
+        self.autoloaded: bool = False  # started on demand from the remote's model library
         self.parallel: int | None = None
 
     # ------------------------------------------------------------------

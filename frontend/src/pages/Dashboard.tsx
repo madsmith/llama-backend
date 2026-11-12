@@ -117,6 +117,8 @@ function RemoteModelPanel({
   allowProxy,
   proxyBaseUrl,
   hideStopped,
+  autoloaded = false,
+  listedState,
 }: {
   modelSuid: string;
   modelId: string;
@@ -126,11 +128,16 @@ function RemoteModelPanel({
   allowProxy: boolean;
   proxyBaseUrl: string;
   hideStopped: boolean;
+  autoloaded?: boolean;
+  listedState: string;
 }) {
   const navigate = useNavigate();
   const { status, refresh } = useServerStatusWS(modelSuid);
   const statusOrUnknown = status ?? { state: "unknown" as const, pid: null, host: null, port: null, uptime: null };
+  const state = status?.state ?? listedState;
 
+  // Autoloaded servers are shown only while loading or loaded, like local ones.
+  if (autoloaded && (state === "stopped" || state === "unknown")) return null;
   if (hideStopped && status?.state === "stopped" && (hasTTL || !autoStart)) return null;
 
   return (
@@ -190,17 +197,20 @@ function RemoteManagerSection({
       </div>
       {rm.models.length === 0 && rm.connection_state !== "connected" ? null : (
         <div className="flex gap-6 flex-wrap ml-3">
-          {rm.models.map((m) => (
+          {/* Configured models first, then autoloaded ones. */}
+          {[...rm.models.filter((m) => !m.autoloaded), ...rm.models.filter((m) => m.autoloaded)].map((m) => (
             <RemoteModelPanel
               key={m.suid}
               modelSuid={m.suid}
               modelId={m.model_id}
-              name={m.name ?? "Remote Model"}
+              name={m.autoloaded && m.name ? `${m.name.split("/").pop()} (autoloaded)` : m.name ?? "Remote Model"}
               autoStart={m.auto_start}
               hasTTL={m.has_ttl}
               allowProxy={m.allow_proxy ?? true}
               proxyBaseUrl={proxyBaseUrl}
               hideStopped={hideStopped}
+              autoloaded={m.autoloaded}
+              listedState={m.state}
             />
           ))}
         </div>

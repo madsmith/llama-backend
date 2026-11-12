@@ -202,6 +202,10 @@ class LlamaManager(LlamaManagerProtocol):
                 return m
         return self._autoload_configs.get(suid)
 
+    def autoload_configs(self) -> list[ModelConfig]:
+        """Generated configs of servers autoloaded this session."""
+        return list(self._autoload_configs.values())
+
     def is_autoloaded(self, suid: str) -> bool:
         return suid in self._autoload_configs
 

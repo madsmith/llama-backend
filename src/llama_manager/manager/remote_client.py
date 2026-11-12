@@ -310,6 +310,7 @@ class RemoteManagerClient:
             proxy.allow_proxy = bool(desc.get("allow_proxy", True))
             proxy.priority = int(desc.get("priority") or 1)
             proxy.parallel = desc.get("parallel")
+            proxy.autoloaded = bool(desc.get("autoloaded", False))
             proxy.set_status(desc)
             new_models.append(proxy)
 

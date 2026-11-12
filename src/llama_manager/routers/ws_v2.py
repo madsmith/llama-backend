@@ -11,7 +11,7 @@ from pydantic import BaseModel, TypeAdapter, ValidationError
 from llama_manager.manager.llama_manager import LlamaManager
 from llama_manager.manager.backends import LocalManagedModel
 from llama_manager.proxy import ActiveRequestManager
-from llama_manager.config import AppConfig
+from llama_manager.config import AppConfig, ModelConfig
 from llama_manager.protocol.ws_messages import (
     EventResponse,
     GenerateTokenRequest,
@@ -119,6 +119,13 @@ class WsV2Connection:
 
     def _push(self, model: BaseModel) -> None:
         self.outgoing.put_nowait(model.model_dump_json())
+
+    async def _start_autoloaded(self, local_model: LocalManagedModel) -> None:
+        """Start through the manager so idle servers are evicted to make room."""
+        try:
+            await self.manager.ensure_server(local_model)
+        except RuntimeError as exc:
+            self.manager.proxy.log(f"Autoload: can't start [{local_model.get_name()}] for uplink: {exc}")
 
     def _annotate_slots(self, suid: str, slots: list[dict]) -> list[dict]:
         """Overlay prompt_progress fields from the local model's stdout parser."""
@@ -500,6 +507,7 @@ class WsV2Connection:
                         auto_start=m.auto_start,
                         has_ttl=m.has_ttl,
                         allow_proxy=m.allow_proxy,
+                        autoloaded=m.autoloaded,
                     )
                     for m in client.models
                 ],
@@ -560,36 +568,56 @@ class UplinkConnection:
         self.manager = manager
         self.ws = ws
         self.outgoing: asyncio.Queue[str] = asyncio.Queue()
+        # Servers forwarded to the downstream manager: configured ones plus
+        # autoloaded ones. Updated in place on every snapshot; listeners and
+        # command handling read it, so servers added later are covered too.
+        self._suids: set[str] = set()
+        self._slot_handles: dict[str, int] = {}
 
     def _push_json(self, data: dict) -> None:
         self.outgoing.put_nowait(json.dumps(data))
 
+    def _served(self) -> list[tuple[ModelConfig, LocalManagedModel]]:
+        local_models_dict = self.manager.get_local_models()
+        configs = [*self.manager.config.models, *self.manager.autoload_configs()]
+        return [(m, local_models_dict[m.suid]) for m in configs if m.suid in local_models_dict]
+
+    def _sync_served(self, served: list[tuple[ModelConfig, LocalManagedModel]]) -> None:
+        """Track the served suids and keep a slot subscription for each."""
+        current = {m.suid for m, _ in served}
+        self._suids.clear()
+        self._suids.update(current)
+        for suid in list(self._slot_handles):
+            if suid not in current:
+                self.manager.slot_status.unsubscribe(self._slot_handles.pop(suid))
+        for suid in current - self._slot_handles.keys():
+            def _on_slots(slots: list[dict], _suid: str = suid) -> None:
+                self._push_json({"type": "slots", "suid": _suid, "slots": self._annotate_slots(_suid, slots)})
+
+            self._slot_handles[suid] = self.manager.slot_status.subscribe(suid, _on_slots)
+
     def _build_snapshot(self) -> dict:
         config = self.manager.config
-        local_models_dict = self.manager.get_local_models()
-        suid_to_cfg = {m.suid: m for m in config.models}
-        local_models = [
-            (m.suid, local_models_dict[m.suid])
-            for m in config.models
-            if m.suid in local_models_dict
-        ]
+        served = self._served()
+        self._sync_served(served)
         return {
             "type": "snapshot",
             "proxy_port": config.api_server.port,
             "models": [
                 {
-                    "suid": suid,
+                    "suid": m.suid,
                     "name": lm.get_name(),
                     "model_id": lm.get_model_ids()[0],
                     **lm.get_status(),
                     "llama_port": lm.port,
-                    "auto_start": suid_to_cfg[suid].auto_start,
-                    "has_ttl": suid_to_cfg[suid].model_ttl is not None,
-                    "allow_proxy": suid_to_cfg[suid].allow_proxy,
-                    "priority": suid_to_cfg[suid].priority,
-                    "parallel": suid_to_cfg[suid].parallel,
+                    "auto_start": m.auto_start,
+                    "has_ttl": m.model_ttl is not None,
+                    "allow_proxy": m.allow_proxy,
+                    "priority": self.manager.backend_priority(lm),
+                    "parallel": m.parallel,
+                    "autoloaded": self.manager.is_autoloaded(m.suid),
                 }
-                for suid, lm in local_models
+                for m, lm in served
             ],
             "library": self._library_snapshot(),
         }
@@ -635,32 +663,20 @@ class UplinkConnection:
             "manager_id": config.manager_id,
         })
 
-        local_models_dict = self.manager.get_local_models()
-        suid_to_model: dict[str, LocalManagedModel] = {
-            m.suid: local_models_dict[m.suid]
-            for m in config.models
-            if m.suid in local_models_dict
-        }
-        model_suids: set[str] = set(suid_to_model)
-
         await self.ws.send_json(self._build_snapshot())
 
         self.manager.uplink_client_count += 1
 
         sender_task = asyncio.create_task(self._sender())
         listener_tasks = [
-            asyncio.create_task(self._listen_server_status(model_suids)),
-            asyncio.create_task(self._listen_server_log(model_suids)),
-            asyncio.create_task(self._listen_health(model_suids)),
+            asyncio.create_task(self._listen_server_status(self._suids)),
+            asyncio.create_task(self._listen_server_log(self._suids)),
+            asyncio.create_task(self._listen_health(self._suids)),
             asyncio.create_task(self._listen_config_changed()),
             asyncio.create_task(self._listen_config_changed("library_changed")),
+            # Autoloaded servers appear, start and stop: re-send so they show downstream.
+            asyncio.create_task(self._listen_config_changed("autoloaded")),
         ]
-        slot_handles: list[int] = []
-        for suid in model_suids:
-            def _on_slots(slots: list[dict], _suid: str = suid) -> None:
-                self._push_json({"type": "slots", "suid": _suid, "slots": self._annotate_slots(_suid, slots)})
-
-            slot_handles.append(self.manager.slot_status.subscribe(suid, _on_slots))
 
         try:
             while True:
@@ -669,15 +685,16 @@ class UplinkConnection:
                 except WebSocketDisconnect:
                     break
                 try:
-                    await self._handle_command(json.loads(data), suid_to_model)
+                    await self._handle_command(json.loads(data))
                 except Exception:
                     pass
         finally:
             sender_task.cancel()
             for task in listener_tasks:
                 task.cancel()
-            for handle in slot_handles:
+            for handle in self._slot_handles.values():
                 self.manager.slot_status.unsubscribe(handle)
+            self._slot_handles.clear()
             self.manager.uplink_client_count -= 1
 
     def _annotate_slots(self, suid: str, slots: list[dict]) -> list[dict]:
@@ -770,13 +787,15 @@ class UplinkConnection:
         finally:
             self.manager.event_bus.unsubscribe(q)
 
-    async def _handle_command(self, cmd: dict, suid_to_model: dict[str, LocalManagedModel]) -> None:
+    async def _handle_command(self, cmd: dict) -> None:
         t = cmd.get("type")
         suid = cmd.get("suid", "")
-        local_model = suid_to_model.get(suid)
+        local_model = self.manager.get_local_models().get(suid) if suid in self._suids else None
         if local_model is None:
             return
-        if t == "start":
+        if t == "start" and self.manager.is_autoloaded(suid):
+            asyncio.create_task(self._start_autoloaded(local_model))
+        elif t == "start":
             asyncio.create_task(local_model.start())
         elif t == "stop":
             asyncio.create_task(local_model.stop())

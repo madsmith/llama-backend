@@ -1,5 +1,5 @@
 import { Fragment } from "react";
-import type { HealthStatus, ProxyStatus, RemoteManagerStatus, ServerStatus, UplinkStatus } from "../api/types";
+import type { HealthStatus, ProxyStatus, RemoteManagerStatus, RemoteModelInfo, ServerStatus, UplinkStatus } from "../api/types";
 
 interface ServerInfo {
   name: string;
@@ -68,7 +68,9 @@ export default function HealthCard({ proxyStatus, servers, remotes, uplink }: Pr
   const allServersOk = classifications.every(c => c === "ok" || c === "offline_ok");
   const anyServerUnknown = classifications.some(c => c === "unknown");
 
-  const remoteModels = remotes?.flatMap(rm => rm.models) ?? [];
+  // Stopped autoloaded servers aren't shown on the Dashboard, so not here either.
+  const shownRemote = (m: RemoteModelInfo) => !(m.autoloaded && (m.state === "stopped" || m.state === "unknown"));
+  const remoteModels = remotes?.flatMap(rm => rm.models.filter(shownRemote)) ?? [];
   const allRemotesOk = remoteModels.every(m =>
     m.state === "running" || m.state === "unknown" || (m.state === "stopped" && (m.has_ttl || !m.auto_start))
   );
@@ -142,7 +144,7 @@ export default function HealthCard({ proxyStatus, servers, remotes, uplink }: Pr
         })}
 
         {remotes?.flatMap(rm =>
-          rm.models.map(m => {
+          rm.models.filter(shownRemote).map(m => {
             const offlineOk = m.state === "stopped" && (m.has_ttl || !m.auto_start);
             const classified =
               m.state === "unknown" ? "unknown"

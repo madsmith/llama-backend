@@ -307,6 +307,7 @@ class RemoteModelInfo(BaseModel):
     auto_start: bool = False
     has_ttl: bool = False
     allow_proxy: bool = True
+    autoloaded: bool = False
 
 
 class RemoteManagerInfo(BaseModel):

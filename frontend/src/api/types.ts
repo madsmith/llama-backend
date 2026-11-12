@@ -129,6 +129,8 @@ export interface RemoteModelInfo {
   auto_start: boolean;
   has_ttl: boolean;
   allow_proxy: boolean;
+  /** Started on demand from the remote's model library. */
+  autoloaded?: boolean;
 }
 
 export interface UplinkStatus {
