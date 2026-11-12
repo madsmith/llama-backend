@@ -175,6 +175,9 @@ function RemoteManagerSection({
   proxyBaseUrl: string;
   hideStopped: boolean;
 }) {
+  const configured = rm.models.filter((m) => !m.autoloaded);
+  // Like local autoloaded servers: shown only while loading or loaded.
+  const loadedAuto = rm.models.filter((m) => m.autoloaded && m.state !== "stopped" && m.state !== "unknown");
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2 mt-2">
@@ -197,22 +200,42 @@ function RemoteManagerSection({
       </div>
       {rm.models.length === 0 && rm.connection_state !== "connected" ? null : (
         <div className="flex gap-6 flex-wrap ml-3">
-          {/* Configured models first, then autoloaded ones. */}
-          {[...rm.models.filter((m) => !m.autoloaded), ...rm.models.filter((m) => m.autoloaded)].map((m) => (
+          {configured.map((m) => (
             <RemoteModelPanel
               key={m.suid}
               modelSuid={m.suid}
               modelId={m.model_id}
-              name={m.autoloaded && m.name ? `${m.name.split("/").pop()} (autoloaded)` : m.name ?? "Remote Model"}
+              name={m.name ?? "Remote Model"}
               autoStart={m.auto_start}
               hasTTL={m.has_ttl}
               allowProxy={m.allow_proxy ?? true}
               proxyBaseUrl={proxyBaseUrl}
               hideStopped={hideStopped}
-              autoloaded={m.autoloaded}
               listedState={m.state}
             />
           ))}
+        </div>
+      )}
+      {loadedAuto.length > 0 && (
+        <div className="space-y-3 ml-3">
+          <h3 className="text-lg font-semibold text-gray-400">Autoloaded</h3>
+          <div className="flex gap-6 items-start flex-wrap">
+            {loadedAuto.map((m) => (
+              <RemoteModelPanel
+                key={m.suid}
+                modelSuid={m.suid}
+                modelId={m.model_id}
+                name={m.name?.split("/").pop() ?? "Remote Model"}
+                autoStart={false}
+                hasTTL
+                allowProxy={m.allow_proxy ?? true}
+                proxyBaseUrl={proxyBaseUrl}
+                hideStopped={hideStopped}
+                autoloaded
+                listedState={m.state}
+              />
+            ))}
+          </div>
         </div>
       )}
     </div>
