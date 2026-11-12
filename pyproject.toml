@@ -24,3 +24,8 @@ path = "src/llama_manager/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/llama_manager"]
+
+[dependency-groups]
+dev = [
+    "textual>=8.2.8",
+]

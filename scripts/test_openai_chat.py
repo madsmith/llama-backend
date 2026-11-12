@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
+import shutil
 import sys
 import time
 from datetime import datetime
@@ -20,6 +22,67 @@ def log_jsonl(log: IO[str], record: dict) -> None:
     log.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
+class ThinkingBlock:
+    """Prints reasoning as a framed block, every line prefixed with a bar:
+
+       ,-- Thinking
+       | ...
+       `-- End thinking (1.2s)
+
+    Text can arrive in arbitrary pieces (streaming). Leading and trailing
+    blank lines are dropped; newlines are held until more text arrives so the
+    bar is never printed for a line that never comes."""
+
+    BAR = "   | "
+
+    def __init__(self) -> None:
+        self.t0 = time.monotonic()
+        self.has_text = False
+        self.pending_newlines = 0
+        self.col = 0
+        self.width = min(shutil.get_terminal_size().columns, 120) - 1
+        print("   ,-- Thinking", flush=True)
+
+    def write(self, text: str) -> None:
+        for i, piece in enumerate(text.split("\n")):
+            if i > 0:
+                self.pending_newlines += 1
+            if piece:
+                self._emit(piece)
+
+    def _emit(self, piece: str) -> None:
+        if not self.has_text:
+            piece = piece.lstrip()
+            if not piece:
+                return
+            self.pending_newlines = 0
+            out = self.BAR
+            self.col = len(self.BAR)
+        elif self.pending_newlines:
+            out = "\n" + (self.BAR.rstrip() + "\n") * (self.pending_newlines - 1) + self.BAR
+            self.col = len(self.BAR)
+        else:
+            out = ""
+        self.pending_newlines = 0
+        self.has_text = True
+        # Word-wrap so wrapped lines keep the bar. Words arrive whole or in
+        # pieces; a piece is only broken before a space.
+        for word in re.findall(r"\s*\S+|\s+", piece):
+            if self.col + len(word) > self.width and self.col > len(self.BAR) and word[:1].isspace():
+                out += "\n" + self.BAR
+                self.col = len(self.BAR)
+                word = word.lstrip()
+            out += word
+            self.col += len(word)
+        print(out, end="", flush=True)
+
+    def close(self, timed: bool = True) -> None:
+        if self.has_text:
+            print()
+        took = f" ({time.monotonic() - self.t0:.1f}s)" if timed else ""
+        print(f"   `-- End thinking{took}", flush=True)
+
+
 def send_blocking(client: httpx.Client, base: str, body: dict) -> tuple[str, str, dict]:
     """Returns (text, finish_reason, full_response)."""
     resp = client.post(f"{base}/v1/chat/completions", json=body, timeout=None)
@@ -33,7 +96,7 @@ def send_blocking(client: httpx.Client, base: str, body: dict) -> tuple[str, str
 
 
 def send_streaming(
-    client: httpx.Client, base: str, body: dict, log: IO[str] | None
+    client: httpx.Client, base: str, body: dict, log: IO[str] | None, show_thinking: bool = False
 ) -> tuple[str, str, dict]:
     """Streams tokens to stdout. Returns (full_text, finish_reason, reconstructed_response)."""
     parts: list[str] = []
@@ -42,8 +105,12 @@ def send_streaming(
     resp_id = ""
     resp_model = ""
     usage: dict = {}
-    in_reasoning = False
+    timings: dict = {}
+    thinking: ThinkingBlock | None = None
     content_started = False
+    t0 = time.monotonic()
+    t_first: float | None = None  # first reasoning or content token
+    token_chunks = 0
 
     with client.stream("POST", f"{base}/v1/chat/completions", json=body, timeout=None) as resp:
         if resp.status_code != 200:
@@ -69,6 +136,8 @@ def send_streaming(
                 resp_model = chunk.get("model", "")
             if chunk.get("usage"):
                 usage = chunk["usage"]
+            if chunk.get("timings"):
+                timings = chunk["timings"]  # llama-server extension
 
             choice = (chunk.get("choices") or [{}])[0]
             delta = choice.get("delta", {})
@@ -76,26 +145,35 @@ def send_streaming(
             if fr:
                 finish = fr
 
-            reasoning = delta.get("reasoning_content", "")
-            token = delta.get("content", "")
+            # llama-server sends reasoning_content; vLLM and others send reasoning.
+            reasoning = delta.get("reasoning_content") or delta.get("reasoning") or ""
+            token = delta.get("content") or ""
+            if reasoning or token:
+                token_chunks += 1
+                if t_first is None:
+                    t_first = time.monotonic()
 
             if reasoning:
-                if not in_reasoning:
-                    print("Thinking: ", end="", flush=True)
-                    in_reasoning = True
-                print(reasoning, end="", flush=True)
+                if show_thinking and thinking is None:
+                    thinking = ThinkingBlock()
+                if thinking is not None:
+                    thinking.write(reasoning)
                 reasoning_parts.append(reasoning)
 
+            if not content_started:
+                token = token.lstrip()  # models often open with a newline after thinking
             if token:
-                if in_reasoning:
-                    print("\nAssistant: ", end="", flush=True)
-                    in_reasoning = False
-                elif not content_started:
+                if not content_started:
+                    if thinking is not None:
+                        thinking.close()
+                        thinking = None
                     print("Assistant: ", end="", flush=True)
                 content_started = True
                 print(token, end="", flush=True)
                 parts.append(token)
 
+    if thinking is not None:
+        thinking.close()
     if not content_started:
         print("Assistant: ", end="", flush=True)
     print()
@@ -108,9 +186,43 @@ def send_streaming(
         "choices": [{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": finish}],
         "usage": usage,
     }
+    if timings:
+        reconstructed["timings"] = timings
+    t_end = time.monotonic()
+    reconstructed["_client_timing"] = {
+        "ttft": (t_first - t0) if t_first is not None else None,
+        "generation": (t_end - t_first) if t_first is not None else None,
+        "token_chunks": token_chunks,
+    }
     if reasoning_parts:
         reconstructed["choices"][0]["message"]["reasoning_content"] = "".join(reasoning_parts)
     return text, finish, reconstructed
+
+
+def speed_stats(resp: dict, elapsed: float) -> str:
+    """Prompt and generation tok/s: the server's own timings if it reports them
+    (llama-server does), else estimated from usage and client-side timing."""
+    t = resp.get("timings") or {}
+    if t.get("prompt_per_second") is not None and t.get("predicted_per_second") is not None:
+        cached = f" (+{t['cache_n']} cached)" if t.get("cache_n") else ""
+        return (
+            f"[prompt {t.get('prompt_n', '?')}tok{cached} @ {t['prompt_per_second']:.1f} tok/s  "
+            f"generation {t.get('predicted_n', '?')}tok @ {t['predicted_per_second']:.1f} tok/s  "
+            f"(server timings)]"
+        )
+    usage = resp.get("usage") or {}
+    client = resp.get("_client_timing") or {}
+    prompt_n = usage.get("prompt_tokens")
+    gen_n = usage.get("completion_tokens") or client.get("token_chunks")
+    ttft, gen_time = client.get("ttft"), client.get("generation")
+    if ttft and gen_time:
+        # Streaming: time to first token ~ prompt processing; the rest is generation.
+        prompt = f"{prompt_n / ttft:.1f} tok/s" if prompt_n else "?"
+        gen = f"{(gen_n - 1) / gen_time:.1f} tok/s" if gen_n and gen_n > 1 else "?"
+        return f"[prompt {prompt_n or '?'}tok @ {prompt}  generation {gen_n or '?'}tok @ {gen}  (client estimate)]"
+    if gen_n and elapsed:
+        return f"[generation {gen_n}tok @ {gen_n / elapsed:.1f} tok/s incl. prompt  (client estimate; server sent no timings)]"
+    return "[tok/s unavailable: server sent no timings or usage]"
 
 
 def chat_turn(
@@ -121,22 +233,30 @@ def chat_turn(
     stream: bool,
     max_tokens: int | None,
     log: IO[str] | None,
+    verbose: bool = False,
 ) -> str:
     body: dict = {"model": model, "messages": messages, "stream": stream}
     if max_tokens is not None:
         body["max_tokens"] = max_tokens
+    if stream and verbose:
+        body["stream_options"] = {"include_usage": True}  # token counts for the estimate fallback
 
     t0 = time.monotonic()
 
     if stream:
-        text, finish, full_resp = send_streaming(client, base, body, log)
+        text, finish, full_resp = send_streaming(client, base, body, log, show_thinking=verbose)
         elapsed = time.monotonic() - t0
         stats = f"[finish={finish}  elapsed={elapsed:.2f}s]"
     else:
-        print("Assistant: ", end="", flush=True)
         text, finish, full_resp = send_blocking(client, base, body)
         elapsed = time.monotonic() - t0
-        print(text)
+        message = (full_resp.get("choices") or [{}])[0].get("message", {})
+        thinking = message.get("reasoning_content") or message.get("reasoning")
+        if verbose and thinking:
+            block = ThinkingBlock()
+            block.write(thinking)
+            block.close(timed=False)  # only the whole request's time is known
+        print(f"Assistant: {(text or '').lstrip()}")
         usage = full_resp.get("usage", {})
         stats = (
             f"[finish={finish}  elapsed={elapsed:.2f}s  "
@@ -144,7 +264,11 @@ def chat_turn(
             f"completion={usage.get('completion_tokens','?')}tok]"
         )
 
-    print(f"{stats}\n")
+    print(stats)
+    if verbose:
+        print(speed_stats(full_resp, elapsed))
+    print()
+    full_resp.pop("_client_timing", None)
 
     if log:
         log_jsonl(log, {
@@ -176,6 +300,7 @@ def main() -> None:
     parser.add_argument("--stream", action="store_true", help="use streaming (SSE)")
     parser.add_argument("--max-tokens", type=int, metavar="N", help="max tokens per response")
     parser.add_argument("--log", metavar="FILE", help="append exchanges to this file as JSONL")
+    parser.add_argument("-v", "--verbose", action="store_true", help="show the model's thinking and prompt/generation tok/s")
     parser.add_argument("--server", default=DEFAULT_SERVER, metavar="URL",
                         help=f"server base URL (default: {DEFAULT_SERVER})")
     args = parser.parse_args()
@@ -205,7 +330,7 @@ def main() -> None:
             if one_shot:
                 messages.append({"role": "user", "content": args.message})
                 try:
-                    chat_turn(client, base, messages, args.model, args.stream, args.max_tokens, log)
+                    chat_turn(client, base, messages, args.model, args.stream, args.max_tokens, log, args.verbose)
                 except RuntimeError as exc:
                     print(f"ERROR: {exc}", file=sys.stderr)
                     sys.exit(1)
@@ -222,7 +347,7 @@ def main() -> None:
                         break
                     messages.append({"role": "user", "content": user_input})
                     try:
-                        reply = chat_turn(client, base, messages, args.model, args.stream, args.max_tokens, log)
+                        reply = chat_turn(client, base, messages, args.model, args.stream, args.max_tokens, log, args.verbose)
                         messages.append({"role": "assistant", "content": reply})
                     except RuntimeError as exc:
                         print(f"ERROR: {exc}\n", file=sys.stderr)
