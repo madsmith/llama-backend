@@ -29,6 +29,9 @@ from .anthropic import AnthropicAdapter
 from .request_log import RequestLog
 logger = logging.getLogger(__name__)
 
+# Most ready first; picks the state /v1/models reports for an id with several servers.
+_STATE_RANK = {"running": 0, "starting": 1, "stopping": 2, "stopped": 3, "error": 4, "unknown": 5}
+
 
 class ProxyServer:
     def __init__(self, manager: LlamaManager) -> None:
@@ -132,8 +135,22 @@ class ProxyServer:
                 + list(self._manager.get_remote_unmanaged().values())
             )
 
-            ids = [i for b in all_backends for i in b.get_model_ids()]
-            ids += self._manager.library_model_ids()  # loadable on request
+            # Non-standard "llama_manager" field (OpenAI clients ignore it):
+            # kind "server" for a configured/running server, "library" for a
+            # model file loaded on request; state is the most ready server's.
+            info: dict[str, dict] = {}
+            ids: list[str] = []
+            for b in all_backends:
+                state = getattr(b, "state", None)
+                state = state.value if state is not None else None
+                for model_id in b.get_model_ids():
+                    ids.append(model_id)
+                    entry = info.setdefault(model_id, {"kind": "server", "state": state})
+                    if _STATE_RANK.get(state, 9) < _STATE_RANK.get(entry["state"], 9):
+                        entry["state"] = state
+            for model_id in self._manager.library_model_ids():  # loadable on request
+                ids.append(model_id)
+                info.setdefault(model_id, {"kind": "library", "state": None})
             for model_id in ids:
                 if model_id and model_id not in seen:
                     seen.add(model_id)
@@ -142,6 +159,7 @@ class ProxyServer:
                         "object": "model",
                         "created": created,
                         "owned_by": "system",
+                        "llama_manager": info[model_id],
                     })
 
             return JSONResponse({"object": "list", "data": data})

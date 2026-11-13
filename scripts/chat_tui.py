@@ -7,7 +7,8 @@ starts; click it or press ctrl+t to expand). Each reply ends with token and
 speed stats.
 
 Run with `uv run scripts/chat_tui.py` (Textual is a dev dependency).
-Commands: /model NAME, /clear, /quit.
+ctrl+o (or /model with no name) opens the model browser.
+Commands: /model [NAME], /clear, /quit.
 """
 
 from __future__ import annotations
@@ -18,13 +19,151 @@ import json
 import time
 
 import httpx
+from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
-from textual.widgets import Collapsible, Footer, Header, Input, Markdown, Static
+from textual.screen import ModalScreen
+from textual.widgets import Collapsible, Footer, Header, Input, Markdown, OptionList, Static
+from textual.widgets.option_list import Option
 
 DEFAULT_SERVER = "http://127.0.0.1:1234"
+
+STATE_STYLE = {
+    "running": "bold green",
+    "starting": "yellow",
+    "stopping": "yellow",
+    "error": "red",
+}
+STATE_ORDER = {"running": 0, "starting": 1, "stopping": 2, "stopped": 3, "error": 4}
+
+
+class ModelBrowser(ModalScreen[str | None]):
+    """Pick a model from the proxy's /v1/models. Type to filter (all words
+    must match), arrows to move, enter to pick, esc to cancel.
+
+    The llama-manager proxy tags each model as a server (with its state) or
+    a library file loaded on request; other servers get one flat list."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss_none", "Cancel"),
+        Binding("down", "move(1)", show=False, priority=True),
+        Binding("up", "move(-1)", show=False, priority=True),
+        Binding("pagedown", "move(10)", show=False, priority=True),
+        Binding("pageup", "move(-10)", show=False, priority=True),
+    ]
+    DEFAULT_CSS = """
+    ModelBrowser { align: center middle; }
+    #browser {
+        width: 90%;
+        max-width: 110;
+        height: 80%;
+        border: thick $primary;
+        background: $surface;
+        padding: 0 1;
+    }
+    #browser OptionList { height: 1fr; border: none; padding: 0; }
+    #browser-status { color: $text-muted; }
+    """
+
+    def __init__(self, client: httpx.AsyncClient, server: str, current: str) -> None:
+        super().__init__()
+        self.client = client
+        self.server = server
+        self.current = current
+        self.models: list[dict] = []
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="browser"):
+            yield Input(placeholder="Filter models", id="filter")
+            yield OptionList(id="models")
+            yield Static("Loading models...", id="browser-status", markup=False)
+
+    def on_mount(self) -> None:
+        self.query_one("#browser", Vertical).border_title = "Models"
+        self.query_one("#filter", Input).focus()
+        self.load()
+
+    @work(exclusive=True)
+    async def load(self) -> None:
+        status = self.query_one("#browser-status", Static)
+        try:
+            resp = await self.client.get(f"{self.server}/v1/models", timeout=15)
+            resp.raise_for_status()
+            self.models = resp.json().get("data") or []
+        except (httpx.HTTPError, ValueError) as exc:
+            status.update(f"Could not list models: {exc or type(exc).__name__}")
+            return
+        self.refill(highlight_current=True)
+
+    def refill(self, highlight_current: bool = False) -> None:
+        words = self.query_one("#filter", Input).value.lower().split()
+        shown = [m for m in self.models
+                 if all(w in m.get("id", "").lower() for w in words)]
+        servers = [m for m in shown if (m.get("llama_manager") or {}).get("kind") == "server"]
+        library = [m for m in shown if (m.get("llama_manager") or {}).get("kind") == "library"]
+        other = [m for m in shown if m not in servers and m not in library]
+        servers.sort(key=lambda m: (STATE_ORDER.get(m["llama_manager"].get("state"), 5), m["id"].lower()))
+        library.sort(key=lambda m: m["id"].lower())
+
+        options: list[Option] = []
+        for title, group in (("Servers", servers), ("Library  (loads on request)", library), ("Models", other)):
+            if not group:
+                continue
+            if options:
+                options.append(Option(Text(""), disabled=True))
+            options.append(Option(Text(title, style="bold"), disabled=True))
+            for m in group:
+                options.append(Option(self._label(m), id=m["id"]))
+
+        olist = self.query_one("#models", OptionList)
+        olist.clear_options()
+        olist.add_options(options)
+        enabled = [i for i, o in enumerate(options) if not o.disabled]
+        if enabled:
+            index = enabled[0]
+            if highlight_current:
+                index = next((i for i in enabled if options[i].id == self.current), index)
+            olist.highlighted = index
+        n = len(enabled)
+        self.query_one("#browser-status", Static).update(
+            f"{n} of {len(self.models)} models" if words else f"{n} models")
+
+    def _label(self, m: dict) -> Text:
+        mark = "> " if m["id"] == self.current else "  "
+        label = Text(mark + m["id"])
+        state = (m.get("llama_manager") or {}).get("state")
+        if state:
+            label.append(f"  {state}", style=STATE_STYLE.get(state, "dim"))
+        return label
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        self.refill()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        olist = self.query_one("#models", OptionList)
+        if olist.highlighted is not None:
+            option = olist.get_option_at_index(olist.highlighted)
+            if not option.disabled:
+                self.dismiss(option.id)
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        self.dismiss(event.option.id)
+
+    def action_move(self, step: int) -> None:
+        # Move among the models only, skipping group headers; clamp at the ends.
+        olist = self.query_one("#models", OptionList)
+        enabled = [i for i in range(olist.option_count)
+                   if not olist.get_option_at_index(i).disabled]
+        if not enabled:
+            return
+        cur = olist.highlighted
+        pos = enabled.index(cur) if cur in enabled else (-1 if step > 0 else len(enabled))
+        olist.highlighted = enabled[max(0, min(len(enabled) - 1, pos + step))]
+
+    def action_dismiss_none(self) -> None:
+        self.dismiss(None)
 
 
 class UserMessage(Static):
@@ -131,6 +270,7 @@ class ChatApp(App):
     """
     BINDINGS = [
         Binding("escape", "stop", "Stop reply"),
+        Binding("ctrl+o", "browse_models", "Models"),
         Binding("ctrl+t", "toggle_thinking", "Thinking"),
         Binding("ctrl+l", "clear", "Clear"),
         Binding("ctrl+q", "quit", "Quit"),
@@ -154,7 +294,7 @@ class ChatApp(App):
     def compose(self) -> ComposeResult:
         yield Header()
         yield VerticalScroll(id="chat")
-        yield Input(placeholder="Message  (/model NAME, /clear, /quit)", id="prompt")
+        yield Input(placeholder="Message  (/model [NAME], /clear, /quit)", id="prompt")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -191,13 +331,11 @@ class ChatApp(App):
             self.exit()
         elif cmd == "/clear":
             await self.action_clear()
-        elif cmd == "/model":
-            if not arg:
-                self.notify(f"Model: {self.model}")
-                return
-            self.model = arg
-            self.sub_title = f"{self.model}  @  {self.server}"
-            self.notify(f"Model set to {arg}")
+        elif cmd in ("/model", "/models"):
+            if arg:
+                self.set_model(arg)
+            else:
+                self.action_browse_models()
         else:
             self.notify(f"Unknown command {cmd}", severity="error")
 
@@ -289,6 +427,18 @@ class ChatApp(App):
             gen_time = time.monotonic() - (t_think or t_answer) if (t_think or t_answer) else None
             stats = format_stats(finish, elapsed, usage, timings, gen_time)
             reply.set_status(stats if content else f"(empty reply)  ·  {stats}")
+
+    def set_model(self, model: str | None) -> None:
+        if not model or model == self.model:
+            return
+        self.model = model
+        self.sub_title = f"{self.model}  @  {self.server}"
+        self.notify(f"Model: {model}")
+
+    def action_browse_models(self) -> None:
+        if isinstance(self.screen, ModelBrowser):
+            return
+        self.push_screen(ModelBrowser(self.client, self.server, self.model), self.set_model)
 
     def action_stop(self) -> None:
         self.workers.cancel_group(self, "chat")
