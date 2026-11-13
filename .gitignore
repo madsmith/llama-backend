@@ -33,3 +33,4 @@ logs/
 logs*/
 logs*.txt
 *.log
+.playwright-cli/
