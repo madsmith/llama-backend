@@ -1,5 +1,13 @@
 import { useState } from "react";
 import LongString from "./LongString";
+import VectorLink from "./VectorDialog";
+
+/** Long all-number arrays (embeddings) show as a link to a dialog instead
+    of one row per value. */
+const VECTOR_MIN = 32;
+function isVector(value: unknown): value is number[] {
+  return Array.isArray(value) && value.length >= VECTOR_MIN && value.every((x) => typeof x === "number");
+}
 
 function isCollapsible(value: unknown): value is Record<string, unknown> | unknown[] {
   return value !== null && typeof value === "object";
@@ -50,7 +58,20 @@ function JsonNode({
   depth?: number;
   expandDepth?: number;
 }) {
-  const [open, setOpen] = useState(defaultOpen || depth < expandDepth);
+  // Objects holding a vector open by default: the vector is a one-line link.
+  const [open, setOpen] = useState(
+    defaultOpen || depth < expandDepth
+      || (isCollapsible(value) && !Array.isArray(value) && Object.values(value).some(isVector)),
+  );
+
+  if (isVector(value)) {
+    return (
+      <div className="flex gap-1 py-px pl-5">
+        {name != null && <span className="text-gray-400">{name}:</span>}
+        <VectorLink vector={value} title={name ?? "Vector"} />
+      </div>
+    );
+  }
 
   if (!isCollapsible(value)) {
     return (
