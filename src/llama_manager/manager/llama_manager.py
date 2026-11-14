@@ -134,6 +134,16 @@ class LlamaManager(LlamaManagerProtocol):
             return False
         return True
 
+    def is_demoted(self, backend: Backend) -> bool:
+        """Route here only when nothing better serves the model.
+
+        A recently crashed or unreachable server, or a remote one whose
+        manager is disconnected or reports it errored.
+        """
+        if self.is_penalized(backend.get_suid()):
+            return True
+        return isinstance(backend, RemoteModelProxy) and backend.get_status().get("state") == "error"
+
     def notify_state_change(self, suid: str, state: str) -> None:
         """Called by backends when their state changes."""
         if state in ("running", "stopped"):
@@ -157,7 +167,7 @@ class LlamaManager(LlamaManagerProtocol):
         """Return all backends matching model_id, best first.
 
         Sorted by priority descending (remote proxies use the priority their
-        manager reports; at equal priority they come first). Penalized backends
+        manager reports; at equal priority they come first). Demoted backends
         are kept as a last resort (after all healthy ones) so a crashed model
         can still be JIT-restarted when nothing else serves it.
         """
@@ -172,7 +182,7 @@ class LlamaManager(LlamaManagerProtocol):
             if model_id is None or model_id in m.get_model_ids():
                 candidates.append(m)
 
-        candidates.sort(key=lambda b: (not self.is_penalized(b.get_suid()), self.backend_priority(b)), reverse=True)
+        candidates.sort(key=lambda b: (not self.is_demoted(b), self.backend_priority(b)), reverse=True)
         return candidates
 
     def backend_priority(self, backend: Backend) -> int:
@@ -334,7 +344,7 @@ class LlamaManager(LlamaManagerProtocol):
         Highest priority with a free slot wins; at equal priority a running
         server beats one that has to load, then remote beats local. When all
         are full, the highest priority one gets the request and it queues
-        there. Penalized (recently crashed) servers go last. The claim lasts
+        there. Demoted (crashed, unreachable or disconnected) servers go last. The claim lasts
         until release(); pair every successful acquire with one.
         """
         async with self._route_lock:
@@ -343,7 +353,7 @@ class LlamaManager(LlamaManagerProtocol):
                 if c.failed:
                     continue
                 b = c.backend
-                penalized = b is not None and self.is_penalized(b.get_suid())
+                penalized = b is not None and self.is_demoted(b)
                 running = b is not None and b.get_status().get("state") == "running"
                 remote = isinstance(b, (RemoteModelProxy, RemoteLibraryModel))
                 key = (not penalized, await self._has_free_slot(c), c.priority, running, remote, -i)

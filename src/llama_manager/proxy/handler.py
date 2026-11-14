@@ -38,6 +38,15 @@ logger = logging.getLogger(__name__)
 BACKEND_HEADER = "x-llama-backend"
 
 
+# No limit on generation time, but a backend that's down (host offline, no
+# RST) shouldn't hold a request for the OS's SYN timeout before falling back.
+UPSTREAM_TIMEOUT = httpx.Timeout(None, connect=10.0)
+
+
+class _BackendUnreachable(Exception):
+    """The backend couldn't be connected to; the request never reached it."""
+
+
 class ProtocolAdapter(Protocol):
     """Pluggable protocol layer for ProxyHandler.
 
@@ -88,7 +97,9 @@ class ProxyHandler:
     ProtocolAdapter.
     """
 
-    _BACKEND_ERRORS = (httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError)
+    _BACKEND_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadError, httpx.RemoteProtocolError)
+    # The request never reached the backend, so another one can take it.
+    _CONNECT_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout)
 
     def __init__(self, manager: LlamaManager, adapter: ProtocolAdapter, proxy: ProxyServer) -> None:
         self._manager = manager
@@ -155,185 +166,57 @@ class ProxyHandler:
                         self._proxy.request_log.update(request_id, response_status=HTTPStatus.NOT_FOUND, response_body=resp_body, elapsed=time.monotonic() - t0)
                     return JSONResponse(resp_body, status_code=HTTPStatus.NOT_FOUND)
 
-                # Highest priority with a free slot first; skip any that fail to start.
-                backend = None
+                # Highest priority with a free slot first. Skip any that fail to
+                # start or can't be connected to: nothing reached them, so the
+                # request is safe to send to the next one.
                 last_error: str | None = None
-                while (picked := await self._manager.acquire(candidates)) is not None:
-                    candidate, picked_backend = picked
-                    try:
-                        await self._manager.ensure_server(picked_backend)
-                        backend = picked_backend
-                        break
-                    except RuntimeError as exc:
-                        self._manager.release(picked_backend.get_suid())
-                        candidate.failed = True
-                        name = picked_backend.get_name() or picked_backend.get_suid()
-                        last_error = str(exc)
-                        self._proxy.log(f"Backend [{name}] unavailable: {exc}, trying next...", request_id=request_id)
-                    except BaseException:
-                        self._manager.release(picked_backend.get_suid())
-                        raise
+                logged = False
+                while True:
+                    backend = None
+                    candidate = None
+                    while (picked := await self._manager.acquire(candidates)) is not None:
+                        candidate, picked_backend = picked
+                        try:
+                            await self._manager.ensure_server(picked_backend)
+                            backend = picked_backend
+                            break
+                        except RuntimeError as exc:
+                            self._manager.release(picked_backend.get_suid())
+                            candidate.failed = True
+                            name = picked_backend.get_name() or picked_backend.get_suid()
+                            last_error = str(exc)
+                            self._proxy.log(f"Backend [{name}] unavailable: {exc}, trying next...", request_id=request_id)
+                        except BaseException:
+                            self._manager.release(picked_backend.get_suid())
+                            raise
 
-                if backend is None:
-                    self._log_request(None, method, f"/v1/{path}", http_ver, req_size, request_id=request_id)
-                    self._log_response(None, HTTPStatus.SERVICE_UNAVAILABLE, elapsed=time.monotonic() - t0, request_id=request_id)
-                    msg = f"No available backend for model: {model_id}"
-                    if last_error and len(candidates) == 1:
-                        msg += f" ({last_error})"
-                    resp_body = adapter.error_body(HTTPStatus.SERVICE_UNAVAILABLE, msg)
-                    if request_id:
-                        self._proxy.request_log.update(request_id, response_status=HTTPStatus.SERVICE_UNAVAILABLE, response_body=resp_body, elapsed=time.monotonic() - t0)
-                    return JSONResponse(resp_body, status_code=HTTPStatus.SERVICE_UNAVAILABLE)
+                    if backend is None:
+                        if not logged:
+                            self._log_request(None, method, f"/v1/{path}", http_ver, req_size, request_id=request_id)
+                        self._log_response(None, HTTPStatus.SERVICE_UNAVAILABLE, elapsed=time.monotonic() - t0, request_id=request_id)
+                        msg = f"No available backend for model: {model_id}"
+                        if last_error and len(candidates) == 1:
+                            msg += f" ({last_error})"
+                        resp_body = adapter.error_body(HTTPStatus.SERVICE_UNAVAILABLE, msg)
+                        if request_id:
+                            self._proxy.request_log.update(request_id, response_status=HTTPStatus.SERVICE_UNAVAILABLE, response_body=resp_body, elapsed=time.monotonic() - t0)
+                        return JSONResponse(resp_body, status_code=HTTPStatus.SERVICE_UNAVAILABLE)
 
-                suid = backend.get_suid()
-                handed_off = False
-                try:
-                    model_config = self._manager.get_model_config(suid)
-                    self._manager.slot_status.mark_active(suid)
-
-                    body = adapter.prepare_body(body, model_config)
+                    assert candidate is not None
                     server_name = backend.get_name() or model_id
-                    self._log_request(server_name, method, f"/v1/{path}", http_ver, req_size, request_id=request_id)
-
-                    self._manager.touch(suid)
-                    body = self._rewrite_body(body, model_id, backend)
-
-                    # ----- KV cache logic -----
-                    slot_dir = self._manager.get_slot_save_path(suid)
-                    kv = None
-                    result = None  # CacheHit | CacheMiss | CacheInvalid
-                    slot_id = None
-                    slots = None
-
-                    if slot_dir is not None and model_config is not None:
-                        kv = KVCacheProvider.get(slot_dir)
-                        slots = SlotAvailabilityProvider.get(suid, model_config.parallel)
-                        messages = body.get("messages", [])
-                        result = kv.get(messages)
-
-                        if isinstance(result, (CacheHit, CacheMiss)):
-                            slot_id = await slots.get_available()
-                            if slot_id is None:
-                                logger.warning("KV cache: no slots available")
-                            elif isinstance(result, CacheHit):
-                                cache_id = result.get_cache_id()
-                                client = self._manager.get_client_at(backend.get_base_url())
-                                restored = await client.slot_restore(slot_id, f"{cache_id}.bin")
-                                if restored:
-                                    self._proxy.log(f"KV cache: restored slot {slot_id} from {cache_id}.bin", request_id=request_id)
-                                    kv.record_restore(cache_id, slot_id)
-                                    body = {**body, "id_slot": slot_id}
-                                else:
-                                    self._proxy.log(f"KV cache: restore failed for slot {slot_id}", request_id=request_id)
-                                    await slots.free(slot_id)
-                                    slot_id = None
-                            else:
-                                body = {**body, "id_slot": slot_id}
-
-                    backend_url = backend.get_base_url()
-                    upstream_headers = (
-                        {BACKEND_HEADER: suid} if pinned_suid and isinstance(backend, RemoteModelProxy) else None
-                    )
-
-                    # Streaming SSE
-                    if body.get("stream"):
-                        cs = None
-                        if isinstance(result, CacheMiss) and slot_id is not None:
-                            assert kv is not None and slots is not None
-                            cs = (kv, result.get_cache_id(), slot_id, slots)
-                        elif slot_id is not None and slots is not None:
-                            await slots.free(slot_id)
-                        handed_off = True  # _stream releases the claim when it ends
-                        return await self._stream(
-                            backend_url, path, body, t0, server_name, request,
-                            suid=suid, cache_save=cs, request_id=request_id,
-                            headers=upstream_headers,
+                    try:
+                        return await self._forward(
+                            backend, body, model_id, request, method, path, http_ver,
+                            req_size, t0, request_id, pinned=bool(pinned_suid),
                         )
-
-                    active_slot_id = body.get("id_slot")
-                    cancel_event: asyncio.Event | None = None
-                    if suid is not None and active_slot_id is not None:
-                        cancel_event = ActiveRequestManager.register(suid, active_slot_id)
-
-                    resolve_lock: asyncio.Lock | None = None
-                    lock_held = False
-                    if suid is not None and active_slot_id is None:
-                        resolve_lock = self._proxy.get_resolve_lock(suid)
-                        await resolve_lock.acquire()
-                        lock_held = True
-                except BaseException:
-                    if not handed_off:
-                        self._manager.release(suid)
-                    raise
-
-                try:
-                    async with httpx.AsyncClient() as client:
-                        req_task = asyncio.create_task(
-                            client.request(method, f"{backend_url}/v1/{path}", json=body, headers=upstream_headers, timeout=None)
-                        )
-
-                        async def _wait_disconnect() -> None:
-                            while True:
-                                msg = await request._receive()
-                                if msg.get("type") == "HTTPStatus.disconnect":
-                                    return
-
-                        disc_task = asyncio.create_task(_wait_disconnect())
-
-                        if lock_held:
-                            try:
-                                claimed = await self._resolve_and_register_slot(backend_url, suid)
-                                if claimed is not None:
-                                    active_slot_id, cancel_event = claimed
-                            finally:
-                                resolve_lock.release()
-                                lock_held = False
-
-                        tasks: list[asyncio.Task] = [req_task, disc_task]
-                        cancel_task: asyncio.Task | None = None
-                        if cancel_event is not None:
-                            cancel_task = asyncio.create_task(cancel_event.wait())
-                            tasks.append(cancel_task)
-
-                        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-                        for t in pending:
-                            t.cancel()
-                        if disc_task in done:
-                            self._log_response(server_name, 499, elapsed=time.monotonic() - t0, request_id=request_id)
-                            if request_id:
-                                self._proxy.request_log.update(request_id, response_status=499, elapsed=time.monotonic() - t0)
-                            return JSONResponse(adapter.error_body(HTTPStatus.SERVICE_UNAVAILABLE, "Client disconnected"), status_code=HTTPStatus.SERVICE_UNAVAILABLE)
-                        if cancel_task is not None and cancel_task in done:
-                            self._log_response(server_name, HTTPStatus.SERVICE_UNAVAILABLE, elapsed=time.monotonic() - t0, request_id=request_id)
-                            if request_id:
-                                self._proxy.request_log.update(request_id, response_status=HTTPStatus.SERVICE_UNAVAILABLE, elapsed=time.monotonic() - t0)
-                            return JSONResponse(adapter.error_body(HTTPStatus.SERVICE_UNAVAILABLE, "Request cancelled: inference terminated by server operator"), status_code=HTTPStatus.SERVICE_UNAVAILABLE)
-                        resp = req_task.result()
-
-                    elapsed = time.monotonic() - t0
-                    self._log_response(server_name, resp.status_code, elapsed=elapsed, size=len(resp.content), request_id=request_id)
-
-                    if isinstance(result, CacheMiss) and slot_id is not None and resp.status_code == HTTPStatus.OK:
-                        assert kv is not None
-                        cache_id = result.get_cache_id()
-                        client = self._manager.get_client_at(backend_url)
-                        if await client.slot_save(slot_id, f"{cache_id}.bin"):
-                            self._record_slot_save(kv, cache_id, slot_id, request_id)
-
-                    resp_json = adapter.translate_response(resp.json())
-                    if request_id:
-                        self._proxy.request_log.update(request_id, response_status=resp.status_code, response_body=resp_json, elapsed=elapsed)
-                    return JSONResponse(resp_json, status_code=resp.status_code)
-                finally:
-                    if suid is not None:
-                        self._manager.release(suid)  # frees the routing claim; last use = now
-                    if lock_held and resolve_lock is not None:
-                        resolve_lock.release()
-                    if active_slot_id is not None and suid is not None:
-                        ActiveRequestManager.unregister(suid, active_slot_id)
-                    if slot_id is not None and slots is not None:
-                        cache_id = result.get_cache_id() if isinstance(result, (CacheHit, CacheMiss)) else None
-                        await slots.free(slot_id, cache_id)
+                    except _BackendUnreachable as exc:
+                        # _forward already released its claim. Penalize so the
+                        # next requests go elsewhere without waiting on it.
+                        logged = True
+                        candidate.failed = True
+                        last_error = str(exc)
+                        self._manager.penalize(backend.get_suid())
+                        self._proxy.log(f"Backend [{server_name}] {exc}, trying next...", request_id=request_id)
 
             else:
                 backend = self._manager.find_backend(None)
@@ -375,6 +258,181 @@ class ProxyHandler:
             if request_id:
                 self._proxy.request_log.update(request_id, response_status=HTTPStatus.BAD_GATEWAY, response_body=resp_body, elapsed=elapsed)
             return JSONResponse(resp_body, status_code=HTTPStatus.BAD_GATEWAY)
+
+    async def _forward(
+        self,
+        backend: Backend,
+        body: dict,
+        model_id: str | None,
+        request: Request,
+        method: str,
+        path: str,
+        http_ver: str,
+        req_size: int | None,
+        t0: float,
+        request_id: str | None,
+        *,
+        pinned: bool,
+    ) -> JSONResponse | StreamingResponse:
+        """Send a POST to the chosen backend, which acquire() has claimed.
+
+        Releases the claim when done. Raises _BackendUnreachable (claim
+        already released) when the backend can't be connected to, so the
+        caller can try the next candidate.
+        """
+        adapter = self._adapter
+        suid = backend.get_suid()
+        handed_off = False
+        try:
+            model_config = self._manager.get_model_config(suid)
+            self._manager.slot_status.mark_active(suid)
+
+            body = adapter.prepare_body(body, model_config)
+            server_name = backend.get_name() or model_id
+            self._log_request(server_name, method, f"/v1/{path}", http_ver, req_size, request_id=request_id)
+
+            self._manager.touch(suid)
+            body = self._rewrite_body(body, model_id, backend)
+
+            # ----- KV cache logic -----
+            slot_dir = self._manager.get_slot_save_path(suid)
+            kv = None
+            result = None  # CacheHit | CacheMiss | CacheInvalid
+            slot_id = None
+            slots = None
+
+            if slot_dir is not None and model_config is not None:
+                kv = KVCacheProvider.get(slot_dir)
+                slots = SlotAvailabilityProvider.get(suid, model_config.parallel)
+                messages = body.get("messages", [])
+                result = kv.get(messages)
+
+                if isinstance(result, (CacheHit, CacheMiss)):
+                    slot_id = await slots.get_available()
+                    if slot_id is None:
+                        logger.warning("KV cache: no slots available")
+                    elif isinstance(result, CacheHit):
+                        cache_id = result.get_cache_id()
+                        client = self._manager.get_client_at(backend.get_base_url())
+                        restored = await client.slot_restore(slot_id, f"{cache_id}.bin")
+                        if restored:
+                            self._proxy.log(f"KV cache: restored slot {slot_id} from {cache_id}.bin", request_id=request_id)
+                            kv.record_restore(cache_id, slot_id)
+                            body = {**body, "id_slot": slot_id}
+                        else:
+                            self._proxy.log(f"KV cache: restore failed for slot {slot_id}", request_id=request_id)
+                            await slots.free(slot_id)
+                            slot_id = None
+                    else:
+                        body = {**body, "id_slot": slot_id}
+
+            backend_url = backend.get_base_url()
+            upstream_headers = (
+                {BACKEND_HEADER: suid} if pinned and isinstance(backend, RemoteModelProxy) else None
+            )
+
+            # Streaming SSE
+            if body.get("stream"):
+                cs = None
+                if isinstance(result, CacheMiss) and slot_id is not None:
+                    assert kv is not None and slots is not None
+                    cs = (kv, result.get_cache_id(), slot_id, slots)
+                elif slot_id is not None and slots is not None:
+                    await slots.free(slot_id)
+                handed_off = True  # _stream releases the claim when it ends
+                return await self._stream(
+                    backend_url, path, body, t0, server_name, request,
+                    suid=suid, cache_save=cs, request_id=request_id,
+                    headers=upstream_headers,
+                )
+
+            active_slot_id = body.get("id_slot")
+            cancel_event: asyncio.Event | None = None
+            if suid is not None and active_slot_id is not None:
+                cancel_event = ActiveRequestManager.register(suid, active_slot_id)
+
+            resolve_lock: asyncio.Lock | None = None
+            lock_held = False
+            if suid is not None and active_slot_id is None:
+                resolve_lock = self._proxy.get_resolve_lock(suid)
+                await resolve_lock.acquire()
+                lock_held = True
+        except BaseException:
+            if not handed_off:
+                self._manager.release(suid)
+            raise
+
+        try:
+            async with httpx.AsyncClient() as client:
+                req_task = asyncio.create_task(
+                    client.request(method, f"{backend_url}/v1/{path}", json=body, headers=upstream_headers, timeout=UPSTREAM_TIMEOUT)
+                )
+
+                async def _wait_disconnect() -> None:
+                    while True:
+                        msg = await request._receive()
+                        if msg.get("type") == "HTTPStatus.disconnect":
+                            return
+
+                disc_task = asyncio.create_task(_wait_disconnect())
+
+                if lock_held:
+                    try:
+                        claimed = await self._resolve_and_register_slot(backend_url, suid)
+                        if claimed is not None:
+                            active_slot_id, cancel_event = claimed
+                    finally:
+                        resolve_lock.release()
+                        lock_held = False
+
+                tasks: list[asyncio.Task] = [req_task, disc_task]
+                cancel_task: asyncio.Task | None = None
+                if cancel_event is not None:
+                    cancel_task = asyncio.create_task(cancel_event.wait())
+                    tasks.append(cancel_task)
+
+                done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+                for t in pending:
+                    t.cancel()
+                if disc_task in done:
+                    self._log_response(server_name, 499, elapsed=time.monotonic() - t0, request_id=request_id)
+                    if request_id:
+                        self._proxy.request_log.update(request_id, response_status=499, elapsed=time.monotonic() - t0)
+                    return JSONResponse(adapter.error_body(HTTPStatus.SERVICE_UNAVAILABLE, "Client disconnected"), status_code=HTTPStatus.SERVICE_UNAVAILABLE)
+                if cancel_task is not None and cancel_task in done:
+                    self._log_response(server_name, HTTPStatus.SERVICE_UNAVAILABLE, elapsed=time.monotonic() - t0, request_id=request_id)
+                    if request_id:
+                        self._proxy.request_log.update(request_id, response_status=HTTPStatus.SERVICE_UNAVAILABLE, elapsed=time.monotonic() - t0)
+                    return JSONResponse(adapter.error_body(HTTPStatus.SERVICE_UNAVAILABLE, "Request cancelled: inference terminated by server operator"), status_code=HTTPStatus.SERVICE_UNAVAILABLE)
+                try:
+                    resp = req_task.result()
+                except ProxyHandler._CONNECT_ERRORS as exc:
+                    raise _BackendUnreachable(self._backend_error_msg(exc)) from exc
+
+            elapsed = time.monotonic() - t0
+            self._log_response(server_name, resp.status_code, elapsed=elapsed, size=len(resp.content), request_id=request_id)
+
+            if isinstance(result, CacheMiss) and slot_id is not None and resp.status_code == HTTPStatus.OK:
+                assert kv is not None
+                cache_id = result.get_cache_id()
+                client = self._manager.get_client_at(backend_url)
+                if await client.slot_save(slot_id, f"{cache_id}.bin"):
+                    self._record_slot_save(kv, cache_id, slot_id, request_id)
+
+            resp_json = adapter.translate_response(resp.json())
+            if request_id:
+                self._proxy.request_log.update(request_id, response_status=resp.status_code, response_body=resp_json, elapsed=elapsed)
+            return JSONResponse(resp_json, status_code=resp.status_code)
+        finally:
+            if suid is not None:
+                self._manager.release(suid)  # frees the routing claim; last use = now
+            if lock_held and resolve_lock is not None:
+                resolve_lock.release()
+            if active_slot_id is not None and suid is not None:
+                ActiveRequestManager.unregister(suid, active_slot_id)
+            if slot_id is not None and slots is not None:
+                cache_id = result.get_cache_id() if isinstance(result, (CacheHit, CacheMiss)) else None
+                await slots.free(slot_id, cache_id)
 
     def _log_request(
         self,
@@ -436,7 +494,7 @@ class ProxyHandler:
 
     @staticmethod
     def _backend_error_msg(exc: Exception) -> str:
-        if isinstance(exc, httpx.ConnectError):
+        if isinstance(exc, ProxyHandler._CONNECT_ERRORS):
             return "Backend server is not reachable"
         return "Backend server disconnected"
 
@@ -548,9 +606,14 @@ class ProxyHandler:
         client = httpx.AsyncClient()
         try:
             resp = await client.send(
-                client.build_request("POST", f"{backend_url}/v1/{path}", json=body, headers=headers, timeout=None),
+                client.build_request("POST", f"{backend_url}/v1/{path}", json=body, headers=headers, timeout=UPSTREAM_TIMEOUT),
                 stream=True,
             )
+        except ProxyHandler._CONNECT_ERRORS as exc:
+            # Nothing reached the backend: let the caller try another.
+            await client.aclose()
+            await finish(False)
+            raise _BackendUnreachable(self._backend_error_msg(exc)) from exc
         except ProxyHandler._BACKEND_ERRORS as exc:
             await client.aclose()
             await finish(False)
