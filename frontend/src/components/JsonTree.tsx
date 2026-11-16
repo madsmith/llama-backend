@@ -63,6 +63,18 @@ function JsonNode({
     defaultOpen || depth < expandDepth
       || (isCollapsible(value) && !Array.isArray(value) && Object.values(value).some(isVector)),
   );
+  // Shift-click opens the whole subtree, ctrl-click this node and its
+  // children: children remount (new key) with a deeper expand depth. A plain
+  // toggle goes back to normal behavior.
+  const [childExpandDepth, setChildExpandDepth] = useState<number | null>(null);
+  const [generation, setGeneration] = useState(0);
+
+  const expandTo = (to: number, button: HTMLElement) => {
+    button.blur(); // modifier keys count as keyboard use, which shows a focus ring
+    setOpen(true);
+    setChildExpandDepth(to);
+    setGeneration((g) => g + 1);
+  };
 
   if (isVector(value)) {
     return (
@@ -89,7 +101,26 @@ function JsonNode({
   return (
     <div>
       <button
-        onClick={() => setOpen(!open)}
+        onMouseDown={(e) => {
+          if (e.shiftKey) e.preventDefault(); // don't extend the text selection
+        }}
+        onClick={(e) => {
+          if (e.shiftKey) {
+            expandTo(Infinity, e.currentTarget);
+          } else if (e.ctrlKey) {
+            expandTo(depth + 2, e.currentTarget);
+          } else {
+            setOpen(!open);
+            setChildExpandDepth(null);
+          }
+        }}
+        onContextMenu={(e) => {
+          // On macOS ctrl-click is a right click: no click event, only this.
+          if (!e.ctrlKey) return;
+          e.preventDefault();
+          expandTo(depth + 2, e.currentTarget);
+        }}
+        title={open ? undefined : "Shift-click: expand all. Ctrl-click: expand children."}
         className="flex items-center gap-1 py-px hover:bg-gray-800/50 rounded w-full text-left"
       >
         <Chevron open={open} />
@@ -101,7 +132,13 @@ function JsonNode({
       {open && (
         <div className="pl-4 border-l border-gray-800 ml-1.5">
           {entries.map(([k, v]) => (
-            <JsonNode key={k} name={k} value={v} depth={depth + 1} expandDepth={expandDepth} />
+            <JsonNode
+              key={`${generation}:${k}`}
+              name={k}
+              value={v}
+              depth={depth + 1}
+              expandDepth={childExpandDepth ?? expandDepth}
+            />
           ))}
         </div>
       )}
