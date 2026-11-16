@@ -36,6 +36,9 @@ _REPO_SUFFIX = re.compile(r"(-i1)?-gguf$", re.I)
 
 # Rescan at most this often when a request names a model we don't know yet.
 MISS_RESCAN_SECONDS = 30.0
+# Rescan this often in the background, so new downloads show in /v1/models
+# (and reach uplinks) without a restart or a request for them.
+PERIODIC_RESCAN_SECONDS = 60.0
 
 
 class AmbiguousModel(LookupError):
@@ -118,8 +121,10 @@ class ModelLibrary:
             self._entries = {e.quant_id: e for e in entries}
             self._folders = key
             self._scanned_at = time.monotonic()
-            log.info("model library: %d models in %d folders (%.1fs)", len(entries), len(key), self._scanned_at - t0)
-            return set(self._entries) != before
+            changed = set(self._entries) != before
+            (log.info if changed else log.debug)(
+                "model library: %d models in %d folders (%.1fs)", len(entries), len(key), self._scanned_at - t0)
+            return changed
 
     def _scan(self, folders: tuple[Path, ...]) -> list[LibraryEntry]:
         found: dict[str, list[LibraryEntry]] = {}

@@ -13,7 +13,7 @@ from fastapi import FastAPI
 
 from llama_manager import gguf
 from llama_manager.config import AppConfig, ModelAdvanced, ModelConfig, save_config
-from llama_manager.library import MISS_RESCAN_SECONDS, AmbiguousModel, LibraryEntry, ModelLibrary
+from llama_manager.library import MISS_RESCAN_SECONDS, PERIODIC_RESCAN_SECONDS, AmbiguousModel, LibraryEntry, ModelLibrary
 from llama_manager.dev import DevViteService
 from llama_manager.kv_cache import PrunedFile, prune_slot_storage, resolve_slot_save_path
 from llama_manager.protocol.backend import Backend, LlamaManagerProtocol
@@ -74,6 +74,7 @@ class LlamaManager(LlamaManagerProtocol):
         self._autoload_by_quant: dict[str, str] = {}  # library quant id -> suid
         self._autoload_lock = asyncio.Lock()
         self._library_task: asyncio.Task | None = None
+        self._library_rescan_task: asyncio.Task | None = None
         self._header_cache: dict[tuple[str, int, float], dict | None] = {}
         self._pool_total: int | None = None  # bytes in the measured memory pool
         # Requests routed to each backend (by suid) and not finished yet.
@@ -272,14 +273,19 @@ class LlamaManager(LlamaManagerProtocol):
         total = total_ram_bytes()
         return int(total * DEFAULT_BUDGET_FRACTION) if total else None
 
-    def refresh_library(self) -> None:
-        """Rescan model folders in the background."""
+    def refresh_library(self, *, measure: bool = True) -> None:
+        """Rescan model folders in the background.
+
+        measure also re-measures the memory pool (runs subprocesses), which
+        the periodic rescan skips: the pool size doesn't change at runtime.
+        """
         if not self.config.autoload.enabled:
             return
         if self._library_task is not None and not self._library_task.done():
             return
         async def refresh() -> None:
-            await self.measure_memory()  # sizes the pool for default-quant choice
+            if measure or self._pool_total is None:
+                await self.measure_memory()  # sizes the pool for default-quant choice
             if await self.library.refresh(self.autoload_folders()):
                 self.event_bus.publish({"type": "library_changed"})  # uplinks re-send their snapshot
 
@@ -651,6 +657,12 @@ class LlamaManager(LlamaManagerProtocol):
             except Exception:
                 pass  # don't crash the background task
 
+    async def task_library_rescan(self) -> None:
+        """Background task that picks up model files added or removed since the last scan."""
+        while True:
+            await asyncio.sleep(PERIODIC_RESCAN_SECONDS)
+            self.refresh_library(measure=False)
+
     # ------------------------------------------------------------------
     # Model construction helpers
     # ------------------------------------------------------------------
@@ -733,6 +745,7 @@ class LlamaManager(LlamaManagerProtocol):
         self._ttl_task = asyncio.create_task(self.task_ttl_checker())
         await self.slot_status.start()
         self.refresh_library()
+        self._library_rescan_task = asyncio.create_task(self.task_library_rescan())
 
     async def _stop(self, vite: DevViteService | None) -> None:
         # Kill Vite first — before any slow model/proxy teardown.  In dev mode
@@ -749,6 +762,10 @@ class LlamaManager(LlamaManagerProtocol):
         if self._ttl_task is not None:
             self._ttl_task.cancel()
             self._ttl_task = None
+
+        if self._library_rescan_task is not None:
+            self._library_rescan_task.cancel()
+            self._library_rescan_task = None
 
         await self.slot_status.stop()
 
