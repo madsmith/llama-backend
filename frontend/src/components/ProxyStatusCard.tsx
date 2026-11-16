@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router-dom";
 import type { ProxyStatus } from "../api/types";
 
 const stateColors: Record<string, string> = {
@@ -30,13 +31,24 @@ interface Props {
 }
 
 export default function ProxyStatusCard({ status, onClick, selected }: Props) {
+  const navigate = useNavigate();
   return (
     <div
       className={`w-96 min-h-[220px] rounded-xl border border-gray-800 bg-gray-900/75 hover:bg-gray-800/60 pt-5 px-5 pb-3 flex flex-col transition-colors ${selected ? "ring-2 ring-blue-500" : ""} ${onClick ? "cursor-pointer" : ""}`}
       onClick={onClick}
     >
-      <div className="text-xs font-medium tracking-wide text-gray-400 mb-2">
-        Proxy Server
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-medium tracking-wide text-gray-400">Proxy Server</span>
+        <button
+          title="Properties"
+          onClick={(e) => {
+            e.stopPropagation();
+            navigate("/proxy/properties");
+          }}
+          className="text-gray-600 hover:text-gray-300 transition text-sm leading-none"
+        >
+          ⓘ
+        </button>
       </div>
       <div className="flex items-baseline justify-between">
         <div className="flex items-baseline gap-2.5">

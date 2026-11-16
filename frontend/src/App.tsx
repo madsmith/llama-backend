@@ -4,6 +4,7 @@ import Dashboard from "./pages/Dashboard";
 import Chat from "./pages/Chat";
 import Logs from "./pages/Logs";
 import Properties from "./pages/Properties";
+import ProxyProperties from "./pages/ProxyProperties";
 import Slots from "./pages/Slots";
 import Settings from "./pages/Settings";
 
@@ -13,6 +14,7 @@ export default function App() {
       <Routes>
         <Route element={<Layout />}>
           <Route index element={<Dashboard />} />
+          <Route path="proxy/properties" element={<ProxyProperties />} />
           <Route path=":modelSuid/properties" element={<Properties />} />
           <Route path=":modelSuid/slots" element={<Slots />} />
           <Route path="chat" element={<Chat />} />
