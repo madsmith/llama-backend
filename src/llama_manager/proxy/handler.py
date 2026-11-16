@@ -43,6 +43,48 @@ BACKEND_HEADER = "x-llama-backend"
 UPSTREAM_TIMEOUT = httpx.Timeout(None, connect=10.0)
 
 
+def _with_model_id(data: object, model_id: str | None) -> object:
+    """Report the model id the request was routed by, not the backend's own.
+
+    llama-server answers with its model path (or alias), which leaks file
+    paths and differs from the id clients asked for and /v1/models lists.
+    """
+    if model_id and isinstance(data, dict) and "model" in data:
+        return {**data, "model": model_id}
+    return data
+
+
+async def _rewrite_sse_model(chunks: AsyncIterator[bytes], model_id: str | None) -> AsyncGenerator[bytes, None]:
+    """_with_model_id for an SSE stream: each complete line is passed on as it arrives."""
+    if not model_id:
+        async for chunk in chunks:
+            yield chunk
+        return
+
+    def rewrite(line: bytes) -> bytes:
+        text = line.rstrip(b"\r")
+        if not text.startswith(b"data: ") or b'"model"' not in text:
+            return line
+        try:
+            data = json.loads(text[6:])
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return line
+        if not isinstance(data, dict) or "model" not in data:
+            return line
+        out = json.dumps(_with_model_id(data, model_id), ensure_ascii=False).encode()
+        return b"data: " + out + line[len(text):]
+
+    buf = b""
+    async for chunk in chunks:
+        buf += chunk
+        if b"\n" not in buf:
+            continue
+        *lines, buf = buf.split(b"\n")
+        yield b"".join(rewrite(line) + b"\n" for line in lines)
+    if buf:
+        yield rewrite(buf)
+
+
 class _BackendUnreachable(Exception):
     """The backend couldn't be connected to; the request never reached it."""
 
@@ -343,7 +385,7 @@ class ProxyHandler:
                 return await self._stream(
                     backend_url, path, body, t0, server_name, request,
                     suid=suid, cache_save=cs, request_id=request_id,
-                    headers=upstream_headers,
+                    headers=upstream_headers, model_id=model_id,
                 )
 
             active_slot_id = body.get("id_slot")
@@ -419,7 +461,7 @@ class ProxyHandler:
                 if await client.slot_save(slot_id, f"{cache_id}.bin"):
                     self._record_slot_save(kv, cache_id, slot_id, request_id)
 
-            resp_json = adapter.translate_response(resp.json())
+            resp_json = adapter.translate_response(_with_model_id(resp.json(), model_id))
             if request_id:
                 self._proxy.request_log.update(request_id, response_status=resp.status_code, response_body=resp_json, elapsed=elapsed)
             return JSONResponse(resp_json, status_code=resp.status_code)
@@ -551,6 +593,7 @@ class ProxyHandler:
         cache_save: tuple | None = None,
         request_id: str | None = None,
         headers: dict[str, str] | None = None,
+        model_id: str | None = None,
     ) -> JSONResponse | StreamingResponse:
         """Forward a streaming request.
 
@@ -671,7 +714,7 @@ class ProxyHandler:
                 abort_task = asyncio.create_task(_abort_on_disconnect())
                 try:
                     async for chunk in self._adapter.wrap_stream(
-                        resp.aiter_bytes(), is_cancelled, is_disconnected,
+                        _rewrite_sse_model(resp.aiter_bytes(), model_id), is_cancelled, is_disconnected,
                         accumulated_text.append,
                     ):
                         total_bytes += len(chunk)
