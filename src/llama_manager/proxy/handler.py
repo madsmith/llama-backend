@@ -413,7 +413,7 @@ class ProxyHandler:
                 async def _wait_disconnect() -> None:
                     while True:
                         msg = await request._receive()
-                        if msg.get("type") == "HTTPStatus.disconnect":
+                        if msg.get("type") == "http.disconnect":
                             return
 
                 disc_task = asyncio.create_task(_wait_disconnect())
