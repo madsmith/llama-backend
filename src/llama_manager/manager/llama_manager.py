@@ -350,19 +350,28 @@ class LlamaManager(LlamaManagerProtocol):
         Highest priority with a free slot wins; at equal priority a running
         server beats one that has to load, then remote beats local. When all
         are full, the highest priority one gets the request and it queues
-        there. Demoted (crashed, unreachable or disconnected) servers go last. The claim lasts
-        until release(); pair every successful acquire with one.
+        there. Demoted (crashed, unreachable or disconnected) servers go last.
+        A library copy on a host that already has a server for the model
+        goes after that server, whatever the priorities: it would load the
+        model a second time there. The claim lasts until release(); pair
+        every successful acquire with one.
         """
         async with self._route_lock:
+            serving_hosts = {
+                self._candidate_host(c) for c in candidates
+                if not c.failed and not self._loads_library_copy(c)
+                and not (c.backend is not None and self.is_demoted(c.backend))
+            }
             best: tuple[tuple, RouteCandidate] | None = None
             for i, c in enumerate(candidates):
                 if c.failed:
                     continue
                 b = c.backend
                 penalized = b is not None and self.is_demoted(b)
+                duplicate = self._loads_library_copy(c) and self._candidate_host(c) in serving_hosts
                 running = b is not None and b.get_status().get("state") == "running"
                 remote = isinstance(b, (RemoteModelProxy, RemoteLibraryModel))
-                key = (not penalized, await self._has_free_slot(c), c.priority, running, remote, -i)
+                key = (not penalized, not duplicate, await self._has_free_slot(c), c.priority, running, remote, -i)
                 if best is None or key > best[0]:
                     best = (key, c)
             if best is None:
@@ -374,6 +383,23 @@ class LlamaManager(LlamaManagerProtocol):
             suid = c.backend.get_suid()
             self._inflight[suid] = self._inflight.get(suid, 0) + 1
             return c, c.backend
+
+    def _candidate_host(self, c: RouteCandidate) -> str:
+        """Which manager a candidate would run on (unmanaged servers are their own host)."""
+        b = c.backend
+        if b is None:
+            return self.get_manager_id()  # a local library entry
+        if isinstance(b, RemoteUnmanagedModel):
+            return f"url:{b.get_base_url()}"
+        return b.get_manager_id()
+
+    def _loads_library_copy(self, c: RouteCandidate) -> bool:
+        """Whether routing here means loading a model from a library, not using a server."""
+        b = c.backend
+        if b is None or isinstance(b, RemoteLibraryModel):
+            return True
+        return (isinstance(b, LocalManagedModel) and self.is_autoloaded(b.get_suid())
+                and b.state.value not in ("starting", "running"))
 
     def release(self, suid: str) -> None:
         """End a claim from acquire(); also marks the server as just used."""
